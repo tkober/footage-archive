@@ -1,0 +1,6 @@
+.idea
+footage-archive.iml
+run_local.sh
+*.sh
+Dockerfile
+.dockerignore
