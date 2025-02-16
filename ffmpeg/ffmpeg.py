@@ -38,7 +38,7 @@ class ClipPreview(BaseModel):
 
 class FFprobe:
 
-    def probe_file(self, md5_hash: str, file_path: str) -> FFmpegInput:
+    def probe_file(self, md5_hash: str, file_path: str) -> FFmpegInput | None:
         command = [
             "ffprobe",
             "-i", file_path,
@@ -48,8 +48,10 @@ class FFprobe:
         ]
         result = subprocess.run(command, capture_output=True, text=True)
         info = json.loads(result.stdout)
-        duration = int(float(info['format']['duration']))
+        if 'format' not in info:
+            return None
 
+        duration = int(float(info['format']['duration']))
         return FFmpegInput(md5_hash=md5_hash, file_path=file_path, duration=duration)
 
 

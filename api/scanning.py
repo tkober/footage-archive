@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
@@ -40,10 +41,14 @@ def index_files_in_directory(query: FileQuery):
 
     if query.generate_clip_preview:
         for sc in scan_results:
-            create_clip_preview(FFprobe().probe_file(
+            ffmpeg_input = FFprobe().probe_file(
                 md5_hash=sc.md5_hash,
                 file_path=(sc.directory + '/' + sc.file_name)
-            ))
+            )
+            if ffmpeg_input is not None:
+                create_clip_preview(ffmpeg_input)
+            else:
+                logging.error(f'FFprobe failed for {sc.path}')
 
 
 @ScanningApi.post('/metadata')
