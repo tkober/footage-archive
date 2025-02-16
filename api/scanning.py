@@ -41,14 +41,15 @@ def index_files_in_directory(query: FileQuery):
 
     if query.generate_clip_preview:
         for sc in scan_results:
+            file_path = (sc.directory + '/' + sc.file_name)
             ffmpeg_input = FFprobe().probe_file(
                 md5_hash=sc.md5_hash,
-                file_path=(sc.directory + '/' + sc.file_name)
+                file_path=file_path
             )
             if ffmpeg_input is not None:
                 create_clip_preview(ffmpeg_input)
             else:
-                logging.error(f'FFprobe failed for {sc.path}')
+                logging.error(f'FFprobe failed for {file_path}')
 
 
 @ScanningApi.post('/metadata')
