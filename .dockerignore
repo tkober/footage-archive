@@ -4,3 +4,6 @@ run_local.sh
 *.sh
 Dockerfile
 .dockerignore
+frontend/
+*.sqlite
+.venv
