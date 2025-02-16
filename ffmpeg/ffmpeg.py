@@ -2,6 +2,7 @@ import math
 import re
 import io
 import subprocess
+import json
 from PIL import Image
 from pydantic import BaseModel
 
@@ -9,18 +10,19 @@ from pydantic import BaseModel
 class FFmpegInput(BaseModel):
     md5_hash: str
     file_path: str
-    duration_tc: str
+    duration: int
 
-    def duration_in_seconds(self):
+    @staticmethod
+    def from_time_code(md5_hash: str, file_path: str, duration_tc: str) -> "FFmpegInput":
         pattern = r'([0-9]{2})(:)([0-9]{2})(:)([0-9]{2})([;,:])([0-9]{2})'
-        match = re.match(pattern, self.duration_tc)
+        match = re.match(pattern, duration_tc)
         hours, _, minutes, _, seconds, _, _ = match.groups()
-
-        return (
+        duration_seconds = (
                 int(hours) * 60 * 60 +
                 int(minutes) * 60 +
                 int(seconds)
         )
+        return FFmpegInput(md5_hash=md5_hash, file_path=file_path, duration=duration_seconds)
 
 
 class ClipPreview(BaseModel):
@@ -32,6 +34,23 @@ class ClipPreview(BaseModel):
     overall_height: int
     overall_width: int
     data: bytes
+
+
+class FFprobe:
+
+    def probe_file(self, md5_hash: str, file_path: str) -> FFmpegInput:
+        command = [
+            "ffprobe",
+            "-i", file_path,
+            "-v", "quiet",
+            "-print_format", "json",
+            "-show_format"
+        ]
+        result = subprocess.run(command, capture_output=True, text=True)
+        info = json.loads(result.stdout)
+        duration = int(float(info['format']['duration']))
+
+        return FFmpegInput(md5_hash=md5_hash, file_path=file_path, duration=duration)
 
 
 class FFmpeg:
