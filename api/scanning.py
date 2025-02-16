@@ -25,7 +25,7 @@ async def scan(query: FileQuery, background_tasks: BackgroundTasks):
         TaskRequest(
             name='Scan directory',
             description=f'Scanning directory "{query.path}".',
-            method=lambda: index_files_in_directory(path)
+            method=lambda: index_files_in_directory(query)
         ),
         background_tasks
     )
@@ -33,7 +33,8 @@ async def scan(query: FileQuery, background_tasks: BackgroundTasks):
     return task.id
 
 
-def index_files_in_directory(directory: Path):
+def index_files_in_directory(query: FileQuery):
+    directory = Path(query.path)
     scan_results = Scanner().scan_directory(directory)
     Database().insert_scan_results(scan_results)
 
@@ -52,7 +53,7 @@ async def scan_metadata_file(query: FileQuery, background_tasks: BackgroundTasks
         TaskRequest(
             name='Scanning files from Metadata',
             description=f'Scanning files from metadata in "{query.path}".',
-            method=lambda: scan_files_in_metadata(path)
+            method=lambda: scan_files_in_metadata(query)
         ),
         background_tasks
     )
@@ -60,8 +61,9 @@ async def scan_metadata_file(query: FileQuery, background_tasks: BackgroundTasks
     return task.id
 
 
-def scan_files_in_metadata(metadata: Path):
-    metadata = Metadata(metadata)
+def scan_files_in_metadata(query: FileQuery):
+    path = Path(query.path)
+    metadata = Metadata(path)
     records = metadata.get_details()
     keywords = metadata.get_keywords()
     scan_results = Scanner().scan_files(records[DerivedMetadataColumns.FILE_PATH.value])
@@ -85,8 +87,12 @@ def scan_files_in_metadata(metadata: Path):
     Database().connect().insert_file_details(details_merged)
     Database().connect().insert_keywords(keywords_merged)
 
-    for row in details_merged.itertuples(index=True, name='Row'):
-        input = FFmpegInput(md5_hash=row.md5_hash, file_path=row.file_path, duration_tc=row.duration_tc)
-        result = FFmpeg(row.md5_hash).generate_clip_preview(input)
-        Database().connect().insert_clip_preview(result)
+    if query.generate_clip_preview:
+        for row in details_merged.itertuples(index=True, name='Row'):
+            input = FFmpegInput.from_time_code(md5_hash=row.md5_hash, file_path=row.file_path, duration_tc=row.duration_tc)
+            create_clip_preview(input)
 
+
+def create_clip_preview(input: FFmpegInput):
+    result = FFmpeg(input.md5_hash).generate_clip_preview(input)
+    Database().connect().insert_clip_preview(result)

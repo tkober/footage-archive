@@ -4,7 +4,10 @@ from typing import Optional
 from pydantic import BaseModel, StrictStr
 
 
-class FileQuery(BaseModel):
+class ScanningQuery(BaseModel):
+    generate_clip_preview: bool = True
+
+class FileQuery(ScanningQuery):
     path: StrictStr = '/Users/kober/Desktop'
 
 
