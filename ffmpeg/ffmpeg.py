@@ -66,23 +66,22 @@ class FFmpeg:
         return f'{hh:02}:{mm:02}:{ss:02}'
 
     def timestamp_for_keyframes(self, video: FFmpegInput, padding: int = 1, max_keyframes: int = 5) -> [str]:
-        duration_s = video.duration_in_seconds()
 
-        if duration_s >= padding * 3:
-            steps = (duration_s - padding) / max_keyframes
+        if video.duration >= padding * 3:
+            steps = (video.duration - padding) / max_keyframes
             result = [
                 math.floor((i + 1) * steps)
                 for i in range(max_keyframes)
             ]
             result = [
                 i for i in result
-                if padding <= i <= (duration_s - padding)
+                if padding <= i <= (video.duration - padding)
             ]
             result = [self._seconds_to_timecode(i) for i in set(result)]
             result.sort()
             return result
 
-        if duration_s >= padding * 2:
+        if video.duration >= padding * 2:
             return [str(self._seconds_to_timecode(padding))]
 
         return [str(self._seconds_to_timecode(0))]

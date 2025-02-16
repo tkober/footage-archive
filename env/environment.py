@@ -23,3 +23,6 @@ class Environment():
 
     def get_db_path(self) -> str:
         return self.loadEnvironmentVariable('DB_PATH', '/backup/footage_archive.sqlite')
+
+    def get_scanning_file_extensions(self) -> [str]:
+        return self.loadEnvironmentVariable('SCANNING_FILE_EXTENSIONS', '.mov').lower().split(',')

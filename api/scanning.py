@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from api.dtos import FileQuery
 from davinci.davinciresolve import Metadata, DerivedMetadataColumns
 from db.database import Database
-from ffmpeg.ffmpeg import FFmpegInput, FFmpeg
+from ffmpeg.ffmpeg import FFmpegInput, FFmpeg, FFprobe
 from scanner.scanner import Scanner
 from tasks.taskmanager import TaskManager, TaskRequest
 
@@ -37,6 +37,13 @@ def index_files_in_directory(query: FileQuery):
     directory = Path(query.path)
     scan_results = Scanner().scan_directory(directory)
     Database().insert_scan_results(scan_results)
+
+    if query.generate_clip_preview:
+        for sc in scan_results:
+            create_clip_preview(FFprobe().probe_file(
+                md5_hash=sc.md5_hash,
+                file_path=(sc.directory + '/' + sc.file_name)
+            ))
 
 
 @ScanningApi.post('/metadata')
