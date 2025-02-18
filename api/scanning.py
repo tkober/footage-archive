@@ -108,4 +108,4 @@ def scan_files_in_metadata(query: FileQuery):
 
 def create_clip_preview(input: FFmpegInput):
     result = FFmpeg(input.md5_hash).generate_clip_preview(input)
-    Database().connect().insert_clip_preview(result)
+    Database().connect().insert_clip_preview(result, identifier=input.md5_hash)
