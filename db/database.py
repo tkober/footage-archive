@@ -69,3 +69,13 @@ class Database:
         self._connection.commit()
         self._connection.execute(f'DROP TABLE IF EXISTS {table}_{temp_table_suffix}')
         self._connection.commit()
+
+    def get_files_without_clip_preview(self) -> pd.DataFrame:
+        self.connect()
+        with open("sql/missing_clip_previews.sql", "r") as file:
+            sql_query = file.read()
+
+        result = pd.read_sql_query(sql_query, self._connection)
+        self.disconnect()
+
+        return result

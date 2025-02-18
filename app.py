@@ -1,10 +1,7 @@
 import logging
 import os
-import uuid
 from contextlib import asynccontextmanager
-from pathlib import Path
 
-import pandas as pd
 import uvicorn
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
@@ -13,7 +10,7 @@ from api.base import BaseApi
 from api.files import FilesApi
 from api.scanning import ScanningApi
 from api.tasks import TasksApi
-from davinci.davinciresolve import Metadata
+from api.troubleshoot import TroubleShootingApi
 from db.database import Database
 from env.environment import Environment
 
@@ -33,13 +30,14 @@ async def lifespan(application: FastAPI):
     application.include_router(FilesApi)
     application.include_router(ScanningApi)
     application.include_router(TasksApi)
+    application.include_router(TroubleShootingApi)
 
     yield
 
 
 if __name__ == '__main__':
     Database().connect().setup().disconnect()
-    
+
     app = FastAPI(
         title='Footage Archive',
         description='A simple app to cataloge footage.',
