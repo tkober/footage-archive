@@ -7,3 +7,5 @@ Dockerfile
 frontend/
 *.sqlite
 .venv
+.env
+venv/
