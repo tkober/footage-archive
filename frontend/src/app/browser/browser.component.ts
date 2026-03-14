@@ -1,5 +1,7 @@
 import { DatePipe } from '@angular/common';
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
+import { switchMap, map, tap } from 'rxjs';
 
 import { ContextMenuComponent } from './context-menu/context-menu.component';
 import { ApiService } from '../services/api.service';
@@ -16,6 +18,8 @@ const PAGE_SIZE = 50;
 })
 export class BrowserComponent implements OnInit {
   private api = inject(ApiService);
+  private router = inject(Router);
+  private route = inject(ActivatedRoute);
 
   rootDir = signal<string | null>(null);
   currentPath = signal<string | null>(null);
@@ -48,16 +52,28 @@ export class BrowserComponent implements OnInit {
   });
 
   ngOnInit() {
-    this.api.getConfig().subscribe({
-      next: config => {
-        this.rootDir.set(config.root_dir);
-        this.navigateTo(config.root_dir);
-      },
+    this.api.getConfig().pipe(
+      tap(config => this.rootDir.set(config.root_dir)),
+      switchMap(config =>
+        this.route.queryParamMap.pipe(
+          map(params => params.get('path') ?? config.root_dir)
+        )
+      )
+    ).subscribe({
+      next: path => this.loadDirectory(path),
       error: () => this.error.set('Failed to load configuration')
     });
   }
 
   navigateTo(path: string) {
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { path },
+      queryParamsHandling: 'merge'
+    });
+  }
+
+  private loadDirectory(path: string) {
     this.loading.set(true);
     this.error.set(null);
     this.currentPath.set(path);
