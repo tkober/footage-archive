@@ -39,6 +39,7 @@ class Database:
     def disconnect(self):
         if self._connection is not None:
             self._connection.close()
+            self._connection = None
 
     def insert_scan_results(self, scan_results: [ScanResult], identifier: str = generate_identifier()) -> ScanResult:
         scan_df = pd.DataFrame([r.model_dump() for r in scan_results])
@@ -82,7 +83,8 @@ class Database:
             return
         df = df[available]
         df.to_sql(f'{table}_{temp_table_suffix}', self._connection, if_exists='replace', index=False)
-        self._connection.execute(f'INSERT OR REPLACE INTO {table} SELECT * FROM {table}_{temp_table_suffix}')
+        cols = ', '.join(available)
+        self._connection.execute(f'INSERT OR REPLACE INTO {table} ({cols}) SELECT {cols} FROM {table}_{temp_table_suffix}')
         self._connection.commit()
         self._connection.execute(f'DROP TABLE IF EXISTS {table}_{temp_table_suffix}')
         self._connection.commit()

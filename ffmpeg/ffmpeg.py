@@ -1,8 +1,10 @@
+import logging
 import math
 import re
 import io
 import subprocess
 import json
+from pathlib import Path
 from PIL import Image
 from pydantic import BaseModel
 
@@ -135,7 +137,10 @@ class FFmpeg:
         self._identifier = identifier
 
     def _seconds_to_timecode(self, seconds: int) -> str:
-        return _seconds_to_tc(seconds)
+        hh = seconds // 3600
+        mm = (seconds % 3600) // 60
+        ss = seconds % 60
+        return f'{hh:02}:{mm:02}:{ss:02}'
 
     def timestamp_for_keyframes(self, video: FFmpegInput, padding: int = 1, max_keyframes: int = 5) -> [str]:
 
@@ -170,7 +175,7 @@ class FFmpeg:
         for i, timestamp in enumerate(timestamps):
             frame_file = f"{self._identifier}_{i}.jpeg"
             command = [
-                'ffmpeg',
+                'ffmpeg', '-y',
                 '-ss', timestamp,
                 '-i', video.file_path,
                 '-vframes', '1',
@@ -178,8 +183,15 @@ class FFmpeg:
                 '-q:v', '2',
                 frame_file
             ]
-            subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            frame_files.append(frame_file)
+            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if Path(frame_file).exists():
+                frame_files.append(frame_file)
+            else:
+                logging.warning(f'ffmpeg failed to extract frame at {timestamp} from {video.file_path}: {result.stderr.decode(errors="replace")}')
+
+        if not frame_files:
+            logging.warning(f'No frames extracted for {video.file_path}, skipping clip preview')
+            return None
 
         images = [Image.open(frame_file) for frame_file in frame_files]
         total_width = sum(image.width for image in images) + padding * (len(images) - 1)
