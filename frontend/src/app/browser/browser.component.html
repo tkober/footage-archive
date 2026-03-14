@@ -36,6 +36,19 @@
       } @empty {
         <div class="state-msg empty">This directory is empty.</div>
       }
+
+      @if (hasMore()) {
+        <div class="load-more">
+          <span class="count">Showing {{ entries().length }} of {{ total() }}</span>
+          <button class="load-more-btn" (click)="loadMore()" [disabled]="loadingMore()">
+            {{ loadingMore() ? 'Loading…' : 'Load more' }}
+          </button>
+        </div>
+      } @else if (total() > 0) {
+        <div class="load-more">
+          <span class="count">Showing all {{ total() }} items</span>
+        </div>
+      }
     </div>
   }
 
