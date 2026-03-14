@@ -3,7 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
 import { environment } from '../../environments/environment';
-import { Config, DirectoryQuery, DirectoryResponse } from '../models';
+import { Config, DirectoryQuery, DirectoryResponse, FileInfo } from '../models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -17,5 +17,9 @@ export class ApiService {
 
   listDirectory(query: DirectoryQuery): Observable<DirectoryResponse> {
     return this.http.post<DirectoryResponse>(`${this.base}/files/directory`, query);
+  }
+
+  getFileDetails(path: string): Observable<FileInfo> {
+    return this.http.get<FileInfo>(`${this.base}/files/details`, { params: { path } });
   }
 }

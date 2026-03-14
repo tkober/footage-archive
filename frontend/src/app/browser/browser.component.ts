@@ -1,13 +1,15 @@
+import { DatePipe } from '@angular/common';
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 
 import { ApiService } from '../services/api.service';
-import { PathChild } from '../models';
+import { FileInfo, PathChild } from '../models';
 
 const PAGE_SIZE = 50;
 
 @Component({
   selector: 'app-browser',
   standalone: true,
+  imports: [DatePipe],
   templateUrl: './browser.component.html',
   styleUrl: './browser.component.css'
 })
@@ -21,6 +23,8 @@ export class BrowserComponent implements OnInit {
   loading = signal(false);
   loadingMore = signal(false);
   error = signal<string | null>(null);
+  selectedFile = signal<FileInfo | null>(null);
+  loadingDetails = signal(false);
   private page = 1;
 
   hasMore = computed(() => this.entries().length < this.total());
@@ -53,6 +57,7 @@ export class BrowserComponent implements OnInit {
     this.loading.set(true);
     this.error.set(null);
     this.currentPath.set(path);
+    this.selectedFile.set(null);
     this.page = 1;
 
     this.api.listDirectory({ path, page: 1, page_size: PAGE_SIZE }).subscribe({
@@ -91,6 +96,27 @@ export class BrowserComponent implements OnInit {
   onEntryClick(entry: PathChild) {
     if (entry.type === 'directory') {
       this.navigateTo(entry.path);
+    } else {
+      this.loadingDetails.set(true);
+      this.selectedFile.set(null);
+      this.api.getFileDetails(entry.path).subscribe({
+        next: info => {
+          this.selectedFile.set(info);
+          this.loadingDetails.set(false);
+        },
+        error: () => this.loadingDetails.set(false),
+      });
     }
+  }
+
+  closeDetails() {
+    this.selectedFile.set(null);
+  }
+
+  formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+    return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
   }
 }

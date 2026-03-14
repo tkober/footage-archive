@@ -1,8 +1,10 @@
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
-from api.dtos import DirectoryQuery, DirectoryResponse, FileQuery, PathChild, PathType, FileDescriptor, SortField, SortOrder
+from api.dtos import DirectoryQuery, DirectoryResponse, FileInfo, FileQuery, PathChild, PathType, FileDescriptor, SortField, SortOrder
+from db.database import Database
 from env.environment import Environment
 from scanner.scanner import Scanner
 
@@ -50,6 +52,33 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
     items = entries[start:start + query.page_size]
 
     return DirectoryResponse(total=total, page=query.page, page_size=query.page_size, items=items)
+
+
+@FilesApi.get('/details')
+async def get_file_details(path: str) -> FileInfo:
+    root = Path(_env.get_root_dir())
+    p = Path(path).resolve()
+
+    if not p.is_relative_to(root):
+        raise HTTPException(status_code=403, detail='Access outside root directory is not allowed')
+    if not p.exists():
+        raise HTTPException(status_code=404, detail='File does not exist')
+    if p.is_dir():
+        raise HTTPException(status_code=400, detail='Path is a directory')
+
+    stat = p.stat()
+    db_record = Database().get_file_by_path(str(p))
+
+    return FileInfo(
+        name=p.name,
+        path=str(p),
+        file_extension=p.suffix.lower() or None,
+        size_bytes=stat.st_size,
+        modified_at=datetime.fromtimestamp(stat.st_mtime).isoformat(),
+        tracked=db_record is not None,
+        md5_hash=db_record['md5_hash'] if db_record else None,
+        last_indexed_at=db_record['last_indexed_at'] if db_record else None,
+    )
 
 
 @FilesApi.post('/checksum')

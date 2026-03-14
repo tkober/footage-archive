@@ -26,3 +26,14 @@ export interface DirectoryQuery {
   page?: number;
   page_size?: number;
 }
+
+export interface FileInfo {
+  name: string;
+  path: string;
+  file_extension: string | null;
+  size_bytes: number;
+  modified_at: string;
+  tracked: boolean;
+  md5_hash: string | null;
+  last_indexed_at: string | null;
+}

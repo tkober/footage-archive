@@ -1,5 +1,7 @@
 import sqlite3
 import uuid
+from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 
@@ -69,6 +71,26 @@ class Database:
         self._connection.commit()
         self._connection.execute(f'DROP TABLE IF EXISTS {table}_{temp_table_suffix}')
         self._connection.commit()
+
+    def get_file_by_path(self, file_path: str) -> Optional[dict]:
+        p = Path(file_path)
+        self.connect()
+        cursor = self._connection.execute(
+            'SELECT md5_hash, file_name, file_extension, directory, last_indexed_at '
+            'FROM Files WHERE directory = ? AND file_name = ?',
+            (str(p.parent), p.name)
+        )
+        row = cursor.fetchone()
+        self.disconnect()
+        if row is None:
+            return None
+        return {
+            'md5_hash': row[0],
+            'file_name': row[1],
+            'file_extension': row[2],
+            'directory': row[3],
+            'last_indexed_at': row[4],
+        }
 
     def get_files_without_clip_preview(self) -> pd.DataFrame:
         self.connect()

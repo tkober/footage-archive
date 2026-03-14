@@ -11,45 +11,112 @@
     }
   </nav>
 
-  @if (loading()) {
-    <div class="state-msg">Loading…</div>
-  } @else if (error()) {
-    <div class="state-msg error">{{ error() }}</div>
-  } @else {
-    <div class="entry-list">
-      @for (entry of entries(); track entry.path) {
-        <div class="entry" [class.dir]="entry.type === 'directory'" (click)="onEntryClick(entry)">
-          @if (entry.type === 'directory') {
-            <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>
-            </svg>
-          } @else {
-            <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
-            </svg>
-          }
-          <span class="name">{{ entry.name }}</span>
-          @if (entry.file_extension) {
-            <span class="ext">{{ entry.file_extension }}</span>
-          }
-        </div>
-      } @empty {
-        <div class="state-msg empty">This directory is empty.</div>
-      }
+  <div class="main-area">
 
-      @if (hasMore()) {
-        <div class="load-more">
-          <span class="count">Showing {{ entries().length }} of {{ total() }}</span>
-          <button class="load-more-btn" (click)="loadMore()" [disabled]="loadingMore()">
-            {{ loadingMore() ? 'Loading…' : 'Load more' }}
-          </button>
+    @if (loading()) {
+      <div class="state-msg">Loading…</div>
+    } @else if (error()) {
+      <div class="state-msg error">{{ error() }}</div>
+    } @else {
+      <div class="entry-list">
+        @for (entry of entries(); track entry.path) {
+          <div class="entry"
+               [class.dir]="entry.type === 'directory'"
+               [class.selected]="selectedFile()?.path === entry.path"
+               (click)="onEntryClick(entry)">
+            @if (entry.type === 'directory') {
+              <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>
+              </svg>
+            } @else {
+              <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+              </svg>
+            }
+            <span class="name">{{ entry.name }}</span>
+            @if (entry.file_extension) {
+              <span class="ext">{{ entry.file_extension }}</span>
+            }
+          </div>
+        } @empty {
+          <div class="state-msg empty">This directory is empty.</div>
+        }
+
+        @if (hasMore()) {
+          <div class="load-more">
+            <span class="count">Showing {{ entries().length }} of {{ total() }}</span>
+            <button class="load-more-btn" (click)="loadMore()" [disabled]="loadingMore()">
+              {{ loadingMore() ? 'Loading…' : 'Load more' }}
+            </button>
+          </div>
+        } @else if (total() > 0) {
+          <div class="load-more">
+            <span class="count">Showing all {{ total() }} items</span>
+          </div>
+        }
+      </div>
+    }
+
+    @if (loadingDetails()) {
+      <div class="detail-panel">
+        <div class="detail-loading">Loading…</div>
+      </div>
+    } @else if (selectedFile(); as file) {
+      <div class="detail-panel">
+        <div class="detail-header">
+          <span class="detail-title">{{ file.name }}</span>
+          <button class="detail-close" (click)="closeDetails()">✕</button>
         </div>
-      } @else if (total() > 0) {
-        <div class="load-more">
-          <span class="count">Showing all {{ total() }} items</span>
+        <div class="detail-body">
+          <div class="detail-section">
+            <div class="detail-row">
+              <span class="detail-label">Name</span>
+              <span class="detail-value">{{ file.name }}</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Type</span>
+              <span class="detail-value">{{ file.file_extension ?? '—' }}</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Size</span>
+              <span class="detail-value">{{ formatBytes(file.size_bytes) }}</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Modified</span>
+              <span class="detail-value">{{ file.modified_at | date:'yyyy-MM-dd HH:mm' }}</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Path</span>
+              <span class="detail-value detail-path">{{ file.path }}</span>
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <div class="detail-row">
+              <span class="detail-label">Tracked</span>
+              @if (file.tracked) {
+                <span class="badge badge-tracked">Yes</span>
+              } @else {
+                <span class="badge badge-untracked">No</span>
+              }
+            </div>
+            @if (file.md5_hash) {
+              <div class="detail-row">
+                <span class="detail-label">MD5</span>
+                <span class="detail-value detail-mono">{{ file.md5_hash }}</span>
+              </div>
+            }
+            @if (file.last_indexed_at) {
+              <div class="detail-row">
+                <span class="detail-label">Indexed</span>
+                <span class="detail-value">{{ file.last_indexed_at | date:'yyyy-MM-dd HH:mm' }}</span>
+              </div>
+            }
+          </div>
         </div>
-      }
-    </div>
-  }
+      </div>
+    }
+
+  </div>
 
 </div>

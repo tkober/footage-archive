@@ -56,3 +56,14 @@ class FileDescriptor(PathChild):
 
 class ConfigResponse(BaseModel):
     root_dir: str
+
+
+class FileInfo(BaseModel):
+    name: str
+    path: str
+    file_extension: Optional[str]
+    size_bytes: int
+    modified_at: str
+    tracked: bool
+    md5_hash: Optional[str] = None
+    last_indexed_at: Optional[str] = None
