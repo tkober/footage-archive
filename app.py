@@ -3,8 +3,11 @@ import os
 from contextlib import asynccontextmanager
 
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
+
+load_dotenv()
 
 from api.base import BaseApi
 from api.files import FilesApi
@@ -56,5 +59,4 @@ if __name__ == '__main__':
         app,
         host=env.get_server_host(),
         port=env.get_server_port(),
-        env_file='../.env' if os.path.isfile('../.env') else None
     )
