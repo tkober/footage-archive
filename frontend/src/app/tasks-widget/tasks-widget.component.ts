@@ -48,6 +48,13 @@ export class TasksWidgetComponent implements OnInit, OnDestroy {
     });
   }
 
+  clearAll() {
+    const ids = this.tasks().map(t => t.id);
+    ids.forEach(id => this.api.deleteTask(id).subscribe({
+      next: () => this.tasks.update(list => list.filter(t => t.id !== id)),
+    }));
+  }
+
   statusLabel(status: Task['status']): string {
     return { PENDING: 'Pending', QUEUED: 'Queued', RUNNING: 'Running', COMPLETED: 'Done' }[status];
   }

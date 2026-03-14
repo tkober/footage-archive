@@ -82,7 +82,7 @@
   color: #18181b;
 }
 
-.panel-close {
+.panel-clear {
   background: none;
   border: none;
   font-size: 0.75rem;
@@ -93,7 +93,7 @@
   transition: background 120ms ease, color 120ms ease;
 }
 
-.panel-close:hover {
+.panel-clear:hover {
   background: #f4f4f5;
   color: #18181b;
 }
@@ -167,6 +167,11 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.task-item.completed .task-name,
+.task-item.completed .task-desc {
+  color: #a1a1aa;
 }
 
 .task-desc {

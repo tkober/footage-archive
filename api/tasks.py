@@ -21,10 +21,7 @@ class TaskDescription(BaseModel):
 
 @TasksApi.get('/')
 async def get_tasks() -> List[TaskDescription]:
-    return [
-        TaskDescription(**t.model_dump())
-        for t in TaskManager().get_all_tasks()
-    ]
+    return [TaskDescription(**t.model_dump()) for t in TaskManager().get_all_tasks()]
 
 
 @TasksApi.get('/{task_id}')

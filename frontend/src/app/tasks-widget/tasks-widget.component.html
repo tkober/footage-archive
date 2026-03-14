@@ -15,7 +15,9 @@
     <div class="panel">
       <div class="panel-header">
         <span class="panel-title">Tasks</span>
-        <button class="panel-close" (click)="close()">✕</button>
+        @if (tasks().length > 0) {
+          <button class="panel-clear" (click)="clearAll()">Clear all</button>
+        }
       </div>
 
       @if (tasks().length === 0) {
@@ -23,7 +25,7 @@
       } @else {
         <ul class="task-list">
           @for (task of tasks(); track task.id) {
-            <li class="task-item">
+            <li class="task-item" [class.completed]="task.status === 'COMPLETED'">
               <div class="task-main">
                 <span class="task-status-dot" [class]="'dot-' + task.status.toLowerCase()"></span>
                 <div class="task-info">
