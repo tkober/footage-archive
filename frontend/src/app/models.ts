@@ -14,6 +14,7 @@ export interface Task {
   started_at: string | null;
   last_updated: string;
   error: string | null;
+  progress: string | null;
 }
 
 export type PathType = 'file' | 'directory';

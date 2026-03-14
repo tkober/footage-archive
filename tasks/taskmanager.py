@@ -28,6 +28,7 @@ class Task(TaskRequest):
     started_at: Optional[datetime] = None
     last_updated: datetime
     error: Optional[str] = None
+    progress: Optional[str] = None
 
 
 class TaskManager:
@@ -66,8 +67,12 @@ class TaskManager:
         task.started_at = now
         task.last_updated = now
 
+        def report(message: str):
+            task.progress = message
+            task.last_updated = datetime.now()
+
         try:
-            task.method()
+            task.method(report)
             task.status = TaskStatus.COMPLETED
         except Exception as e:
             task.status = TaskStatus.FAILED

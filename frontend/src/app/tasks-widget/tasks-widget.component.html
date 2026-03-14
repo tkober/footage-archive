@@ -46,6 +46,9 @@
                     {{ statusLabel(task.status) }}
                     @if (task.started_at) { · started {{ task.started_at | date:'HH:mm:ss' }} }
                   </span>
+                  @if (task.progress && task.status === 'RUNNING') {
+                    <span class="task-progress">{{ task.progress }}</span>
+                  }
                   @if (task.error) {
                     <span class="task-error">{{ task.error }}</span>
                   }

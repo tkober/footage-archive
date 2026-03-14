@@ -213,6 +213,12 @@
   color: #a1a1aa;
 }
 
+.task-progress {
+  font-size: 0.7rem;
+  color: #3b82f6;
+  margin-top: 2px;
+}
+
 .task-error {
   font-size: 0.7rem;
   color: #ef4444;
