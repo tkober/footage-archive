@@ -41,21 +41,21 @@ npx ng serve
 ```
 DB_PATH=./footage_archive.sqlite
 ROOT_DIR=./footage
+MEDIA_TYPE_VIDEO=.mov,.mp4
+MEDIA_TYPE_PHOTO=.jpg,.jpeg,.rw2
+MEDIA_TYPE_360_VIDEO=.insv
+MEDIA_TYPE_360_PHOTO=.insp,.dng
+BROWSER_HIDDEN_EXTENSIONS=.xmp,.acr,.psd,.lrv
 ```
 
 **Test footage** lives in `footage/` (gitignored):
 ```
 footage/japan_2024/
-├── video/
-│   ├── nara/           (4 MOV files)
-│   └── atami/
-│       ├── beach/      (4 MOV files)
-│       ├── castle/     (3 MOV files)
-│       ├── shopping_street/ (3 MOV files)
-│       └── station/    (3 MOV files)
-├── photo/
-├── 360/
-└── phone/
+├── video/atami/{beach,castle,shopping_street,station}/   (MOV, Lumix)
+├── video/nara/                                           (MOV, Lumix)
+├── photo/atami/ + photo/kyudo/ + photo/sap_badge_shooting/  (JPG+RW2, Lumix)
+├── 360/nagasaki/                                         (INSV+INSP+DNG, Insta360)
+└── phone/kokura/{photo,video}/                           (JPG+MP4, Samsung)
 ```
 
 ---
@@ -73,9 +73,13 @@ footage/japan_2024/
 
 Docker env vars to set on Unraid:
 - `DB_PATH=/backup/footage_archive.sqlite`
-- `ROOT_DIR=/mnt/user/footage`  (or wherever footage lives)
-- `SCANNING_FILE_EXTENSIONS=.mov,.mp4,.jpg,.jpeg,.png`
-- `TASK_POLL_INTERVAL_MS=5000`  (default, optional)
+- `ROOT_DIR=/mnt/user/footage`
+- `MEDIA_TYPE_VIDEO=.mov,.mp4`
+- `MEDIA_TYPE_PHOTO=.jpg,.jpeg,.rw2`
+- `MEDIA_TYPE_360_VIDEO=.insv`
+- `MEDIA_TYPE_360_PHOTO=.insp,.dng`
+- `BROWSER_HIDDEN_EXTENSIONS=.xmp,.acr,.psd,.lrv`
+- `TASK_POLL_INTERVAL_MS=5000` (default, optional)
 
 ---
 
@@ -93,13 +97,14 @@ footage-archive/
 │   ├── troubleshoot.py     # GET/POST /trouble-shooting/missing-preview
 │   └── tags.py             # empty placeholder
 ├── db/database.py          # SQLite via sqlite3 + pandas, upsert pattern
-├── scanner/scanner.py      # recursive dir walk + MD5 hashing
-├── ffmpeg/ffmpeg.py        # FFprobe duration probe + keyframe JPEG strip
+├── scanner/scanner.py      # recursive dir walk + MD5 hashing, media_type assignment
+├── ffmpeg/ffmpeg.py        # FFprobe (full stream info → VideoProbeResult) + clip preview
+├── photos/exif.py          # Pillow EXIF extraction → PhotoProbeResult
 ├── davinci/davinciresolve.py  # DaVinci Resolve CSV metadata parser
 ├── tasks/taskmanager.py    # in-memory singleton background task queue
 ├── env/environment.py      # env var reader with fallbacks
 ├── sql/
-│   ├── setup.sql           # schema (4 tables)
+│   ├── setup.sql           # schema (7 tables)
 │   └── missing_clip_previews.sql
 └── frontend/               # Angular 21 app
     └── src/app/
@@ -120,12 +125,21 @@ footage-archive/
 
 | Table | PK | Purpose |
 |---|---|---|
-| `Files` | `md5_hash` | Core catalog: name, extension, directory, last_indexed_at |
-| `FileDetails` | `md5_hash` | Rich metadata: codec, resolution, fps, shot/scene/take/angle, description, recorded_at |
+| `Files` | `md5_hash` | Core catalog: name, extension, media_type, directory, last_indexed_at |
+| `FileDetails` | `md5_hash` | Universal metadata: description, recorded_at, last_modified_at, location_id, lat/lon, json |
+| `VideoDetails` | `md5_hash` | Video-specific: codec, resolution, fps, audio info, duration_tc, shot/scene/take/angle/move/shot_type |
+| `PhotoDetails` | `md5_hash` | Photo-specific: EXIF (make, model, ISO, aperture, shutter, focal length, color space) |
+| `Locations` | `id` (autoincrement) | Reusable named places with hierarchy: country, region, city, name, lat/lon |
 | `Keywords` | `md5_hash + keyword` | Tag associations |
 | `ClipPreviews` | `md5_hash` | Horizontal JPEG keyframe strip stored as BLOB |
 
-**MD5 as primary key** is intentional: renaming or moving a file won't lose associated metadata. When re-indexing a file that has been moved/renamed, the existing record is recovered by hash.
+**Indexes:** `Files.directory` (for fast browser lookups), `Locations.country`, `Locations.city`, `Locations.(country, region, city)`
+
+**MD5 as primary key** is intentional: renaming or moving a file won't lose associated metadata. When re-indexing a moved/renamed file the existing record is recovered by hash.
+
+**media_type** is assigned at scan time from configurable extension maps (`MEDIA_TYPE_*` env vars): `video`, `photo`, `360_video`, `360_photo`, or NULL for unrecognised extensions.
+
+**Sidecar/proxy files** (`.xmp`, `.acr`, `.psd`, `.lrv`) are hidden from the browser via `BROWSER_HIDDEN_EXTENSIONS` but not prevented from being tracked if explicitly requested.
 
 ---
 
@@ -134,7 +148,9 @@ footage-archive/
 - **Path-based browsing, hash-based tracking** — the frontend browses by filesystem path (fast, intuitive), but records are keyed by MD5 hash so moving/renaming a file doesn't lose its metadata.
 - **ROOT_DIR boundary** — `/files/directory` rejects any path outside `ROOT_DIR` (403). The frontend fetches `ROOT_DIR` from `/config` on startup and uses it as the navigation root.
 - **Background tasks** — long-running scans run as background tasks with queryable status, progress reporting, and FAILED state. In-memory only (lost on restart).
-- **DaVinci Resolve CSV** as the primary metadata enrichment path — imports shot/scene/take/angle/move/shot_type directly from Resolve's export.
+- **Scan populates details automatically** — FFprobe fills `VideoDetails` + `FileDetails.recorded_at` for video files; Pillow EXIF fills `PhotoDetails` + `FileDetails.recorded_at` for photos. DaVinci Resolve CSV import can later overwrite with richer editorial metadata via `INSERT OR REPLACE`.
+- **File-centric tracking, no shot grouping** — RAW+JPEG pairs from the same shot are tracked independently. No "shot" entity for now. Location hierarchy lives in `Locations`; precise GPS per file lives in `FileDetails`.
+- **DaVinci Resolve CSV** as the primary editorial metadata enrichment path — imports shot/scene/take/angle/move/shot_type directly from Resolve's export.
 - **Task poll interval** — configurable via `TASK_POLL_INTERVAL_MS` env var, exposed through `/config` so the frontend picks it up dynamically.
 
 ---
@@ -142,13 +158,16 @@ footage-archive/
 ## What's Working
 
 - [x] Backend API with FastAPI, SQLite, background tasks
-- [x] Directory scanning with MD5 hashing → `Files` table
-- [x] Single file tracking → `Files` table
-- [x] DaVinci Resolve CSV metadata ingestion → `FileDetails` + `Keywords`
+- [x] Directory scanning with MD5 hashing + media_type assignment → `Files`
+- [x] Single file tracking → `Files`
+- [x] Auto-population of `VideoDetails` from FFprobe on scan
+- [x] Auto-population of `PhotoDetails` from Pillow EXIF on scan
+- [x] Auto-population of `FileDetails.last_modified_at` + `recorded_at` on scan
+- [x] DaVinci Resolve CSV metadata ingestion → `FileDetails` + `VideoDetails` + `Keywords`
 - [x] Clip preview generation (5-frame JPEG strip) → `ClipPreviews`
 - [x] Missing preview detection + repair endpoint
 - [x] `GET /config` endpoint (root_dir, task_poll_interval_ms)
-- [x] `POST /files/directory` with sorting, pagination, and ROOT_DIR hardening
+- [x] `POST /files/directory` with sorting, pagination, ROOT_DIR hardening, hidden extension filtering
 - [x] `GET /files/details` — filesystem info + DB tracking status per file
 - [x] Background task FAILED status with error message
 - [x] Background task progress reporting (step messages while running)
@@ -162,27 +181,26 @@ footage-archive/
 
 ## What's Next (Priority Order)
 
-### 1. Tracked/Untracked Status in Browser
-The browser currently shows all files without indicating tracking state. Add per-entry indicators:
-- ✅ **Tracked** — file is in the `Files` DB table (matched by path)
-- ⬜ **Untracked** — file exists on disk but has no DB record
-- ❌ **Missing** — file is in DB but no longer on disk
+### 1. File Detail Panel — Rich Metadata
+The detail panel shows filesystem info and tracking status. Extend with:
+- `VideoDetails` (codec, resolution, fps, audio, shot/scene/take)
+- `PhotoDetails` (make, model, ISO, aperture, shutter, focal length)
+- `FileDetails` (description, recorded_at, location)
+- `Keywords` tags
+- `ClipPreviews` thumbnail strip
 
-Requires a backend endpoint that cross-references a directory listing with the DB.
+Requires new read endpoints for the detail tables.
 
-### 2. File Detail Panel — Rich Metadata
-The detail panel currently shows only filesystem info. Extend it with:
-- Rich metadata from `FileDetails` (codec, resolution, fps, shot/scene/take)
-- Keywords/tags from `Keywords`
-- Clip preview thumbnail from `ClipPreviews`
-
-Requires new read endpoints for `FileDetails` and `ClipPreviews`.
+### 2. Location Management
+`Locations` table exists in the schema but there's no UI or API to create/assign locations yet.
+- `GET/POST /locations` — CRUD for location records
+- Assign a location to a file from the detail panel
 
 ### 3. Tag/Keyword Browsing
-`api/tags.py` is an empty placeholder. Implement tag listing, filtering files by tag.
+`api/tags.py` is an empty placeholder. Implement tag listing and filtering files by tag.
 
 ### 4. Settings Page
-Configure `SCANNING_FILE_EXTENSIONS`, trigger manual scans, view task history.
+Configure extension maps, trigger manual scans, view task history.
 
 ### 5. PostgreSQL Migration
-SQLite is fine for now. If/when needed: replace the raw `sqlite3 + pandas` layer with SQLAlchemy, which supports both SQLite and PostgreSQL.
+SQLite is fine for now. When needed: replace `sqlite3 + pandas` with SQLAlchemy.
