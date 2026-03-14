@@ -1,6 +1,7 @@
 import { DatePipe } from '@angular/common';
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 
+import { ContextMenuComponent } from './context-menu/context-menu.component';
 import { ApiService } from '../services/api.service';
 import { FileInfo, PathChild } from '../models';
 
@@ -9,7 +10,7 @@ const PAGE_SIZE = 50;
 @Component({
   selector: 'app-browser',
   standalone: true,
-  imports: [DatePipe],
+  imports: [DatePipe, ContextMenuComponent],
   templateUrl: './browser.component.html',
   styleUrl: './browser.component.css'
 })
@@ -25,6 +26,9 @@ export class BrowserComponent implements OnInit {
   error = signal<string | null>(null);
   selectedFile = signal<FileInfo | null>(null);
   loadingDetails = signal(false);
+  contextMenuEntry = signal<PathChild | null>(null);
+  contextMenuX = signal(0);
+  contextMenuY = signal(0);
   private page = 1;
 
   hasMore = computed(() => this.entries().length < this.total());
@@ -111,6 +115,25 @@ export class BrowserComponent implements OnInit {
 
   closeDetails() {
     this.selectedFile.set(null);
+  }
+
+  onEntryContextMenu(event: MouseEvent, entry: PathChild) {
+    event.preventDefault();
+    this.contextMenuX.set(event.clientX);
+    this.contextMenuY.set(event.clientY);
+    this.contextMenuEntry.set(entry);
+  }
+
+  closeContextMenu() {
+    this.contextMenuEntry.set(null);
+  }
+
+  onContextMenuAction(entry: PathChild) {
+    const call = entry.type === 'directory'
+      ? this.api.scanDirectory(entry.path)
+      : this.api.trackFile(entry.path);
+
+    call.subscribe();
   }
 
   formatBytes(bytes: number): string {

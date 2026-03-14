@@ -23,6 +23,14 @@ export class ApiService {
     return this.http.get<FileInfo>(`${this.base}/files/details`, { params: { path } });
   }
 
+  scanDirectory(path: string): Observable<string> {
+    return this.http.post<string>(`${this.base}/tracking/scan-directory`, { path, generate_clip_preview: true });
+  }
+
+  trackFile(path: string): Observable<string> {
+    return this.http.post<string>(`${this.base}/tracking/scan-file`, { path, generate_clip_preview: true });
+  }
+
   getTasks(): Observable<Task[]> {
     return this.http.get<Task[]>(`${this.base}/tasks/`);
   }

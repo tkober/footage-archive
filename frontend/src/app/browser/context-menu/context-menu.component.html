@@ -1,0 +1,8 @@
+<div class="ctx-backdrop" (click)="close.emit()"></div>
+<ul class="ctx-menu" [style.left.px]="x" [style.top.px]="y">
+  @if (entry.type === 'directory') {
+    <li class="ctx-item" (click)="action.emit(entry); close.emit()">Scan directory</li>
+  } @else {
+    <li class="ctx-item" (click)="action.emit(entry); close.emit()">Track file</li>
+  }
+</ul>
