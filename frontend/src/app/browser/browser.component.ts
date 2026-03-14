@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, HostListener, inject, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { switchMap, map, tap } from 'rxjs';
 
@@ -33,9 +33,19 @@ export class BrowserComponent implements OnInit {
   contextMenuEntry = signal<PathChild | null>(null);
   contextMenuX = signal(0);
   contextMenuY = signal(0);
+  panelWidth = signal(380);
   private page = 1;
+  private resizing = false;
+  private resizeStartX = 0;
+  private resizeStartWidth = 0;
 
   hasMore = computed(() => this.entries().length < this.total());
+
+  previewUrl = computed(() => {
+    const file = this.selectedFile();
+    if (!file?.md5_hash || !file.media_type?.includes('video')) return null;
+    return this.api.clipPreviewUrl(file.md5_hash);
+  });
 
   breadcrumbs = computed(() => {
     const root = this.rootDir();
@@ -157,5 +167,29 @@ export class BrowserComponent implements OnInit {
     if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
     if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
     return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+  }
+
+  onResizeStart(event: MouseEvent) {
+    this.resizing = true;
+    this.resizeStartX = event.clientX;
+    this.resizeStartWidth = this.panelWidth();
+    event.preventDefault();
+  }
+
+  @HostListener('document:mousemove', ['$event'])
+  onMouseMove(event: MouseEvent) {
+    if (!this.resizing) return;
+    const delta = this.resizeStartX - event.clientX;
+    this.panelWidth.set(Math.max(220, Math.min(600, this.resizeStartWidth + delta)));
+  }
+
+  @HostListener('document:mouseup')
+  onMouseUp() {
+    this.resizing = false;
+  }
+
+  entryPreviewUrl(entry: PathChild): string | null {
+    if (!entry.md5_hash || !entry.media_type?.includes('video')) return null;
+    return this.api.clipPreviewUrl(entry.md5_hash);
   }
 }

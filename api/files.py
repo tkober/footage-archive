@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
 
 from api.dtos import DirectoryQuery, DirectoryResponse, FileInfo, FileQuery, PathChild, PathType, FileDescriptor, SortField, SortOrder
 from db.database import Database
@@ -26,7 +27,7 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
         raise HTTPException(status_code=400, detail='Path is not a directory')
 
     hidden = set(_env.get_browser_hidden_extensions())
-    tracked = Database().get_tracked_filenames_in_directory(str(path))
+    tracked = Database().get_tracked_files_in_directory(str(path))
 
     entries = [
         PathChild(
@@ -35,6 +36,8 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
             type=PathType.DIRECTORY if e.is_dir() else PathType.FILE,
             file_extension=e.suffix.lower() or None,
             tracked=e.name in tracked if e.is_file() else None,
+            md5_hash=tracked[e.name]['md5_hash'] if e.is_file() and e.name in tracked else None,
+            media_type=tracked[e.name]['media_type'] if e.is_file() and e.name in tracked else None,
         )
         for e in path.iterdir()
         if not e.name.startswith('._')
@@ -86,6 +89,14 @@ async def get_file_details(path: str) -> FileInfo:
         media_type=db_record['media_type'] if db_record else None,
         last_indexed_at=db_record['last_indexed_at'] if db_record else None,
     )
+
+
+@FilesApi.get('/clip-preview/{md5_hash}')
+async def get_clip_preview(md5_hash: str):
+    data = Database().get_clip_preview(md5_hash)
+    if data is None:
+        raise HTTPException(status_code=404, detail='No clip preview found')
+    return Response(content=data, media_type='image/jpeg')
 
 
 @FilesApi.post('/checksum')

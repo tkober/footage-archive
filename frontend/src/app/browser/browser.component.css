@@ -86,7 +86,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 14px;
+  padding: 8px 14px 8px 10px;
   border-bottom: 1px solid #f4f4f5;
 }
 
@@ -131,14 +131,51 @@
   flex: 1;
 }
 
-.tracked-badge {
-  font-size: 0.65rem;
-  font-weight: 600;
-  color: #15803d;
-  background: #dcfce7;
-  padding: 1px 6px;
-  border-radius: 999px;
+.tracked-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
   flex-shrink: 0;
+  background: transparent;
+}
+
+.tracked-dot.is-tracked {
+  background: #22c55e;
+}
+
+.entry-card {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.entry-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.entry-strip {
+  display: block;
+  align-self: flex-start;
+  height: auto;
+  max-width: 100%;
+  max-height: 90px;
+  border-radius: 3px;
+}
+
+.resize-handle {
+  width: 4px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  border-radius: 2px;
+  transition: background 120ms ease;
+}
+
+.resize-handle:hover {
+  background: #e4e4e7;
 }
 
 .ext {
@@ -304,4 +341,15 @@
 .badge-untracked {
   background: #f4f4f5;
   color: #71717a;
+}
+
+.preview-section {
+  padding: 10px 10px 8px;
+}
+
+.clip-preview {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
 }

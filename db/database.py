@@ -89,12 +89,12 @@ class Database:
         self._connection.execute(f'DROP TABLE IF EXISTS {table}_{temp_table_suffix}')
         self._connection.commit()
 
-    def get_tracked_filenames_in_directory(self, directory: str) -> set:
+    def get_tracked_files_in_directory(self, directory: str) -> dict:
         self.connect()
         cursor = self._connection.execute(
-            'SELECT file_name FROM Files WHERE directory = ?', (directory,)
+            'SELECT file_name, md5_hash, media_type FROM Files WHERE directory = ?', (directory,)
         )
-        result = {row[0] for row in cursor.fetchall()}
+        result = {row[0]: {'md5_hash': row[1], 'media_type': row[2]} for row in cursor.fetchall()}
         self.disconnect()
         return result
 
@@ -118,6 +118,15 @@ class Database:
             'directory': row[4],
             'last_indexed_at': row[5],
         }
+
+    def get_clip_preview(self, md5_hash: str) -> bytes | None:
+        self.connect()
+        cursor = self._connection.execute(
+            'SELECT data FROM ClipPreviews WHERE md5_hash = ?', (md5_hash,)
+        )
+        row = cursor.fetchone()
+        self.disconnect()
+        return row[0] if row else None
 
     def get_files_without_clip_preview(self) -> pd.DataFrame:
         self.connect()

@@ -20,28 +20,45 @@
     } @else {
       <div class="entry-list">
         @for (entry of entries(); track entry.path) {
-          <div class="entry"
-               [class.dir]="entry.type === 'directory'"
-               [class.selected]="selectedFile()?.path === entry.path"
-               (click)="onEntryClick(entry)"
-               (contextmenu)="onEntryContextMenu($event, entry)">
-            @if (entry.type === 'directory') {
-              <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>
-              </svg>
-            } @else {
-              <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
-              </svg>
-            }
-            <span class="name">{{ entry.name }}</span>
-            @if (entry.tracked) {
-              <span class="tracked-badge">tracked</span>
-            }
-            @if (entry.file_extension) {
-              <span class="ext">{{ entry.file_extension }}</span>
-            }
-          </div>
+          @if (entryPreviewUrl(entry); as thumbUrl) {
+            <div class="entry entry-card"
+                 [class.selected]="selectedFile()?.path === entry.path"
+                 (click)="onEntryClick(entry)"
+                 (contextmenu)="onEntryContextMenu($event, entry)">
+              <div class="entry-info">
+                <span class="tracked-dot is-tracked"></span>
+                <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                </svg>
+                <span class="name">{{ entry.name }}</span>
+                @if (entry.file_extension) {
+                  <span class="ext">{{ entry.file_extension }}</span>
+                }
+              </div>
+              <img class="entry-strip" [src]="thumbUrl" alt="" />
+            </div>
+          } @else {
+            <div class="entry"
+                 [class.dir]="entry.type === 'directory'"
+                 [class.selected]="selectedFile()?.path === entry.path"
+                 (click)="onEntryClick(entry)"
+                 (contextmenu)="onEntryContextMenu($event, entry)">
+              <span class="tracked-dot" [class.is-tracked]="entry.tracked === true"></span>
+              @if (entry.type === 'directory') {
+                <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>
+                </svg>
+              } @else {
+                <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                </svg>
+              }
+              <span class="name">{{ entry.name }}</span>
+              @if (entry.file_extension) {
+                <span class="ext">{{ entry.file_extension }}</span>
+              }
+            </div>
+          }
         } @empty {
           <div class="state-msg empty">This directory is empty.</div>
         }
@@ -61,17 +78,26 @@
       </div>
     }
 
+    @if (loadingDetails() || selectedFile()) {
+      <div class="resize-handle" (mousedown)="onResizeStart($event)"></div>
+    }
+
     @if (loadingDetails()) {
-      <div class="detail-panel">
+      <div class="detail-panel" [style.width.px]="panelWidth()">
         <div class="detail-loading">Loading…</div>
       </div>
     } @else if (selectedFile(); as file) {
-      <div class="detail-panel">
+      <div class="detail-panel" [style.width.px]="panelWidth()">
         <div class="detail-header">
           <span class="detail-title">{{ file.name }}</span>
           <button class="detail-close" (click)="closeDetails()">✕</button>
         </div>
         <div class="detail-body">
+          @if (previewUrl()) {
+            <div class="detail-section preview-section">
+              <img class="clip-preview" [src]="previewUrl()!" alt="Clip preview" />
+            </div>
+          }
           <div class="detail-section">
             <div class="detail-row">
               <span class="detail-label">Name</span>

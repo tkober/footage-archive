@@ -42,6 +42,8 @@ class PathChild(BaseModel):
     type: PathType
     file_extension: Optional[StrictStr]
     tracked: Optional[bool] = None
+    md5_hash: Optional[StrictStr] = None
+    media_type: Optional[StrictStr] = None
 
 
 class DirectoryResponse(BaseModel):

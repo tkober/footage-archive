@@ -26,6 +26,8 @@ export interface PathChild {
   type: PathType;
   file_extension: string | null;
   tracked: boolean | null;
+  md5_hash?: string | null;
+  media_type?: MediaType | null;
 }
 
 export interface DirectoryResponse {

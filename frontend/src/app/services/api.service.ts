@@ -32,6 +32,10 @@ export class ApiService {
     return this.http.post<string>(`${this.base}/tracking/scan-file`, { path, generate_clip_preview: true });
   }
 
+  clipPreviewUrl(md5Hash: string): string {
+    return `${this.base}/files/clip-preview/${md5Hash}`;
+  }
+
   getTasks(): Observable<Task[]> {
     return this.http.get<Task[]>(`${this.base}/tasks/`);
   }
