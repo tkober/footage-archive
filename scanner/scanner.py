@@ -11,6 +11,7 @@ class ScanResult(BaseModel):
     md5_hash: StrictStr
     file_name: StrictStr
     file_extension: StrictStr
+    media_type: StrictStr | None
     directory: StrictStr
     last_indexed_at: datetime
 
@@ -26,7 +27,9 @@ class Scanner:
 
     def scan_files(self, files: [Path]) -> [ScanResult]:
         result = []
-        considered_file_extensions = Environment().get_scanning_file_extensions()
+        env = Environment()
+        considered_file_extensions = env.get_scanning_file_extensions()
+        media_type_map = env.get_media_type_map()
         for f in files:
             f_path = Path(f)
             if not f_path.is_dir() and f_path.exists() and f_path.suffix.lower() in considered_file_extensions:
@@ -35,6 +38,7 @@ class Scanner:
                     md5_hash=md5_hash,
                     file_name=f_path.name,
                     file_extension=f_path.suffix,
+                    media_type=media_type_map.get(f_path.suffix.lower()),
                     directory=str(f_path.parent),
                     last_indexed_at=datetime.now(),
                 ))

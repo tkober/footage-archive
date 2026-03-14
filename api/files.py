@@ -25,6 +25,7 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
     if not path.is_dir():
         raise HTTPException(status_code=400, detail='Path is not a directory')
 
+    hidden = set(_env.get_browser_hidden_extensions())
     tracked = Database().get_tracked_filenames_in_directory(str(path))
 
     entries = [
@@ -36,6 +37,8 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
             tracked=e.name in tracked if e.is_file() else None,
         )
         for e in path.iterdir()
+        if not e.name.startswith('._')
+        and (e.is_dir() or e.suffix.lower() not in hidden)
     ]
 
     reverse = query.sort_order == SortOrder.DESC
@@ -80,6 +83,7 @@ async def get_file_details(path: str) -> FileInfo:
         modified_at=datetime.fromtimestamp(stat.st_mtime).isoformat(),
         tracked=db_record is not None,
         md5_hash=db_record['md5_hash'] if db_record else None,
+        media_type=db_record['media_type'] if db_record else None,
         last_indexed_at=db_record['last_indexed_at'] if db_record else None,
     )
 
