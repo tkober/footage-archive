@@ -90,6 +90,36 @@
   color: #18181b;
 }
 
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.panel-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #a1a1aa;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.panel-action svg {
+  width: 14px;
+  height: 14px;
+}
+
+.panel-action:hover {
+  background: #f4f4f5;
+  color: #18181b;
+}
+
 .panel-clear {
   background: none;
   border: none;

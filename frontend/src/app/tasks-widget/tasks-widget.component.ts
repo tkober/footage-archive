@@ -49,6 +49,10 @@ export class TasksWidgetComponent implements OnInit, OnDestroy {
     });
   }
 
+  refresh() {
+    this.api.getTasks().subscribe({ next: tasks => this.tasks.set(tasks) });
+  }
+
   clearAll() {
     const ids = this.tasks().map(t => t.id);
     ids.forEach(id => this.api.deleteTask(id).subscribe({
