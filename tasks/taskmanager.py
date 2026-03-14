@@ -12,6 +12,7 @@ class TaskStatus(str, Enum):
     QUEUED = "QUEUED",
     RUNNING = "RUNNING",
     COMPLETED = "COMPLETED",
+    FAILED = "FAILED",
 
 
 class TaskRequest(BaseModel):
@@ -26,6 +27,7 @@ class Task(TaskRequest):
     scheduled_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     last_updated: datetime
+    error: Optional[str] = None
 
 
 class TaskManager:
@@ -64,9 +66,13 @@ class TaskManager:
         task.started_at = now
         task.last_updated = now
 
-        task.method()
+        try:
+            task.method()
+            task.status = TaskStatus.COMPLETED
+        except Exception as e:
+            task.status = TaskStatus.FAILED
+            task.error = str(e)
 
-        task.status = TaskStatus.COMPLETED
         task.last_updated = datetime.now()
 
     def get_task(self, task_id: str) -> Optional[Task]:

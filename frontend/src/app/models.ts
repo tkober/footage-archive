@@ -3,7 +3,7 @@ export interface Config {
   task_poll_interval_ms: number;
 }
 
-export type TaskStatus = 'PENDING' | 'QUEUED' | 'RUNNING' | 'COMPLETED';
+export type TaskStatus = 'PENDING' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
 
 export interface Task {
   id: string;
@@ -13,6 +13,7 @@ export interface Task {
   scheduled_at: string | null;
   started_at: string | null;
   last_updated: string;
+  error: string | null;
 }
 
 export type PathType = 'file' | 'directory';

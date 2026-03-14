@@ -17,6 +17,7 @@ class TaskDescription(BaseModel):
     scheduled_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     last_updated: datetime
+    error: Optional[str] = None
 
 
 @TasksApi.get('/')

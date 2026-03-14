@@ -23,6 +23,7 @@ export class TasksWidgetComponent implements OnInit, OnDestroy {
   open = signal(false);
 
   runningCount = computed(() => this.tasks().filter(t => t.status === 'RUNNING' || t.status === 'QUEUED').length);
+  failedCount = computed(() => this.tasks().filter(t => t.status === 'FAILED').length);
 
   ngOnInit() {
     this.pollSub = timer(0, this.pollIntervalMs)
@@ -56,6 +57,6 @@ export class TasksWidgetComponent implements OnInit, OnDestroy {
   }
 
   statusLabel(status: Task['status']): string {
-    return { PENDING: 'Pending', QUEUED: 'Queued', RUNNING: 'Running', COMPLETED: 'Done' }[status];
+    return { PENDING: 'Pending', QUEUED: 'Queued', RUNNING: 'Running', COMPLETED: 'Done', FAILED: 'Failed' }[status];
   }
 }

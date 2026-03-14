@@ -27,6 +27,10 @@
   color: #3b82f6;
 }
 
+.trigger.has-failed {
+  color: #ef4444;
+}
+
 .trigger-icon {
   width: 18px;
   height: 18px;
@@ -45,6 +49,10 @@
   border-radius: 999px;
   min-width: 14px;
   text-align: center;
+}
+
+.badge-failed {
+  background: #ef4444;
 }
 
 /* Backdrop */
@@ -143,10 +151,11 @@
   margin-top: 4px;
 }
 
-.dot-pending  { background: #d4d4d8; }
-.dot-queued   { background: #f59e0b; }
-.dot-running  { background: #3b82f6; animation: pulse 1.2s ease-in-out infinite; }
+..dot-pending   { background: #d4d4d8; }
+.dot-queued    { background: #f59e0b; }
+.dot-running   { background: #3b82f6; animation: pulse 1.2s ease-in-out infinite; }
 .dot-completed { background: #22c55e; }
+.dot-failed    { background: #ef4444; }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
@@ -172,6 +181,14 @@
 .task-item.completed .task-name,
 .task-item.completed .task-desc {
   color: #a1a1aa;
+}
+
+.task-error {
+  font-size: 0.7rem;
+  color: #ef4444;
+  margin-top: 2px;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .task-desc {
