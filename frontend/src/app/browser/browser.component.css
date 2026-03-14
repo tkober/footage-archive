@@ -1,0 +1,114 @@
+.browser {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+}
+
+/* Breadcrumbs */
+.breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.crumb {
+  background: none;
+  border: none;
+  font-size: 0.875rem;
+  color: #3b82f6;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: background 120ms ease;
+}
+
+.crumb:hover {
+  background: #dbeafe;
+}
+
+.crumb.active {
+  color: #18181b;
+  font-weight: 600;
+  cursor: default;
+}
+
+.crumb.active:hover {
+  background: none;
+}
+
+.sep {
+  color: #a1a1aa;
+  font-size: 0.875rem;
+  user-select: none;
+}
+
+/* State messages */
+.state-msg {
+  color: #71717a;
+  font-size: 0.875rem;
+}
+
+.state-msg.error {
+  color: #ef4444;
+}
+
+.state-msg.empty {
+  padding: 16px;
+  text-align: center;
+}
+
+/* Entry list */
+.entry-list {
+  background: #ffffff;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #f4f4f5;
+}
+
+.entry:last-child {
+  border-bottom: none;
+}
+
+.entry.dir {
+  cursor: pointer;
+}
+
+.entry.dir:hover {
+  background: #f9fafb;
+}
+
+.icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.entry.dir .icon {
+  color: #f59e0b;
+}
+
+.entry:not(.dir) .icon {
+  color: #a1a1aa;
+}
+
+.name {
+  font-size: 0.875rem;
+  color: #18181b;
+  flex: 1;
+}
+
+.ext {
+  font-size: 0.75rem;
+  color: #a1a1aa;
+  font-family: monospace;
+}

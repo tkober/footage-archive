@@ -1,0 +1,42 @@
+<div class="browser">
+
+  <nav class="breadcrumbs">
+    @for (crumb of breadcrumbs(); track crumb.path; let last = $last) {
+      @if (!last) {
+        <button class="crumb" (click)="navigateTo(crumb.path)">{{ crumb.label }}</button>
+        <span class="sep">›</span>
+      } @else {
+        <span class="crumb active">{{ crumb.label }}</span>
+      }
+    }
+  </nav>
+
+  @if (loading()) {
+    <div class="state-msg">Loading…</div>
+  } @else if (error()) {
+    <div class="state-msg error">{{ error() }}</div>
+  } @else {
+    <div class="entry-list">
+      @for (entry of entries(); track entry.path) {
+        <div class="entry" [class.dir]="entry.type === 'directory'" (click)="onEntryClick(entry)">
+          @if (entry.type === 'directory') {
+            <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>
+            </svg>
+          } @else {
+            <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+            </svg>
+          }
+          <span class="name">{{ entry.name }}</span>
+          @if (entry.file_extension) {
+            <span class="ext">{{ entry.file_extension }}</span>
+          }
+        </div>
+      } @empty {
+        <div class="state-msg empty">This directory is empty.</div>
+      }
+    </div>
+  }
+
+</div>
