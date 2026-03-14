@@ -12,7 +12,7 @@ load_dotenv()
 from api.base import BaseApi
 from api.config import ConfigApi
 from api.files import FilesApi
-from api.scanning import ScanningApi
+from api.tracking import TrackingApi
 from api.tasks import TasksApi
 from api.troubleshoot import TroubleShootingApi
 from db.database import Database
@@ -33,7 +33,7 @@ async def lifespan(application: FastAPI):
     application.include_router(BaseApi)
     application.include_router(ConfigApi)
     application.include_router(FilesApi)
-    application.include_router(ScanningApi)
+    application.include_router(TrackingApi)
     application.include_router(TasksApi)
     application.include_router(TroubleShootingApi)
 

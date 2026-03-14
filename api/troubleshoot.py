@@ -2,7 +2,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks
 
-from api.scanning import create_clip_preview
+from api.tracking import create_clip_preview
 from db.database import Database
 from ffmpeg.ffmpeg import FFprobe
 from tasks.taskmanager import TaskManager, TaskRequest

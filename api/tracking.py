@@ -12,11 +12,11 @@ from tasks.taskmanager import TaskManager, TaskRequest
 
 import pandas as pd
 
-ScanningApi = APIRouter(prefix='/scanning')
+TrackingApi = APIRouter(prefix='/tracking')
 
 
-@ScanningApi.post('/directory')
-async def scan(query: FileQuery, background_tasks: BackgroundTasks):
+@TrackingApi.post('/scan-directory')
+async def scan_directory(query: FileQuery, background_tasks: BackgroundTasks):
     path = Path(query.path)
     if not path.is_dir():
         raise HTTPException(status_code=400, detail='Provided path is not a directory')
@@ -27,6 +27,49 @@ async def scan(query: FileQuery, background_tasks: BackgroundTasks):
             name='Scan directory',
             description=f'Scanning directory "{query.path}".',
             method=lambda: index_files_in_directory(query)
+        ),
+        background_tasks
+    )
+
+    return task.id
+
+
+@TrackingApi.post('/scan-file')
+async def scan_file(query: FileQuery, background_tasks: BackgroundTasks):
+    path = Path(query.path)
+    if path.is_dir():
+        raise HTTPException(status_code=400, detail='Provided path is a directory')
+    if not path.exists():
+        raise HTTPException(status_code=404, detail='File not found')
+
+    task_manager = TaskManager()
+    task = task_manager.request_task(
+        TaskRequest(
+            name='Track file',
+            description=f'Tracking file "{query.path}".',
+            method=lambda: index_single_file(query)
+        ),
+        background_tasks
+    )
+
+    return task.id
+
+
+@TrackingApi.post('/import-metadata')
+async def import_metadata(query: FileQuery, background_tasks: BackgroundTasks):
+    path = Path(query.path)
+    if path.is_dir():
+        raise HTTPException(status_code=400, detail='Provided path is a directory')
+
+    if not path.exists():
+        raise HTTPException(status_code=404, detail='File not found')
+
+    task_manager = TaskManager()
+    task = task_manager.request_task(
+        TaskRequest(
+            name='Import metadata',
+            description=f'Importing metadata from "{query.path}".',
+            method=lambda: scan_files_in_metadata(query)
         ),
         background_tasks
     )
@@ -52,26 +95,19 @@ def index_files_in_directory(query: FileQuery):
                 logging.error(f'FFprobe failed for {file_path}')
 
 
-@ScanningApi.post('/metadata')
-async def scan_metadata_file(query: FileQuery, background_tasks: BackgroundTasks):
+def index_single_file(query: FileQuery):
     path = Path(query.path)
-    if path.is_dir():
-        raise HTTPException(status_code=400, detail='Provided path is a directory')
+    scan_results = Scanner().scan_files([path])
+    Database().insert_scan_results(scan_results)
 
-    if not path.exists():
-        raise HTTPException(status_code=404, detail='File not found')
-
-    task_manager = TaskManager()
-    task = task_manager.request_task(
-        TaskRequest(
-            name='Scanning files from Metadata',
-            description=f'Scanning files from metadata in "{query.path}".',
-            method=lambda: scan_files_in_metadata(query)
-        ),
-        background_tasks
-    )
-
-    return task.id
+    if query.generate_clip_preview and scan_results:
+        sc = scan_results[0]
+        file_path = sc.directory + '/' + sc.file_name
+        ffmpeg_input = FFprobe().probe_file(md5_hash=sc.md5_hash, file_path=file_path)
+        if ffmpeg_input is not None:
+            create_clip_preview(ffmpeg_input)
+        else:
+            logging.error(f'FFprobe failed for {file_path}')
 
 
 def scan_files_in_metadata(query: FileQuery):
