@@ -56,6 +56,7 @@ class FileDescriptor(PathChild):
 
 class ConfigResponse(BaseModel):
     root_dir: str
+    task_poll_interval_ms: int
 
 
 class FileInfo(BaseModel):

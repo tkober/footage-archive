@@ -7,6 +7,9 @@
       <span></span>
     </button>
     <span class="page-title">{{ pageTitle() }}</span>
+    <div class="header-actions">
+      <app-tasks-widget [pollIntervalMs]="taskPollIntervalMs()" />
+    </div>
   </header>
 
   <div class="body">

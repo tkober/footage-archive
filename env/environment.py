@@ -28,6 +28,9 @@ class Environment:
         raw = self.loadEnvironmentVariable("ROOT_DIR", "/mnt/user/footage")
         return str(Path(raw).resolve())
 
+    def get_task_poll_interval_ms(self) -> int:
+        return int(self.loadEnvironmentVariable("TASK_POLL_INTERVAL_MS", "5000"))
+
     def get_scanning_file_extensions(self) -> [str]:
         return (
             self.loadEnvironmentVariable("SCANNING_FILE_EXTENSIONS", ".mov")

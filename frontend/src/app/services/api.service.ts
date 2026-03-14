@@ -3,7 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
 import { environment } from '../../environments/environment';
-import { Config, DirectoryQuery, DirectoryResponse, FileInfo } from '../models';
+import { Config, DirectoryQuery, DirectoryResponse, FileInfo, Task } from '../models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -21,5 +21,13 @@ export class ApiService {
 
   getFileDetails(path: string): Observable<FileInfo> {
     return this.http.get<FileInfo>(`${this.base}/files/details`, { params: { path } });
+  }
+
+  getTasks(): Observable<Task[]> {
+    return this.http.get<Task[]>(`${this.base}/tasks/`);
+  }
+
+  deleteTask(id: string): Observable<Task> {
+    return this.http.delete<Task>(`${this.base}/tasks/${id}`);
   }
 }

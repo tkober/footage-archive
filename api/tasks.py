@@ -42,3 +42,11 @@ async def clear_completed_tasks() -> List[TaskDescription]:
         TaskDescription(**t.model_dump())
         for t in TaskManager().clear_completed_tasks()
     ]
+
+
+@TasksApi.delete('/{task_id}')
+async def delete_task(task_id: str) -> TaskDescription:
+    task = TaskManager().delete_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail='Task not found')
+    return TaskDescription(**task.model_dump())

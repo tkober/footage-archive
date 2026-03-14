@@ -10,4 +10,7 @@ _env = Environment()
 
 @ConfigApi.get('')
 async def get_config() -> ConfigResponse:
-    return ConfigResponse(root_dir=_env.get_root_dir())
+    return ConfigResponse(
+        root_dir=_env.get_root_dir(),
+        task_poll_interval_ms=_env.get_task_poll_interval_ms(),
+    )

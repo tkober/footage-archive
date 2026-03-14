@@ -78,6 +78,10 @@ class TaskManager:
     def get_all_tasks(self) -> List[Task]:
         return list(self._tasks.values())
 
+    def delete_task(self, task_id: str) -> Optional[Task]:
+        task = self._tasks.pop(task_id, None)
+        return task
+
     def clear_completed_tasks(self) -> List[Task]:
         completed_tasks = [t for t in self._tasks.values() if t.status == TaskStatus.COMPLETED]
         for t in completed_tasks:

@@ -1,0 +1,46 @@
+<div class="widget" [class.open]="open()">
+
+  <button class="trigger" (click)="toggle()" [class.has-running]="runningCount() > 0" title="Tasks">
+    <svg class="trigger-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="9 11 12 14 22 4"/>
+      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+    </svg>
+    @if (runningCount() > 0) {
+      <span class="badge">{{ runningCount() }}</span>
+    }
+  </button>
+
+  @if (open()) {
+    <div class="backdrop" (click)="close()"></div>
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Tasks</span>
+        <button class="panel-close" (click)="close()">✕</button>
+      </div>
+
+      @if (tasks().length === 0) {
+        <div class="empty">No tasks yet.</div>
+      } @else {
+        <ul class="task-list">
+          @for (task of tasks(); track task.id) {
+            <li class="task-item">
+              <div class="task-main">
+                <span class="task-status-dot" [class]="'dot-' + task.status.toLowerCase()"></span>
+                <div class="task-info">
+                  <span class="task-name">{{ task.name }}</span>
+                  <span class="task-desc">{{ task.description }}</span>
+                  <span class="task-meta">
+                    {{ statusLabel(task.status) }}
+                    @if (task.started_at) { · started {{ task.started_at | date:'HH:mm:ss' }} }
+                  </span>
+                </div>
+              </div>
+              <button class="task-remove" (click)="remove(task)" title="Remove">✕</button>
+            </li>
+          }
+        </ul>
+      }
+    </div>
+  }
+
+</div>

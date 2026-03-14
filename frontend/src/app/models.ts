@@ -1,5 +1,18 @@
 export interface Config {
   root_dir: string;
+  task_poll_interval_ms: number;
+}
+
+export type TaskStatus = 'PENDING' | 'QUEUED' | 'RUNNING' | 'COMPLETED';
+
+export interface Task {
+  id: string;
+  name: string;
+  description: string;
+  status: TaskStatus;
+  scheduled_at: string | null;
+  started_at: string | null;
+  last_updated: string;
 }
 
 export type PathType = 'file' | 'directory';
