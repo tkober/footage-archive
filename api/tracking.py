@@ -1,19 +1,23 @@
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+import pandas as pd
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 
 from api.dtos import FileQuery
 from davinci.davinciresolve import Metadata, DerivedMetadataColumns
 from db.database import Database
 from ffmpeg.ffmpeg import FFmpegInput, FFmpeg, FFprobe
-from scanner.scanner import Scanner
+from photos.exif import probe_photo
+from scanner.scanner import Scanner, ScanResult
 from tasks.taskmanager import TaskManager, TaskRequest
 
-import pandas as pd
-
 TrackingApi = APIRouter(prefix='/tracking')
+
+VIDEO_TYPES = {'video', '360_video'}
+PHOTO_TYPES = {'photo', '360_photo'}
 
 
 @TrackingApi.post('/scan-directory')
@@ -83,38 +87,65 @@ def index_files_in_directory(query: FileQuery, report: Callable[[str], None]):
     report('Scanning files…')
     scan_results = Scanner().scan_directory(directory)
     total = len(scan_results)
-    report(f'Indexing 0 / {total} files')
-    Database().insert_scan_results(scan_results)
+    report(f'Found {total} files, indexing…')
+    db = Database()
+    db.insert_scan_results(scan_results)
 
-    if query.generate_clip_preview:
-        for i, sc in enumerate(scan_results, 1):
-            report(f'Generating preview {i} / {total}')
-            file_path = (sc.directory + '/' + sc.file_name)
-            ffmpeg_input = FFprobe().probe_file(
-                md5_hash=sc.md5_hash,
-                file_path=file_path
-            )
-            if ffmpeg_input is not None:
-                create_clip_preview(ffmpeg_input)
-            else:
-                logging.error(f'FFprobe failed for {file_path}')
+    for i, sc in enumerate(scan_results, 1):
+        report(f'Probing {i} / {total}: {sc.file_name}')
+        _probe_and_save(sc, db, generate_clip_preview=query.generate_clip_preview)
 
 
 def index_single_file(query: FileQuery, report: Callable[[str], None]):
     path = Path(query.path)
     report('Hashing file…')
     scan_results = Scanner().scan_files([path])
-    Database().insert_scan_results(scan_results)
+    if not scan_results:
+        return
+    sc = scan_results[0]
+    db = Database()
+    db.insert_scan_results(scan_results)
+    report('Probing file…')
+    _probe_and_save(sc, db, generate_clip_preview=query.generate_clip_preview)
 
-    if query.generate_clip_preview and scan_results:
-        report('Generating preview…')
-        sc = scan_results[0]
-        file_path = sc.directory + '/' + sc.file_name
-        ffmpeg_input = FFprobe().probe_file(md5_hash=sc.md5_hash, file_path=file_path)
-        if ffmpeg_input is not None:
-            create_clip_preview(ffmpeg_input)
-        else:
-            logging.error(f'FFprobe failed for {file_path}')
+
+def _probe_and_save(sc: ScanResult, db: Database, generate_clip_preview: bool):
+    file_path = sc.directory + '/' + sc.file_name
+    last_modified_at = datetime.fromtimestamp(Path(file_path).stat().st_mtime).isoformat()
+
+    if sc.media_type in VIDEO_TYPES:
+        probe = FFprobe().probe_file(md5_hash=sc.md5_hash, file_path=file_path)
+        if probe is None:
+            logging.warning(f'FFprobe failed for {file_path}')
+            _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=None)
+            return
+
+        _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=probe.recorded_at)
+        db.insert_video_details(pd.DataFrame([probe.model_dump()]))
+
+        if generate_clip_preview:
+            create_clip_preview(probe)
+
+    elif sc.media_type in PHOTO_TYPES:
+        probe = probe_photo(md5_hash=sc.md5_hash, file_path=file_path)
+        if probe is None:
+            _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=None)
+            return
+
+        _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=probe.recorded_at)
+        db.insert_photo_details(pd.DataFrame([probe.model_dump()]))
+
+    else:
+        _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=None)
+
+
+def _save_file_details(db: Database, md5_hash: str, last_modified_at: str, recorded_at: str | None):
+    df = pd.DataFrame([{
+        'md5_hash': md5_hash,
+        'last_modified_at': last_modified_at,
+        'recorded_at': recorded_at,
+    }])
+    db.insert_file_details(df)
 
 
 def scan_files_in_metadata(query: FileQuery, report: Callable[[str], None]):
@@ -143,17 +174,22 @@ def scan_files_in_metadata(query: FileQuery, report: Callable[[str], None]):
     )
 
     report('Writing to database…')
-    Database().connect().insert_scan_results(scan_results)
-    Database().connect().insert_file_details(details_merged)
-    Database().connect().insert_keywords(keywords_merged)
+    db = Database()
+    db.insert_scan_results(scan_results)
+    db.insert_file_details(details_merged)
+    db.insert_keywords(keywords_merged)
 
     if query.generate_clip_preview:
         for i, row in enumerate(details_merged.itertuples(index=True, name='Row'), 1):
             report(f'Generating preview {i} / {total}')
-            input = FFmpegInput.from_time_code(md5_hash=row.md5_hash, file_path=row.file_path, duration_tc=row.duration_tc)
-            create_clip_preview(input)
+            ffmpeg_input = FFmpegInput.from_time_code(
+                md5_hash=row.md5_hash,
+                file_path=row.file_path,
+                duration_tc=row.duration_tc
+            )
+            create_clip_preview(ffmpeg_input)
 
 
 def create_clip_preview(input: FFmpegInput):
     result = FFmpeg(input.md5_hash).generate_clip_preview(input)
-    Database().connect().insert_clip_preview(result, identifier=input.md5_hash)
+    Database().insert_clip_preview(result, identifier=input.md5_hash)

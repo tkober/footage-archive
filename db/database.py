@@ -53,6 +53,16 @@ class Database:
         self.__upsert_into_table(details, 'VideoDetails', temp_table_suffix=identifier + '_v')
         self.disconnect()
 
+    def insert_video_details(self, details: pd.DataFrame, identifier: str = generate_identifier()):
+        self.connect()
+        self.__upsert_into_table(details, 'VideoDetails', temp_table_suffix=identifier)
+        self.disconnect()
+
+    def insert_photo_details(self, details: pd.DataFrame, identifier: str = generate_identifier()):
+        self.connect()
+        self.__upsert_into_table(details, 'PhotoDetails', temp_table_suffix=identifier)
+        self.disconnect()
+
     def insert_keywords(self, keywords: pd.DataFrame, identifier: str = generate_identifier()):
         self.connect()
         self.__upsert_into_table(keywords, 'Keywords', temp_table_suffix=identifier)

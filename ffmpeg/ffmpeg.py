@@ -7,6 +7,21 @@ from PIL import Image
 from pydantic import BaseModel
 
 
+def _seconds_to_tc(seconds: int) -> str:
+    hh = seconds // 3600
+    mm = (seconds % 3600) // 60
+    ss = seconds % 60
+    return f'{hh:02}:{mm:02}:{ss:02}:00'
+
+
+def _eval_frame_rate(fraction: str) -> float | None:
+    try:
+        num, den = fraction.split('/')
+        return round(int(num) / int(den), 3)
+    except Exception:
+        return None
+
+
 class FFmpegInput(BaseModel):
     md5_hash: str
     file_path: str
@@ -25,6 +40,22 @@ class FFmpegInput(BaseModel):
         return FFmpegInput(md5_hash=md5_hash, file_path=file_path, duration=duration_seconds)
 
 
+class VideoProbeResult(FFmpegInput):
+    """FFmpegInput extended with full stream metadata for VideoDetails."""
+    width: int | None = None
+    height: int | None = None
+    frame_rate: float | None = None
+    frame_rate_verbose: str | None = None
+    video_codec: str | None = None
+    bit_depth: int | None = None
+    audio_codec: str | None = None
+    audio_bit_depth: int | None = None
+    audio_sample_rate: int | None = None
+    audio_channels: int | None = None
+    duration_tc: str | None = None
+    recorded_at: str | None = None
+
+
 class ClipPreview(BaseModel):
     md5_hash: str
     frames: int
@@ -38,21 +69,63 @@ class ClipPreview(BaseModel):
 
 class FFprobe:
 
-    def probe_file(self, md5_hash: str, file_path: str) -> FFmpegInput | None:
+    def probe_file(self, md5_hash: str, file_path: str) -> VideoProbeResult | None:
         command = [
             "ffprobe",
             "-i", file_path,
             "-v", "quiet",
             "-print_format", "json",
-            "-show_format"
+            "-show_format",
+            "-show_streams",
         ]
         result = subprocess.run(command, capture_output=True, text=True)
-        info = json.loads(result.stdout)
+        try:
+            info = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return None
+
         if 'format' not in info:
             return None
 
-        duration = int(float(info['format']['duration']))
-        return FFmpegInput(md5_hash=md5_hash, file_path=file_path, duration=duration)
+        duration = int(float(info['format'].get('duration', 0)))
+        tags = info['format'].get('tags', {})
+        recorded_at = tags.get('creation_time') or tags.get('com.apple.quicktime.creationdate')
+
+        streams = info.get('streams', [])
+        video = next((s for s in streams if s.get('codec_type') == 'video'), None)
+        audio = next((s for s in streams if s.get('codec_type') == 'audio'), None)
+
+        probe = VideoProbeResult(
+            md5_hash=md5_hash,
+            file_path=file_path,
+            duration=duration,
+            duration_tc=_seconds_to_tc(duration),
+            recorded_at=recorded_at,
+        )
+
+        if video:
+            probe.width = video.get('width')
+            probe.height = video.get('height')
+            probe.video_codec = video.get('codec_name')
+            fr = video.get('r_frame_rate') or video.get('avg_frame_rate')
+            if fr:
+                probe.frame_rate_verbose = fr
+                probe.frame_rate = _eval_frame_rate(fr)
+            bps = video.get('bits_per_raw_sample')
+            if bps and str(bps) != '0':
+                probe.bit_depth = int(bps)
+
+        if audio:
+            probe.audio_codec = audio.get('codec_name')
+            sr = audio.get('sample_rate')
+            if sr:
+                probe.audio_sample_rate = int(sr)
+            probe.audio_channels = audio.get('channels')
+            ab = audio.get('bits_per_raw_sample')
+            if ab and str(ab) != '0':
+                probe.audio_bit_depth = int(ab)
+
+        return probe
 
 
 class FFmpeg:
@@ -62,10 +135,7 @@ class FFmpeg:
         self._identifier = identifier
 
     def _seconds_to_timecode(self, seconds: int) -> str:
-        hh = seconds // 3600
-        mm = (seconds % 3600) // 60
-        ss = seconds % 60
-        return f'{hh:02}:{mm:02}:{ss:02}'
+        return _seconds_to_tc(seconds)
 
     def timestamp_for_keyframes(self, video: FFmpegInput, padding: int = 1, max_keyframes: int = 5) -> [str]:
 
@@ -114,7 +184,7 @@ class FFmpeg:
         images = [Image.open(frame_file) for frame_file in frame_files]
         total_width = sum(image.width for image in images) + padding * (len(images) - 1)
         max_height = max(image.height for image in images)
-        new_image = Image.new('RGB', (total_width, max_height), (0, 0, 0))  # Schwarz als Hintergrund
+        new_image = Image.new('RGB', (total_width, max_height), (0, 0, 0))
 
         x_offset = 0
         for image in images:
