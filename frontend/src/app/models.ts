@@ -1,6 +1,7 @@
 export interface Config {
   root_dir: string;
   task_poll_interval_ms: number;
+  browser_hidden_extensions: string[];
 }
 
 export type TaskStatus = 'PENDING' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
@@ -43,6 +44,8 @@ export interface DirectoryQuery {
   page_size?: number;
 }
 
+export type MediaType = 'video' | 'photo' | '360_video' | '360_photo';
+
 export interface FileInfo {
   name: string;
   path: string;
@@ -51,5 +54,6 @@ export interface FileInfo {
   modified_at: string;
   tracked: boolean;
   md5_hash: string | null;
+  media_type: MediaType | null;
   last_indexed_at: string | null;
 }
