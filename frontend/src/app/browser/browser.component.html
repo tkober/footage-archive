@@ -35,6 +35,9 @@
               </svg>
             }
             <span class="name">{{ entry.name }}</span>
+            @if (entry.tracked) {
+              <span class="tracked-badge">tracked</span>
+            }
             @if (entry.file_extension) {
               <span class="ext">{{ entry.file_extension }}</span>
             }

@@ -24,6 +24,7 @@ export interface PathChild {
   path: string;
   type: PathType;
   file_extension: string | null;
+  tracked: boolean | null;
 }
 
 export interface DirectoryResponse {

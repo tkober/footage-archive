@@ -72,6 +72,15 @@ class Database:
         self._connection.execute(f'DROP TABLE IF EXISTS {table}_{temp_table_suffix}')
         self._connection.commit()
 
+    def get_tracked_filenames_in_directory(self, directory: str) -> set:
+        self.connect()
+        cursor = self._connection.execute(
+            'SELECT file_name FROM Files WHERE directory = ?', (directory,)
+        )
+        result = {row[0] for row in cursor.fetchall()}
+        self.disconnect()
+        return result
+
     def get_file_by_path(self, file_path: str) -> Optional[dict]:
         p = Path(file_path)
         self.connect()

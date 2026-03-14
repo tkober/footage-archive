@@ -131,6 +131,16 @@
   flex: 1;
 }
 
+.tracked-badge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #15803d;
+  background: #dcfce7;
+  padding: 1px 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
 .ext {
   font-size: 0.75rem;
   color: #a1a1aa;

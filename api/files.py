@@ -25,12 +25,15 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
     if not path.is_dir():
         raise HTTPException(status_code=400, detail='Path is not a directory')
 
+    tracked = Database().get_tracked_filenames_in_directory(str(path))
+
     entries = [
         PathChild(
             name=e.name,
             path=str(e),
             type=PathType.DIRECTORY if e.is_dir() else PathType.FILE,
-            file_extension=e.suffix.lower() or None
+            file_extension=e.suffix.lower() or None,
+            tracked=e.name in tracked if e.is_file() else None,
         )
         for e in path.iterdir()
     ]

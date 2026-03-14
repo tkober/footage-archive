@@ -41,6 +41,7 @@ class PathChild(BaseModel):
     path: StrictStr
     type: PathType
     file_extension: Optional[StrictStr]
+    tracked: Optional[bool] = None
 
 
 class DirectoryResponse(BaseModel):
