@@ -133,7 +133,7 @@ export class BrowserComponent implements OnInit {
       ? this.api.scanDirectory(entry.path)
       : this.api.trackFile(entry.path);
 
-    call.subscribe();
+    call.subscribe({ next: () => this.api.taskRefresh$.next() });
   }
 
   formatBytes(bytes: number): string {

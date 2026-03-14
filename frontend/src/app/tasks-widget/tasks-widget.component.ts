@@ -29,6 +29,8 @@ export class TasksWidgetComponent implements OnInit, OnDestroy {
     this.pollSub = timer(0, this.pollIntervalMs)
       .pipe(switchMap(() => this.api.getTasks()))
       .subscribe({ next: tasks => this.tasks.set(tasks) });
+
+    this.api.taskRefresh$.subscribe(() => this.refresh());
   }
 
   ngOnDestroy() {
