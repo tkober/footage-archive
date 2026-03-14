@@ -58,6 +58,7 @@ class FileDescriptor(PathChild):
 class ConfigResponse(BaseModel):
     root_dir: str
     task_poll_interval_ms: int
+    browser_hidden_extensions: list[str]
 
 
 class FileInfo(BaseModel):
@@ -68,4 +69,5 @@ class FileInfo(BaseModel):
     modified_at: str
     tracked: bool
     md5_hash: Optional[str] = None
+    media_type: Optional[str] = None
     last_indexed_at: Optional[str] = None

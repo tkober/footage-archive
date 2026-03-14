@@ -37,3 +37,23 @@ class Environment:
             .lower()
             .split(",")
         )
+
+    def get_media_type_map(self) -> dict[str, str]:
+        mapping = {}
+        defaults = {
+            "MEDIA_TYPE_VIDEO": ("video", ".mov,.mp4"),
+            "MEDIA_TYPE_PHOTO": ("photo", ".jpg,.jpeg,.rw2"),
+            "MEDIA_TYPE_360_VIDEO": ("360_video", ".insv"),
+            "MEDIA_TYPE_360_PHOTO": ("360_photo", ".insp,.dng"),
+        }
+        for env_var, (media_type, default) in defaults.items():
+            raw = self.loadEnvironmentVariable(env_var, default)
+            for ext in raw.lower().split(","):
+                ext = ext.strip()
+                if ext:
+                    mapping[ext] = media_type
+        return mapping
+
+    def get_browser_hidden_extensions(self) -> list[str]:
+        raw = self.loadEnvironmentVariable("BROWSER_HIDDEN_EXTENSIONS", ".xmp,.acr,.psd,.lrv")
+        return [e.strip().lower() for e in raw.split(",") if e.strip()]
