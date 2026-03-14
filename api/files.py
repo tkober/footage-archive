@@ -3,15 +3,21 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
 from api.dtos import DirectoryQuery, DirectoryResponse, FileQuery, PathChild, PathType, FileDescriptor, SortField, SortOrder
+from env.environment import Environment
 from scanner.scanner import Scanner
 
 FilesApi = APIRouter(prefix='/files')
 
+_env = Environment()
+
 
 @FilesApi.post('/directory')
 async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
-    path = Path(query.path)
+    root = Path(_env.get_root_dir())
+    path = Path(query.path).resolve()
 
+    if not path.is_relative_to(root):
+        raise HTTPException(status_code=403, detail='Access outside root directory is not allowed')
     if not path.exists():
         raise HTTPException(status_code=404, detail='Path does not exist')
     if not path.is_dir():

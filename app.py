@@ -10,6 +10,7 @@ from starlette.middleware.cors import CORSMiddleware
 load_dotenv()
 
 from api.base import BaseApi
+from api.config import ConfigApi
 from api.files import FilesApi
 from api.scanning import ScanningApi
 from api.tasks import TasksApi
@@ -30,6 +31,7 @@ logger = logging.getLogger(f'{__name__}')
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     application.include_router(BaseApi)
+    application.include_router(ConfigApi)
     application.include_router(FilesApi)
     application.include_router(ScanningApi)
     application.include_router(TasksApi)

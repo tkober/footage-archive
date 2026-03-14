@@ -52,3 +52,7 @@ class DirectoryResponse(BaseModel):
 
 class FileDescriptor(PathChild):
     md5_hash: StrictStr
+
+
+class ConfigResponse(BaseModel):
+    root_dir: str
