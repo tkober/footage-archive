@@ -64,6 +64,9 @@ export class BrowserComponent implements OnInit {
   private locMap: L.Map | null = null;
   private locMarker: L.Marker | null = null;
 
+  @ViewChild('detailMapContainer') detailMapContainerRef?: ElementRef<HTMLDivElement>;
+  private detailMap: L.Map | null = null;
+
   dirs        = computed(() => this.entries().filter(e => e.type === 'directory'));
   videoFiles  = computed(() => this.entries().filter(e => e.type === 'file' && VIDEO_TYPES.includes(e.media_type as any)));
   photoFiles  = computed(() => this.entries().filter(e => e.type === 'file' && PHOTO_TYPES.includes(e.media_type as any)));
@@ -99,6 +102,17 @@ export class BrowserComponent implements OnInit {
         setTimeout(() => this.initLocMap(), 0);
       } else {
         this.destroyLocMap();
+      }
+    });
+
+    effect(() => {
+      const loc = this.selectedFile()?.location;
+      const lat = loc?.latitude;
+      const lon = loc?.longitude;
+      if (lat != null && lon != null) {
+        setTimeout(() => this.initDetailMap(lat, lon), 0);
+      } else {
+        this.destroyDetailMap();
       }
     });
   }
@@ -384,6 +398,24 @@ export class BrowserComponent implements OnInit {
       });
     }
     this.locMap!.setView([lat, lon], Math.max(this.locMap!.getZoom(), 10));
+  }
+
+  private initDetailMap(lat: number, lon: number) {
+    const el = this.detailMapContainerRef?.nativeElement;
+    if (!el) return;
+    this.destroyDetailMap();
+    this.detailMap = L.map(el).setView([lat, lon], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19
+    }).addTo(this.detailMap);
+    const icon = L.divIcon({ className: 'loc-map-pin', iconSize: [16, 16], iconAnchor: [8, 8] });
+    L.marker([lat, lon], { icon }).addTo(this.detailMap);
+  }
+
+  private destroyDetailMap() {
+    this.detailMap?.remove();
+    this.detailMap = null;
   }
 
   locationGeo(loc: Location): string {

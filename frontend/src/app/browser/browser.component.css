@@ -662,6 +662,13 @@
   background: #dcfce7;
 }
 
+.detail-loc-map {
+  height: 200px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #e4e4e7;
+}
+
 .location-create-form {
   display: flex;
   flex-direction: column;
