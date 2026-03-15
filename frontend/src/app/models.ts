@@ -90,4 +90,5 @@ export interface FileInfo {
   last_indexed_at: string | null;
   video_details?: VideoDetails | null;
   photo_details?: PhotoDetails | null;
+  keywords?: string[];
 }

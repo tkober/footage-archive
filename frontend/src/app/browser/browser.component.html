@@ -373,6 +373,36 @@
             </div>
           </div>
 
+          @if (file.tracked && file.md5_hash) {
+            <div class="detail-section">
+              <span class="detail-section-label">Keywords</span>
+              <div class="keyword-pills">
+                @for (kw of (file.keywords ?? []); track kw) {
+                  <span class="keyword-pill">
+                    {{ kw }}
+                    <button class="keyword-remove" (click)="removeKeyword(kw)" title="Remove keyword">×</button>
+                  </span>
+                }
+              </div>
+              <div class="keyword-add-row">
+                <input
+                  class="keyword-input"
+                  list="keyword-suggestions"
+                  placeholder="Add keyword…"
+                  [value]="newKeywordValue()"
+                  (input)="newKeywordValue.set($any($event.target).value)"
+                  (keydown.enter)="addKeyword()"
+                  (keydown.escape)="$event.stopPropagation()" />
+                <datalist id="keyword-suggestions">
+                  @for (kw of keywordSuggestions(); track kw) {
+                    <option [value]="kw"></option>
+                  }
+                </datalist>
+                <button class="keyword-add-btn" (click)="addKeyword()">Add</button>
+              </div>
+            </div>
+          }
+
         </div>
       }
     </div>

@@ -12,6 +12,7 @@ load_dotenv()
 from api.base import BaseApi
 from api.config import ConfigApi
 from api.files import FilesApi
+from api.keywords import KeywordsApi
 from api.tracking import TrackingApi
 from api.tasks import TasksApi
 from api.troubleshoot import TroubleShootingApi
@@ -33,6 +34,7 @@ async def lifespan(application: FastAPI):
     application.include_router(BaseApi)
     application.include_router(ConfigApi)
     application.include_router(FilesApi)
+    application.include_router(KeywordsApi)
     application.include_router(TrackingApi)
     application.include_router(TasksApi)
     application.include_router(TroubleShootingApi)
@@ -41,7 +43,7 @@ async def lifespan(application: FastAPI):
 
 
 if __name__ == '__main__':
-    Database().connect().setup().disconnect()
+    Database().connect().migrate().setup().disconnect()
 
     app = FastAPI(
         title='Footage Archive',

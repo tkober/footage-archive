@@ -38,6 +38,15 @@ export class BrowserComponent implements OnInit {
   editingName = signal(false);
   editNameValue = signal('');
   renameError = signal<string | null>(null);
+  newKeywordValue = signal('');
+  allKeywords = signal<string[]>([]);
+  keywordSuggestions = computed(() => {
+    const input = this.newKeywordValue().toLowerCase();
+    const applied = new Set(this.selectedFile()?.keywords ?? []);
+    return this.allKeywords().filter(
+      kw => !applied.has(kw) && (input === '' || kw.toLowerCase().includes(input))
+    );
+  });
   @ViewChild('nameInput') nameInputRef?: ElementRef<HTMLInputElement>;
 
   dirs        = computed(() => this.entries().filter(e => e.type === 'directory'));
@@ -141,6 +150,7 @@ export class BrowserComponent implements OnInit {
         next: info => {
           this.selectedFile.set(info);
           this.loadingDetails.set(false);
+          this.api.getAllKeywords().subscribe({ next: kws => this.allKeywords.set(kws) });
         },
         error: () => this.loadingDetails.set(false),
       });
@@ -200,6 +210,33 @@ export class BrowserComponent implements OnInit {
   cancelNameEdit() {
     this.editingName.set(false);
     this.renameError.set(null);
+  }
+
+  private reloadFileDetails(path: string) {
+    this.api.getFileDetails(path).subscribe({
+      next: info => this.selectedFile.set(info),
+    });
+  }
+
+  addKeyword() {
+    const file = this.selectedFile();
+    const kw = this.newKeywordValue().trim();
+    if (!file?.md5_hash || !kw) return;
+    this.newKeywordValue.set('');
+    this.api.addKeyword(file.md5_hash, kw).subscribe({
+      next: () => {
+        this.reloadFileDetails(file.path);
+        this.api.getAllKeywords().subscribe({ next: kws => this.allKeywords.set(kws) });
+      },
+    });
+  }
+
+  removeKeyword(keyword: string) {
+    const file = this.selectedFile();
+    if (!file?.md5_hash) return;
+    this.api.removeKeyword(file.md5_hash, keyword).subscribe({
+      next: () => this.reloadFileDetails(file.path),
+    });
   }
 
   onBackgroundContextMenu(event: MouseEvent) {

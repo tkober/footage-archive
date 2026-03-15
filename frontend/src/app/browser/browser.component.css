@@ -507,3 +507,74 @@
   color: #a1a1aa;
   cursor: default;
 }
+
+/* Keywords */
+.keyword-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 24px;
+}
+
+.keyword-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.keyword-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #93c5fd;
+  font-size: 0.875rem;
+  padding: 0 2px;
+  line-height: 1;
+  transition: color 120ms ease;
+}
+
+.keyword-remove:hover {
+  color: #1d4ed8;
+}
+
+.keyword-add-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.keyword-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 3px 8px;
+  outline: none;
+  transition: border-color 120ms ease;
+}
+
+.keyword-input:focus {
+  border-color: #3b82f6;
+}
+
+.keyword-add-btn {
+  font-size: 0.8rem;
+  color: #3b82f6;
+  background: none;
+  border: 1px solid #bfdbfe;
+  border-radius: 4px;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.keyword-add-btn:hover {
+  background: #dbeafe;
+}

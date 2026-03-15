@@ -68,9 +68,11 @@ def _build_file_info(p: Path, db: Database) -> FileInfo:
     db_record = db.get_file_by_path(str(p))
     video_details = None
     photo_details = None
+    keywords = []
     if db_record:
         md5 = db_record['md5_hash']
         media_type = db_record['media_type']
+        keywords = db.get_keywords(md5)
         if media_type in ('video', '360_video'):
             raw = db.get_video_details(md5)
             if raw:
@@ -91,6 +93,7 @@ def _build_file_info(p: Path, db: Database) -> FileInfo:
         last_indexed_at=db_record['last_indexed_at'] if db_record else None,
         video_details=video_details,
         photo_details=photo_details,
+        keywords=keywords,
     )
 
 

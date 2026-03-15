@@ -47,4 +47,16 @@ export class ApiService {
   deleteTask(id: string): Observable<Task> {
     return this.http.delete<Task>(`${this.base}/tasks/${id}`);
   }
+
+  getAllKeywords(): Observable<string[]> {
+    return this.http.get<string[]>(`${this.base}/keywords/`);
+  }
+
+  addKeyword(md5Hash: string, keyword: string): Observable<void> {
+    return this.http.post<void>(`${this.base}/keywords/`, { md5_hash: md5Hash, keyword });
+  }
+
+  removeKeyword(md5Hash: string, keyword: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/keywords/`, { body: { md5_hash: md5Hash, keyword } });
+  }
 }

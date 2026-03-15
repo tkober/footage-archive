@@ -95,6 +95,11 @@ class RenameRequest(BaseModel):
     new_name: StrictStr
 
 
+class KeywordRequest(BaseModel):
+    md5_hash: StrictStr
+    keyword: StrictStr
+
+
 class FileInfo(BaseModel):
     name: str
     path: str
@@ -107,3 +112,4 @@ class FileInfo(BaseModel):
     last_indexed_at: Optional[str] = None
     video_details: Optional[VideoDetails] = None
     photo_details: Optional[PhotoDetails] = None
+    keywords: list[str] = []

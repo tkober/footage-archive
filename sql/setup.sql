@@ -74,12 +74,17 @@ CREATE TABLE IF NOT EXISTS PhotoDetails
 
 CREATE TABLE IF NOT EXISTS Keywords
 (
-    md5_hash TEXT,
-    keyword  TEXT,
-
-    PRIMARY KEY (md5_hash, keyword)
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    keyword TEXT UNIQUE NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx__Keywords__keyword ON Keywords (keyword);
+
+CREATE TABLE IF NOT EXISTS FileKeywords
+(
+    md5_hash   TEXT,
+    keyword_id INTEGER REFERENCES Keywords (id),
+    PRIMARY KEY (md5_hash, keyword_id)
+);
 
 CREATE TABLE IF NOT EXISTS ClipPreviews
 (

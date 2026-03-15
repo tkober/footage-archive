@@ -27,6 +27,30 @@ class Database:
 
         return self
 
+    def migrate(self) -> 'Database':
+        cursor = self._connection.execute("PRAGMA table_info(Keywords)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'md5_hash' in columns:
+            self._connection.executescript('''
+                CREATE TABLE IF NOT EXISTS Keywords_new (
+                    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                    keyword TEXT UNIQUE NOT NULL
+                );
+                INSERT OR IGNORE INTO Keywords_new (keyword) SELECT DISTINCT keyword FROM Keywords;
+                CREATE TABLE IF NOT EXISTS FileKeywords (
+                    md5_hash   TEXT,
+                    keyword_id INTEGER REFERENCES Keywords_new (id),
+                    PRIMARY KEY (md5_hash, keyword_id)
+                );
+                INSERT OR IGNORE INTO FileKeywords (md5_hash, keyword_id)
+                    SELECT k.md5_hash, kn.id FROM Keywords k
+                    JOIN Keywords_new kn ON k.keyword = kn.keyword;
+                DROP TABLE Keywords;
+                ALTER TABLE Keywords_new RENAME TO Keywords;
+            ''')
+            self._connection.commit()
+        return self
+
     def setup(self) -> 'Database':
         with open('sql/setup.sql', 'r') as f:
             script = f.read()
@@ -66,7 +90,14 @@ class Database:
 
     def insert_keywords(self, keywords: pd.DataFrame, identifier: str = generate_identifier()):
         self.connect()
-        self.__upsert_into_table(keywords, 'Keywords', temp_table_suffix=identifier)
+        for _, row in keywords[['md5_hash', 'keyword']].iterrows():
+            self._connection.execute(
+                'INSERT OR IGNORE INTO Keywords (keyword) VALUES (?)', (row['keyword'],))
+            self._connection.execute(
+                'INSERT OR IGNORE INTO FileKeywords (md5_hash, keyword_id) '
+                'SELECT ?, id FROM Keywords WHERE keyword = ?',
+                (row['md5_hash'], row['keyword']))
+        self._connection.commit()
         self.disconnect()
 
     def insert_clip_preview(self, clip_preview: ClipPreview, identifier: str = generate_identifier()):
@@ -156,6 +187,43 @@ class Database:
         )
         self._connection.commit()
         self.disconnect()
+
+    def get_keywords(self, md5_hash: str) -> list[str]:
+        self.connect()
+        cursor = self._connection.execute(
+            'SELECT k.keyword FROM Keywords k '
+            'JOIN FileKeywords fk ON k.id = fk.keyword_id '
+            'WHERE fk.md5_hash = ? ORDER BY k.keyword ASC', (md5_hash,))
+        rows = cursor.fetchall()
+        self.disconnect()
+        return [row[0] for row in rows]
+
+    def add_keyword(self, md5_hash: str, keyword: str) -> None:
+        self.connect()
+        self._connection.execute(
+            'INSERT OR IGNORE INTO Keywords (keyword) VALUES (?)', (keyword,))
+        self._connection.execute(
+            'INSERT OR IGNORE INTO FileKeywords (md5_hash, keyword_id) '
+            'SELECT ?, id FROM Keywords WHERE keyword = ?', (md5_hash, keyword))
+        self._connection.commit()
+        self.disconnect()
+
+    def delete_keyword(self, md5_hash: str, keyword: str) -> None:
+        self.connect()
+        self._connection.execute(
+            'DELETE FROM FileKeywords WHERE md5_hash = ? '
+            'AND keyword_id = (SELECT id FROM Keywords WHERE keyword = ?)',
+            (md5_hash, keyword))
+        self._connection.commit()
+        self.disconnect()
+
+    def get_all_keywords(self) -> list[str]:
+        self.connect()
+        cursor = self._connection.execute(
+            'SELECT keyword FROM Keywords ORDER BY keyword ASC')
+        rows = cursor.fetchall()
+        self.disconnect()
+        return [row[0] for row in rows]
 
     def get_clip_preview(self, md5_hash: str) -> bytes | None:
         self.connect()
