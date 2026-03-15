@@ -181,7 +181,10 @@
         }
 
         <div class="detail-content">
+
+          <!-- Filename header with tracking dot -->
           <div class="filename-wrap">
+            <span class="detail-track-dot" [class.is-tracked]="file.tracked"></span>
             @if (!editingName()) {
               <h1 class="detail-filename">{{ file.name }}</h1>
               <button class="edit-pen" (click)="startEditName()" title="Rename">
@@ -205,177 +208,9 @@
             }
           </div>
 
-          <div class="detail-section">
-            <span class="detail-section-label">File</span>
-            <div class="detail-meta-grid">
-              <div class="detail-meta-item">
-                <span class="detail-label">Size</span>
-                <span class="detail-value">{{ formatBytes(file.size_bytes) }}</span>
-              </div>
-              <div class="detail-meta-item">
-                <span class="detail-label">Modified</span>
-                <span class="detail-value">{{ file.modified_at | date:'yyyy-MM-dd HH:mm' }}</span>
-              </div>
-              @if (file.media_type) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Media type</span>
-                  <span class="detail-value">{{ file.media_type }}</span>
-                </div>
-              }
-              @if (file.file_extension) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Extension</span>
-                  <span class="detail-value detail-mono">{{ file.file_extension }}</span>
-                </div>
-              }
-              <div class="detail-meta-item detail-meta-wide">
-                <span class="detail-label">Path</span>
-                <span class="detail-value detail-path">{{ file.path }}</span>
-              </div>
-            </div>
-          </div>
-
-          @if (file.video_details; as vd) {
-            <div class="detail-section">
-              <span class="detail-section-label">Technical</span>
-              <div class="detail-meta-grid">
-                @if (vd.width && vd.height) {
-                  <div class="detail-meta-item">
-                    <span class="detail-label">Resolution</span>
-                    <span class="detail-value">{{ vd.width }}×{{ vd.height }}</span>
-                  </div>
-                }
-                @if (vd.duration_tc) {
-                  <div class="detail-meta-item">
-                    <span class="detail-label">Duration</span>
-                    <span class="detail-value detail-mono">{{ vd.duration_tc }}</span>
-                  </div>
-                }
-                @if (vd.frame_rate) {
-                  <div class="detail-meta-item">
-                    <span class="detail-label">Frame rate</span>
-                    <span class="detail-value">{{ vd.frame_rate }} fps</span>
-                  </div>
-                }
-                @if (vd.video_codec) {
-                  <div class="detail-meta-item">
-                    <span class="detail-label">Video codec</span>
-                    <span class="detail-value detail-mono">{{ vd.video_codec }}</span>
-                  </div>
-                }
-                @if (vd.bit_depth) {
-                  <div class="detail-meta-item">
-                    <span class="detail-label">Bit depth</span>
-                    <span class="detail-value">{{ vd.bit_depth }}-bit</span>
-                  </div>
-                }
-                @if (vd.audio_codec) {
-                  <div class="detail-meta-item">
-                    <span class="detail-label">Audio codec</span>
-                    <span class="detail-value detail-mono">{{ vd.audio_codec }}</span>
-                  </div>
-                }
-                @if (vd.audio_sample_rate) {
-                  <div class="detail-meta-item">
-                    <span class="detail-label">Sample rate</span>
-                    <span class="detail-value">{{ vd.audio_sample_rate / 1000 }} kHz</span>
-                  </div>
-                }
-                @if (vd.audio_channels) {
-                  <div class="detail-meta-item">
-                    <span class="detail-label">Channels</span>
-                    <span class="detail-value">{{ vd.audio_channels }}</span>
-                  </div>
-                }
-              </div>
-            </div>
-          }
-
-          @if (file.photo_details; as pd) {
-            <div class="detail-section">
-              <span class="detail-section-label">Technical</span>
-              <div class="detail-meta-grid">
-                @if (pd.width && pd.height) {
-                  <div class="detail-meta-item">
-                    <span class="detail-label">Resolution</span>
-                    <span class="detail-value">{{ pd.width }}×{{ pd.height }}</span>
-                  </div>
-                }
-                @if (pd.camera_make || pd.camera_model) {
-                  <div class="detail-meta-item">
-                    <span class="detail-label">Camera</span>
-                    <span class="detail-value">{{ pd.camera_make }} {{ pd.camera_model }}</span>
-                  </div>
-                }
-                @if (pd.iso) {
-                  <div class="detail-meta-item">
-                    <span class="detail-label">ISO</span>
-                    <span class="detail-value">{{ pd.iso }}</span>
-                  </div>
-                }
-                @if (pd.aperture) {
-                  <div class="detail-meta-item">
-                    <span class="detail-label">Aperture</span>
-                    <span class="detail-value">f/{{ pd.aperture }}</span>
-                  </div>
-                }
-                @if (pd.shutter_speed) {
-                  <div class="detail-meta-item">
-                    <span class="detail-label">Shutter</span>
-                    <span class="detail-value detail-mono">{{ pd.shutter_speed }}</span>
-                  </div>
-                }
-                @if (pd.focal_length) {
-                  <div class="detail-meta-item">
-                    <span class="detail-label">Focal length</span>
-                    <span class="detail-value">{{ pd.focal_length }} mm</span>
-                  </div>
-                }
-                @if (pd.bit_depth) {
-                  <div class="detail-meta-item">
-                    <span class="detail-label">Bit depth</span>
-                    <span class="detail-value">{{ pd.bit_depth }}-bit</span>
-                  </div>
-                }
-                @if (pd.color_space) {
-                  <div class="detail-meta-item">
-                    <span class="detail-label">Color space</span>
-                    <span class="detail-value">{{ pd.color_space }}</span>
-                  </div>
-                }
-              </div>
-            </div>
-          }
-
-          <div class="detail-section">
-            <span class="detail-section-label">Tracking</span>
-            <div class="detail-meta-grid">
-              <div class="detail-meta-item">
-                <span class="detail-label">Tracked</span>
-                @if (file.tracked) {
-                  <span class="badge badge-tracked">Yes</span>
-                } @else {
-                  <span class="badge badge-untracked">No</span>
-                }
-              </div>
-              @if (file.md5_hash) {
-                <div class="detail-meta-item detail-meta-wide">
-                  <span class="detail-label">MD5</span>
-                  <span class="detail-value detail-mono">{{ file.md5_hash }}</span>
-                </div>
-              }
-              @if (file.last_indexed_at) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Indexed</span>
-                  <span class="detail-value">{{ file.last_indexed_at | date:'yyyy-MM-dd HH:mm' }}</span>
-                </div>
-              }
-            </div>
-          </div>
-
+          <!-- Keywords — directly below filename, no section label -->
           @if (file.tracked && file.md5_hash) {
-            <div class="detail-section">
-              <span class="detail-section-label">Keywords</span>
+            <div class="detail-keywords">
               <div class="keyword-pills">
                 @for (kw of (file.keywords ?? []); track kw) {
                   <span class="keyword-pill">
@@ -401,40 +236,207 @@
                 <button class="keyword-add-btn" (click)="addKeyword()">Add</button>
               </div>
             </div>
+          }
 
-            <div class="detail-section">
-              <span class="detail-section-label">Location</span>
-              @if (file.location) {
-                <div class="location-assigned">
-                  <div class="location-pill">
-                    <span class="location-pill-name">{{ locationName(file.location) }}</span>
-                    @if (file.location.name && locationGeo(file.location)) {
-                      <span class="location-pill-geo">{{ locationGeo(file.location) }}</span>
+          <!-- Two-column body: info left, location right -->
+          <div class="detail-body-cols" [class.two-col]="file.tracked && file.md5_hash">
+
+            <div class="detail-col-info">
+
+              <div class="detail-section">
+                <span class="detail-section-label">File</span>
+                <div class="detail-meta-grid">
+                  <div class="detail-meta-item">
+                    <span class="detail-label">Size</span>
+                    <span class="detail-value">{{ formatBytes(file.size_bytes) }}</span>
+                  </div>
+                  <div class="detail-meta-item">
+                    <span class="detail-label">Modified</span>
+                    <span class="detail-value">{{ file.modified_at | date:'yyyy-MM-dd HH:mm' }}</span>
+                  </div>
+                  @if (file.media_type) {
+                    <div class="detail-meta-item">
+                      <span class="detail-label">Media type</span>
+                      <span class="detail-value">{{ file.media_type }}</span>
+                    </div>
+                  }
+                  @if (file.file_extension) {
+                    <div class="detail-meta-item">
+                      <span class="detail-label">Extension</span>
+                      <span class="detail-value detail-mono">{{ file.file_extension }}</span>
+                    </div>
+                  }
+                  @if (file.last_indexed_at) {
+                    <div class="detail-meta-item">
+                      <span class="detail-label">Indexed</span>
+                      <span class="detail-value">{{ file.last_indexed_at | date:'yyyy-MM-dd HH:mm' }}</span>
+                    </div>
+                  }
+                  <div class="detail-meta-item detail-meta-wide">
+                    <span class="detail-label">Path</span>
+                    <span class="detail-value detail-path">{{ file.path }}</span>
+                  </div>
+                  @if (file.md5_hash) {
+                    <div class="detail-meta-item detail-meta-wide">
+                      <span class="detail-label">MD5</span>
+                      <span class="detail-value detail-mono">{{ file.md5_hash }}</span>
+                    </div>
+                  }
+                </div>
+              </div>
+
+              @if (file.video_details; as vd) {
+                <div class="detail-section">
+                  <span class="detail-section-label">Technical</span>
+                  <div class="detail-meta-grid">
+                    @if (vd.width && vd.height) {
+                      <div class="detail-meta-item">
+                        <span class="detail-label">Resolution</span>
+                        <span class="detail-value">{{ vd.width }}×{{ vd.height }}</span>
+                      </div>
+                    }
+                    @if (vd.duration_tc) {
+                      <div class="detail-meta-item">
+                        <span class="detail-label">Duration</span>
+                        <span class="detail-value detail-mono">{{ vd.duration_tc }}</span>
+                      </div>
+                    }
+                    @if (vd.frame_rate) {
+                      <div class="detail-meta-item">
+                        <span class="detail-label">Frame rate</span>
+                        <span class="detail-value">{{ vd.frame_rate }} fps</span>
+                      </div>
+                    }
+                    @if (vd.video_codec) {
+                      <div class="detail-meta-item">
+                        <span class="detail-label">Video codec</span>
+                        <span class="detail-value detail-mono">{{ vd.video_codec }}</span>
+                      </div>
+                    }
+                    @if (vd.bit_depth) {
+                      <div class="detail-meta-item">
+                        <span class="detail-label">Bit depth</span>
+                        <span class="detail-value">{{ vd.bit_depth }}-bit</span>
+                      </div>
+                    }
+                    @if (vd.audio_codec) {
+                      <div class="detail-meta-item">
+                        <span class="detail-label">Audio codec</span>
+                        <span class="detail-value detail-mono">{{ vd.audio_codec }}</span>
+                      </div>
+                    }
+                    @if (vd.audio_sample_rate) {
+                      <div class="detail-meta-item">
+                        <span class="detail-label">Sample rate</span>
+                        <span class="detail-value">{{ vd.audio_sample_rate / 1000 }} kHz</span>
+                      </div>
+                    }
+                    @if (vd.audio_channels) {
+                      <div class="detail-meta-item">
+                        <span class="detail-label">Channels</span>
+                        <span class="detail-value">{{ vd.audio_channels }}</span>
+                      </div>
                     }
                   </div>
-                  <button class="location-remove" (click)="assignLocation(null)" title="Remove location">✕</button>
                 </div>
-                @if (file.location.latitude != null && file.location.longitude != null) {
-                  <div #detailMapContainer class="detail-loc-map"></div>
-                }
               }
-              <div class="location-assign-row">
-                <select class="location-select"
-                        (change)="assignLocation(+$any($event.target).value || null)">
-                  <option value="">— select location —</option>
-                  @for (loc of allLocations(); track loc.id) {
-                    <option [value]="loc.id" [selected]="file.location?.id === loc.id">
-                      {{ formatLocation(loc) }}
-                    </option>
+
+              @if (file.photo_details; as pd) {
+                <div class="detail-section">
+                  <span class="detail-section-label">Technical</span>
+                  <div class="detail-meta-grid">
+                    @if (pd.width && pd.height) {
+                      <div class="detail-meta-item">
+                        <span class="detail-label">Resolution</span>
+                        <span class="detail-value">{{ pd.width }}×{{ pd.height }}</span>
+                      </div>
+                    }
+                    @if (pd.camera_make || pd.camera_model) {
+                      <div class="detail-meta-item">
+                        <span class="detail-label">Camera</span>
+                        <span class="detail-value">{{ pd.camera_make }} {{ pd.camera_model }}</span>
+                      </div>
+                    }
+                    @if (pd.iso) {
+                      <div class="detail-meta-item">
+                        <span class="detail-label">ISO</span>
+                        <span class="detail-value">{{ pd.iso }}</span>
+                      </div>
+                    }
+                    @if (pd.aperture) {
+                      <div class="detail-meta-item">
+                        <span class="detail-label">Aperture</span>
+                        <span class="detail-value">f/{{ pd.aperture }}</span>
+                      </div>
+                    }
+                    @if (pd.shutter_speed) {
+                      <div class="detail-meta-item">
+                        <span class="detail-label">Shutter</span>
+                        <span class="detail-value detail-mono">{{ pd.shutter_speed }}</span>
+                      </div>
+                    }
+                    @if (pd.focal_length) {
+                      <div class="detail-meta-item">
+                        <span class="detail-label">Focal length</span>
+                        <span class="detail-value">{{ pd.focal_length }} mm</span>
+                      </div>
+                    }
+                    @if (pd.bit_depth) {
+                      <div class="detail-meta-item">
+                        <span class="detail-label">Bit depth</span>
+                        <span class="detail-value">{{ pd.bit_depth }}-bit</span>
+                      </div>
+                    }
+                    @if (pd.color_space) {
+                      <div class="detail-meta-item">
+                        <span class="detail-label">Color space</span>
+                        <span class="detail-value">{{ pd.color_space }}</span>
+                      </div>
+                    }
+                  </div>
+                </div>
+              }
+
+            </div><!-- /detail-col-info -->
+
+            @if (file.tracked && file.md5_hash) {
+              <div class="detail-col-location">
+                <div class="detail-section">
+                  <span class="detail-section-label">Location</span>
+                  @if (file.location) {
+                    <div class="location-assigned">
+                      <div class="location-pill">
+                        <span class="location-pill-name">{{ locationName(file.location) }}</span>
+                        @if (file.location.name && locationGeo(file.location)) {
+                          <span class="location-pill-geo">{{ locationGeo(file.location) }}</span>
+                        }
+                      </div>
+                      <button class="location-remove" (click)="assignLocation(null)" title="Remove location">✕</button>
+                    </div>
+                    @if (file.location.latitude != null && file.location.longitude != null) {
+                      <div #detailMapContainer class="detail-loc-map"></div>
+                    }
                   }
-                </select>
-                <button class="location-new-btn"
-                        (click)="showCreateLocation.set(true)">
-                  + New
-                </button>
+                  <div class="location-assign-row">
+                    <select class="location-select"
+                            (change)="assignLocation(+$any($event.target).value || null)">
+                      <option value="">— select location —</option>
+                      @for (loc of allLocations(); track loc.id) {
+                        <option [value]="loc.id" [selected]="file.location?.id === loc.id">
+                          {{ formatLocation(loc) }}
+                        </option>
+                      }
+                    </select>
+                    <button class="location-new-btn"
+                            (click)="showCreateLocation.set(true)">
+                      + New
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
-          }
+            }
+
+          </div><!-- /detail-body-cols -->
 
         </div>
       }
