@@ -59,6 +59,7 @@
             <button class="bulk-action-btn"
                     (click)="bulkAssignLocation()"
                     [disabled]="bulkApplying() || !bulkLocationId() || !bulkSelected().size">Assign</button>
+            <button class="bulk-new-loc-btn" (click)="showCreateLocation.set(true)">+ New</button>
             <button class="bulk-done-btn" (click)="exitBulkMode()">Done</button>
           </div>
         </div>

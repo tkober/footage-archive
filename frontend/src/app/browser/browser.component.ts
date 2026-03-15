@@ -211,6 +211,7 @@ export class BrowserComponent implements OnInit {
   onEscapeKey() {
     if (this.showCreateLocation()) return; // modal handles its own ESC
     if (this.showDetail()) this.closeDetails();
+    else if (this.bulkMode()) this.exitBulkMode();
   }
 
   closeDetails() {
@@ -318,7 +319,11 @@ export class BrowserComponent implements OnInit {
     }).subscribe({
       next: (loc) => {
         this.allLocations.update(list => [...list, loc]);
-        this.assignLocation(loc.id);
+        if (this.bulkMode()) {
+          this.bulkAssignLocation(loc.id);
+        } else {
+          this.assignLocation(loc.id);
+        }
         this.cancelCreateLocation();
       },
     });
@@ -529,8 +534,8 @@ export class BrowserComponent implements OnInit {
     });
   }
 
-  bulkAssignLocation() {
-    const locationId = +this.bulkLocationId() || null;
+  bulkAssignLocation(locationIdOverride?: number) {
+    const locationId = locationIdOverride ?? (+this.bulkLocationId() || null);
     if (!locationId) return;
     const targets = this.bulkTrackedEntries();
     if (!targets.length) return;
