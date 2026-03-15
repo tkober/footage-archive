@@ -5,7 +5,7 @@ import { switchMap, map, tap } from 'rxjs';
 
 import { ContextMenuComponent } from './context-menu/context-menu.component';
 import { ApiService } from '../services/api.service';
-import { FileInfo, PathChild } from '../models';
+import { FileInfo, PathChild, VIDEO_TYPES, PHOTO_TYPES } from '../models';
 
 const PAGE_SIZE = 50;
 
@@ -39,11 +39,17 @@ export class BrowserComponent implements OnInit {
   private resizeStartX = 0;
   private resizeStartWidth = 0;
 
+  dirs        = computed(() => this.entries().filter(e => e.type === 'directory'));
+  videoFiles  = computed(() => this.entries().filter(e => e.type === 'file' && VIDEO_TYPES.includes(e.media_type as any)));
+  photoFiles  = computed(() => this.entries().filter(e => e.type === 'file' && PHOTO_TYPES.includes(e.media_type as any)));
+  untrackedFiles  = computed(() => this.entries().filter(
+    e => e.type === 'file' && !VIDEO_TYPES.includes(e.media_type as any) && !PHOTO_TYPES.includes(e.media_type as any)
+  ));
   hasMore = computed(() => this.entries().length < this.total());
 
   previewUrl = computed(() => {
     const file = this.selectedFile();
-    if (!file?.md5_hash || !file.media_type?.includes('video')) return null;
+    if (!file?.md5_hash || !VIDEO_TYPES.includes(file.media_type as any)) return null;
     return this.api.clipPreviewUrl(file.md5_hash);
   });
 
@@ -189,7 +195,7 @@ export class BrowserComponent implements OnInit {
   }
 
   entryPreviewUrl(entry: PathChild): string | null {
-    if (!entry.md5_hash || !entry.media_type?.includes('video')) return null;
+    if (!entry.md5_hash || !VIDEO_TYPES.includes(entry.media_type as any)) return null;
     return this.api.clipPreviewUrl(entry.md5_hash);
   }
 }

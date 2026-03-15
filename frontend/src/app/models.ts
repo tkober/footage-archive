@@ -48,6 +48,9 @@ export interface DirectoryQuery {
 
 export type MediaType = 'video' | 'photo' | '360_video' | '360_photo';
 
+export const VIDEO_TYPES: MediaType[] = ['video', '360_video'];
+export const PHOTO_TYPES: MediaType[] = ['photo', '360_photo'];
+
 export interface FileInfo {
   name: string;
   path: string;

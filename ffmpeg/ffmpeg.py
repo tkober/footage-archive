@@ -142,36 +142,23 @@ class FFmpeg:
         ss = seconds % 60
         return f'{hh:02}:{mm:02}:{ss:02}'
 
-    def timestamp_for_keyframes(self, video: FFmpegInput, padding: int = 1, max_keyframes: int = 5) -> [str]:
-
-        if video.duration >= padding * 3:
-            steps = (video.duration - padding) / max_keyframes
-            result = [
-                math.floor((i + 1) * steps)
-                for i in range(max_keyframes)
-            ]
-            result = [
-                i for i in result
-                if padding <= i <= (video.duration - padding)
-            ]
-            result = [self._seconds_to_timecode(i) for i in set(result)]
-            result.sort()
-            return result
-
-        if video.duration >= padding * 2:
-            return [str(self._seconds_to_timecode(padding))]
-
-        return [str(self._seconds_to_timecode(0))]
+    def timestamp_for_keyframes(self, video: FFmpegInput, max_keyframes: int = 5) -> list[str]:
+        if video.duration <= 0:
+            return [self._seconds_to_timecode(0)]
+        step = video.duration / (max_keyframes + 1)
+        timestamps = sorted(set(math.floor(step * (i + 1)) for i in range(max_keyframes)))
+        return [self._seconds_to_timecode(t) for t in timestamps]
 
     def generate_clip_preview(
             self,
             video: FFmpegInput,
             width=320,
             height=180,
-            padding=10
+            padding=10,
+            max_keyframes=5
     ) -> ClipPreview:
         frame_files = []
-        timestamps = self.timestamp_for_keyframes(video)
+        timestamps = self.timestamp_for_keyframes(video, max_keyframes=max_keyframes)
         for i, timestamp in enumerate(timestamps):
             frame_file = f"{self._identifier}_{i}.jpeg"
             command = [
@@ -194,6 +181,8 @@ class FFmpeg:
             return None
 
         images = [Image.open(frame_file) for frame_file in frame_files]
+        while len(images) < max_keyframes:
+            images.append(images[-1].copy())
         total_width = sum(image.width for image in images) + padding * (len(images) - 1)
         max_height = max(image.height for image in images)
         new_image = Image.new('RGB', (total_width, max_height), (0, 0, 0))

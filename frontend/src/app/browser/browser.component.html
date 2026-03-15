@@ -18,48 +18,121 @@
     } @else if (error()) {
       <div class="state-msg error">{{ error() }}</div>
     } @else {
-      <div class="entry-list">
-        @for (entry of entries(); track entry.path) {
-          @if (entryPreviewUrl(entry); as thumbUrl) {
-            <div class="entry entry-card"
-                 [class.selected]="selectedFile()?.path === entry.path"
-                 (click)="onEntryClick(entry)"
-                 (contextmenu)="onEntryContextMenu($event, entry)">
-              <div class="entry-info">
-                <span class="tracked-dot is-tracked"></span>
-                <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
-                </svg>
-                <span class="name">{{ entry.name }}</span>
-                @if (entry.file_extension) {
-                  <span class="ext">{{ entry.file_extension }}</span>
-                }
-              </div>
-              <img class="entry-strip" [src]="thumbUrl" alt="" />
-            </div>
-          } @else {
-            <div class="entry"
-                 [class.dir]="entry.type === 'directory'"
-                 [class.selected]="selectedFile()?.path === entry.path"
-                 (click)="onEntryClick(entry)"
-                 (contextmenu)="onEntryContextMenu($event, entry)">
-              <span class="tracked-dot" [class.is-tracked]="entry.tracked === true"></span>
-              @if (entry.type === 'directory') {
-                <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+      <div class="list-column">
+
+        @if (dirs().length) {
+          <div class="dirs-row">
+            @for (dir of dirs(); track dir.path) {
+              <button class="dir-chip"
+                      (click)="navigateTo(dir.path)"
+                      (contextmenu)="onEntryContextMenu($event, dir)">
+                <svg class="chip-icon" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>
                 </svg>
-              } @else {
-                <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
-                </svg>
-              }
-              <span class="name">{{ entry.name }}</span>
-              @if (entry.file_extension) {
-                <span class="ext">{{ entry.file_extension }}</span>
+                {{ dir.name }}
+              </button>
+            }
+          </div>
+        }
+
+        @if (videoFiles().length) {
+          <div class="grid-section">
+            <span class="section-label">Videos</span>
+            <div class="file-grid video-grid">
+              @for (entry of videoFiles(); track entry.path) {
+                @if (entryPreviewUrl(entry); as thumbUrl) {
+                  <div class="file-card"
+                       [class.selected]="selectedFile()?.path === entry.path"
+                       (click)="onEntryClick(entry)"
+                       (contextmenu)="onEntryContextMenu($event, entry)">
+                    <img class="card-strip" [src]="thumbUrl" alt="" />
+                    <div class="card-footer">
+                      <span class="tracked-dot" [class.is-tracked]="entry.tracked === true"></span>
+                      <span class="card-name">{{ entry.name }}</span>
+                      @if (entry.file_extension) {
+                        <span class="ext">{{ entry.file_extension }}</span>
+                      }
+                    </div>
+                  </div>
+                } @else {
+                  <div class="file-card"
+                       [class.selected]="selectedFile()?.path === entry.path"
+                       (click)="onEntryClick(entry)"
+                       (contextmenu)="onEntryContextMenu($event, entry)">
+                    <div class="placeholder-thumb video-thumb">
+                      <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
+                      </svg>
+                    </div>
+                    <div class="card-footer">
+                      <span class="tracked-dot" [class.is-tracked]="entry.tracked === true"></span>
+                      <span class="card-name">{{ entry.name }}</span>
+                      @if (entry.file_extension) {
+                        <span class="ext">{{ entry.file_extension }}</span>
+                      }
+                    </div>
+                  </div>
+                }
               }
             </div>
-          }
-        } @empty {
+          </div>
+        }
+
+        @if (photoFiles().length) {
+          <div class="grid-section">
+            <span class="section-label">Stills</span>
+            <div class="file-grid stills-grid">
+              @for (entry of photoFiles(); track entry.path) {
+                <div class="file-card"
+                     [class.selected]="selectedFile()?.path === entry.path"
+                     (click)="onEntryClick(entry)"
+                     (contextmenu)="onEntryContextMenu($event, entry)">
+                  <div class="placeholder-thumb photo-thumb">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                    </svg>
+                  </div>
+                  <div class="card-footer">
+                    <span class="tracked-dot" [class.is-tracked]="entry.tracked === true"></span>
+                    <span class="card-name">{{ entry.name }}</span>
+                    @if (entry.file_extension) {
+                      <span class="ext">{{ entry.file_extension }}</span>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
+        }
+
+        @if (untrackedFiles().length) {
+          <div class="grid-section">
+            <span class="section-label">Untracked</span>
+            <div class="file-grid stills-grid">
+              @for (entry of untrackedFiles(); track entry.path) {
+                <div class="file-card"
+                     [class.selected]="selectedFile()?.path === entry.path"
+                     (click)="onEntryClick(entry)"
+                     (contextmenu)="onEntryContextMenu($event, entry)">
+                  <div class="placeholder-thumb">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                    </svg>
+                  </div>
+                  <div class="card-footer">
+                    <span class="tracked-dot" [class.is-tracked]="entry.tracked === true"></span>
+                    <span class="card-name">{{ entry.name }}</span>
+                    @if (entry.file_extension) {
+                      <span class="ext">{{ entry.file_extension }}</span>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
+        }
+
+        @if (!dirs().length && !videoFiles().length && !photoFiles().length && !untrackedFiles().length) {
           <div class="state-msg empty">This directory is empty.</div>
         }
 
@@ -75,6 +148,7 @@
             <span class="count">Showing all {{ total() }} items</span>
           </div>
         }
+
       </div>
     }
 
