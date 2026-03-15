@@ -113,9 +113,9 @@ export class BrowserComponent implements OnInit {
     });
 
     effect(() => {
-      const loc = this.selectedFile()?.location;
-      const lat = loc?.latitude;
-      const lon = loc?.longitude;
+      const file = this.selectedFile();
+      const lat = file?.location?.latitude ?? file?.latitude;
+      const lon = file?.location?.longitude ?? file?.longitude;
       if (lat != null && lon != null) {
         setTimeout(() => this.initDetailMap(lat, lon), 0);
       } else {

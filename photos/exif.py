@@ -21,6 +21,8 @@ class PhotoProbeResult(BaseModel):
     color_space: str | None = None
     bit_depth: int | None = None
     recorded_at: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 def probe_photo(md5_hash: str, file_path: str) -> PhotoProbeResult | None:
@@ -71,6 +73,11 @@ def probe_photo(md5_hash: str, file_path: str) -> PhotoProbeResult | None:
         if bps is not None:
             result.bit_depth = _int(bps[0] if isinstance(bps, tuple) else bps)
 
+        gps = exif.get('GPSInfo')
+        if gps and isinstance(gps, dict):
+            result.latitude = _parse_gps_dms(gps.get(2), gps.get(1))
+            result.longitude = _parse_gps_dms(gps.get(4), gps.get(3))
+
         return result
 
     except Exception as e:
@@ -91,6 +98,22 @@ def generate_photo_thumbnail(md5_hash: str, file_path: str, max_width: int = 600
         return buf.getvalue()
     except Exception as e:
         logging.debug(f'Photo thumbnail generation failed for {file_path}: {e}')
+        return None
+
+
+def _parse_gps_dms(dms, ref) -> float | None:
+    """Convert GPS degrees/minutes/seconds tuple + N/S/E/W ref to decimal degrees."""
+    if not dms or not ref:
+        return None
+    try:
+        degrees = float(Fraction(dms[0]))
+        minutes = float(Fraction(dms[1]))
+        seconds = float(Fraction(dms[2]))
+        decimal = degrees + minutes / 60 + seconds / 3600
+        if ref in ('S', 'W'):
+            decimal = -decimal
+        return round(decimal, 6)
+    except Exception:
         return None
 
 

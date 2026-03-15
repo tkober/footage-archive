@@ -138,3 +138,5 @@ class FileInfo(BaseModel):
     photo_details: Optional[PhotoDetails] = None
     keywords: list[str] = []
     location: Optional[LocationDto] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None

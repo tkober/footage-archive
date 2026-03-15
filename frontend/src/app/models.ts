@@ -102,4 +102,6 @@ export interface FileInfo {
   photo_details?: PhotoDetails | null;
   keywords?: string[];
   location?: Location | null;
+  latitude?: number | null;
+  longitude?: number | null;
 }

@@ -85,6 +85,7 @@ def _build_file_info(p: Path, db: Database) -> FileInfo:
             raw = db.get_photo_details(md5)
             if raw:
                 photo_details = PhotoDetails(**raw)
+    gps = db.get_file_gps(db_record['md5_hash']) if db_record else None
     return FileInfo(
         name=p.name,
         path=str(p),
@@ -99,6 +100,8 @@ def _build_file_info(p: Path, db: Database) -> FileInfo:
         photo_details=photo_details,
         keywords=keywords,
         location=location,
+        latitude=gps[0] if gps else None,
+        longitude=gps[1] if gps else None,
     )
 
 

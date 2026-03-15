@@ -474,9 +474,9 @@
                       </div>
                       <button class="location-remove" (click)="assignLocation(null)" title="Remove location">✕</button>
                     </div>
-                    @if (file.location.latitude != null && file.location.longitude != null) {
-                      <div #detailMapContainer class="detail-loc-map"></div>
-                    }
+                  }
+                  @if ((file.location?.latitude ?? file.latitude) != null && (file.location?.longitude ?? file.longitude) != null) {
+                    <div #detailMapContainer class="detail-loc-map"></div>
                   }
                   <div class="location-assign-row">
                     <select class="location-select"

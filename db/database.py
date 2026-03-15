@@ -242,6 +242,17 @@ class Database:
         self._connection.commit()
         self.disconnect()
 
+    def get_file_gps(self, md5_hash: str) -> tuple[float, float] | None:
+        self.connect()
+        cursor = self._connection.execute(
+            'SELECT latitude, longitude FROM FileDetails WHERE md5_hash = ?', (md5_hash,)
+        )
+        row = cursor.fetchone()
+        self.disconnect()
+        if row and row[0] is not None and row[1] is not None:
+            return (row[0], row[1])
+        return None
+
     def get_all_keywords(self) -> list[str]:
         self.connect()
         cursor = self._connection.execute(
