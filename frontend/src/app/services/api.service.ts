@@ -3,7 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Observable, Subject } from 'rxjs';
 
 import { environment } from '../../environments/environment';
-import { Config, DirectoryQuery, DirectoryResponse, FileInfo, Task } from '../models';
+import { Config, DirectoryQuery, DirectoryResponse, FileInfo, Location, Task } from '../models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -58,5 +58,17 @@ export class ApiService {
 
   removeKeyword(md5Hash: string, keyword: string): Observable<void> {
     return this.http.delete<void>(`${this.base}/keywords/`, { body: { md5_hash: md5Hash, keyword } });
+  }
+
+  getLocations(): Observable<Location[]> {
+    return this.http.get<Location[]>(`${this.base}/locations/`);
+  }
+
+  createLocation(data: Partial<Location>): Observable<Location> {
+    return this.http.post<Location>(`${this.base}/locations/`, data);
+  }
+
+  assignLocation(md5Hash: string, locationId: number | null): Observable<FileInfo> {
+    return this.http.patch<FileInfo>(`${this.base}/files/location`, { md5_hash: md5Hash, location_id: locationId });
   }
 }

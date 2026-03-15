@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
-from api.dtos import DirectoryQuery, DirectoryResponse, FileInfo, FileQuery, PathChild, PathType, FileDescriptor, SortField, SortOrder, VideoDetails, PhotoDetails, RenameRequest
+from api.dtos import DirectoryQuery, DirectoryResponse, FileInfo, FileQuery, PathChild, PathType, FileDescriptor, SortField, SortOrder, VideoDetails, PhotoDetails, RenameRequest, AssignLocationRequest, LocationDto
 from db.database import Database
 from env.environment import Environment
 from scanner.scanner import Scanner
@@ -69,10 +69,14 @@ def _build_file_info(p: Path, db: Database) -> FileInfo:
     video_details = None
     photo_details = None
     keywords = []
+    location = None
     if db_record:
         md5 = db_record['md5_hash']
         media_type = db_record['media_type']
         keywords = db.get_keywords(md5)
+        loc_row = db.get_location_for_file(md5)
+        if loc_row:
+            location = LocationDto(**loc_row)
         if media_type in ('video', '360_video'):
             raw = db.get_video_details(md5)
             if raw:
@@ -94,6 +98,7 @@ def _build_file_info(p: Path, db: Database) -> FileInfo:
         video_details=video_details,
         photo_details=photo_details,
         keywords=keywords,
+        location=location,
     )
 
 
@@ -149,6 +154,17 @@ async def get_clip_preview(md5_hash: str):
     if data is None:
         raise HTTPException(status_code=404, detail='No clip preview found')
     return Response(content=data, media_type='image/jpeg')
+
+
+@FilesApi.patch('/location')
+async def assign_location(request: AssignLocationRequest) -> FileInfo:
+    db = Database()
+    db_record = db.get_file_by_hash(request.md5_hash)
+    if db_record is None:
+        raise HTTPException(status_code=404, detail='File not found')
+    db.assign_location(request.md5_hash, request.location_id)
+    p = Path(db_record['directory']) / db_record['file_name']
+    return _build_file_info(p, db)
 
 
 @FilesApi.post('/checksum')

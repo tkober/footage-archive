@@ -100,6 +100,30 @@ class KeywordRequest(BaseModel):
     keyword: StrictStr
 
 
+class LocationDto(BaseModel):
+    id: int
+    name: Optional[str] = None
+    city: Optional[str] = None
+    region: Optional[str] = None
+    country: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+
+class CreateLocationRequest(BaseModel):
+    name: Optional[str] = None
+    city: Optional[str] = None
+    region: Optional[str] = None
+    country: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+
+class AssignLocationRequest(BaseModel):
+    md5_hash: StrictStr
+    location_id: Optional[int] = None
+
+
 class FileInfo(BaseModel):
     name: str
     path: str
@@ -113,3 +137,4 @@ class FileInfo(BaseModel):
     video_details: Optional[VideoDetails] = None
     photo_details: Optional[PhotoDetails] = None
     keywords: list[str] = []
+    location: Optional[LocationDto] = None

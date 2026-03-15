@@ -78,6 +78,16 @@ export interface PhotoDetails {
   bit_depth: number | null;
 }
 
+export interface Location {
+  id: number;
+  name?: string | null;
+  city?: string | null;
+  region?: string | null;
+  country?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+}
+
 export interface FileInfo {
   name: string;
   path: string;
@@ -91,4 +101,5 @@ export interface FileInfo {
   video_details?: VideoDetails | null;
   photo_details?: PhotoDetails | null;
   keywords?: string[];
+  location?: Location | null;
 }

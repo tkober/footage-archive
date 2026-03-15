@@ -401,6 +401,58 @@
                 <button class="keyword-add-btn" (click)="addKeyword()">Add</button>
               </div>
             </div>
+
+            <div class="detail-section">
+              <span class="detail-section-label">Location</span>
+              @if (file.location) {
+                <div class="location-assigned">
+                  <span class="location-pill">{{ formatLocation(file.location) }}</span>
+                  <button class="location-remove" (click)="assignLocation(null)" title="Remove location">✕</button>
+                </div>
+              }
+              <div class="location-assign-row">
+                <select class="location-select"
+                        (change)="assignLocation(+$any($event.target).value || null)">
+                  <option value="">— select location —</option>
+                  @for (loc of allLocations(); track loc.id) {
+                    <option [value]="loc.id" [selected]="file.location?.id === loc.id">
+                      {{ formatLocation(loc) }}
+                    </option>
+                  }
+                </select>
+                <button class="location-new-btn"
+                        (click)="showCreateLocation.set(!showCreateLocation())"
+                        [class.active]="showCreateLocation()">
+                  + New
+                </button>
+              </div>
+              @if (showCreateLocation()) {
+                <div class="location-create-form">
+                  <input class="loc-input" placeholder="Country"
+                         [value]="newLocCountry()" (input)="newLocCountry.set($any($event.target).value)"
+                         (keydown.escape)="$event.stopPropagation()" />
+                  <input class="loc-input" placeholder="Region"
+                         [value]="newLocRegion()" (input)="newLocRegion.set($any($event.target).value)"
+                         (keydown.escape)="$event.stopPropagation()" />
+                  <input class="loc-input" placeholder="City"
+                         [value]="newLocCity()" (input)="newLocCity.set($any($event.target).value)"
+                         (keydown.escape)="$event.stopPropagation()" />
+                  <input class="loc-input" placeholder="Name / landmark"
+                         [value]="newLocName()" (input)="newLocName.set($any($event.target).value)"
+                         (keydown.escape)="$event.stopPropagation()" />
+                  <input class="loc-input" placeholder="Latitude" type="number"
+                         [value]="newLocLat()" (input)="newLocLat.set($any($event.target).value)"
+                         (keydown.escape)="$event.stopPropagation()" />
+                  <input class="loc-input" placeholder="Longitude" type="number"
+                         [value]="newLocLon()" (input)="newLocLon.set($any($event.target).value)"
+                         (keydown.escape)="$event.stopPropagation()" />
+                  <div class="location-create-actions">
+                    <button class="loc-save-btn" (click)="createLocation()">Save</button>
+                    <button class="loc-cancel-btn" (click)="cancelCreateLocation()">Cancel</button>
+                  </div>
+                </div>
+              }
+            </div>
           }
 
         </div>

@@ -5,7 +5,7 @@ import { switchMap, map, tap } from 'rxjs';
 
 import { ContextMenuComponent } from './context-menu/context-menu.component';
 import { ApiService } from '../services/api.service';
-import { FileInfo, PathChild, VIDEO_TYPES, PHOTO_TYPES } from '../models';
+import { FileInfo, Location, PathChild, VIDEO_TYPES, PHOTO_TYPES } from '../models';
 
 const PAGE_SIZE = 50;
 
@@ -40,6 +40,14 @@ export class BrowserComponent implements OnInit {
   renameError = signal<string | null>(null);
   newKeywordValue = signal('');
   allKeywords = signal<string[]>([]);
+  allLocations = signal<Location[]>([]);
+  showCreateLocation = signal(false);
+  newLocCountry = signal('');
+  newLocRegion  = signal('');
+  newLocCity    = signal('');
+  newLocName    = signal('');
+  newLocLat     = signal('');
+  newLocLon     = signal('');
   keywordSuggestions = computed(() => {
     const input = this.newKeywordValue().toLowerCase();
     const applied = new Set(this.selectedFile()?.keywords ?? []);
@@ -151,6 +159,7 @@ export class BrowserComponent implements OnInit {
           this.selectedFile.set(info);
           this.loadingDetails.set(false);
           this.api.getAllKeywords().subscribe({ next: kws => this.allKeywords.set(kws) });
+          this.api.getLocations().subscribe({ next: locs => this.allLocations.set(locs) });
         },
         error: () => this.loadingDetails.set(false),
       });
@@ -167,6 +176,13 @@ export class BrowserComponent implements OnInit {
     this.loadingDetails.set(false);
     this.editingName.set(false);
     this.renameError.set(null);
+    this.showCreateLocation.set(false);
+    this.newLocCountry.set('');
+    this.newLocRegion.set('');
+    this.newLocCity.set('');
+    this.newLocName.set('');
+    this.newLocLat.set('');
+    this.newLocLon.set('');
   }
 
   startEditName() {
@@ -237,6 +253,47 @@ export class BrowserComponent implements OnInit {
     this.api.removeKeyword(file.md5_hash, keyword).subscribe({
       next: () => this.reloadFileDetails(file.path),
     });
+  }
+
+  assignLocation(locationId: number | null) {
+    const file = this.selectedFile();
+    if (!file?.md5_hash) return;
+    this.api.assignLocation(file.md5_hash, locationId).subscribe({
+      next: (updated) => this.selectedFile.set(updated),
+    });
+  }
+
+  createLocation() {
+    const lat = this.newLocLat() ? parseFloat(this.newLocLat()) : null;
+    const lon = this.newLocLon() ? parseFloat(this.newLocLon()) : null;
+    this.api.createLocation({
+      country: this.newLocCountry() || null,
+      region:  this.newLocRegion()  || null,
+      city:    this.newLocCity()    || null,
+      name:    this.newLocName()    || null,
+      latitude:  isNaN(lat as any) ? null : lat,
+      longitude: isNaN(lon as any) ? null : lon,
+    }).subscribe({
+      next: (loc) => {
+        this.allLocations.update(list => [...list, loc]);
+        this.assignLocation(loc.id);
+        this.cancelCreateLocation();
+      },
+    });
+  }
+
+  cancelCreateLocation() {
+    this.showCreateLocation.set(false);
+    this.newLocCountry.set('');
+    this.newLocRegion.set('');
+    this.newLocCity.set('');
+    this.newLocName.set('');
+    this.newLocLat.set('');
+    this.newLocLon.set('');
+  }
+
+  formatLocation(loc: Location): string {
+    return [loc.country, loc.region, loc.city, loc.name].filter(Boolean).join(' › ');
   }
 
   onBackgroundContextMenu(event: MouseEvent) {

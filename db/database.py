@@ -129,6 +129,25 @@ class Database:
         self.disconnect()
         return result
 
+    def get_file_by_hash(self, md5_hash: str) -> Optional[dict]:
+        self.connect()
+        cursor = self._connection.execute(
+            'SELECT md5_hash, file_name, file_extension, media_type, directory, last_indexed_at '
+            'FROM Files WHERE md5_hash = ?', (md5_hash,)
+        )
+        row = cursor.fetchone()
+        self.disconnect()
+        if row is None:
+            return None
+        return {
+            'md5_hash': row[0],
+            'file_name': row[1],
+            'file_extension': row[2],
+            'media_type': row[3],
+            'directory': row[4],
+            'last_indexed_at': row[5],
+        }
+
     def get_file_by_path(self, file_path: str) -> Optional[dict]:
         p = Path(file_path)
         self.connect()
@@ -224,6 +243,53 @@ class Database:
         rows = cursor.fetchall()
         self.disconnect()
         return [row[0] for row in rows]
+
+    def get_all_locations(self) -> list[dict]:
+        self.connect()
+        cursor = self._connection.execute(
+            'SELECT id, name, city, region, country, latitude, longitude '
+            'FROM Locations ORDER BY country, city, name'
+        )
+        rows = cursor.fetchall()
+        self.disconnect()
+        keys = ['id', 'name', 'city', 'region', 'country', 'latitude', 'longitude']
+        return [dict(zip(keys, row)) for row in rows]
+
+    def create_location(self, name: Optional[str], city: Optional[str], region: Optional[str],
+                        country: Optional[str], latitude: Optional[float], longitude: Optional[float]) -> int:
+        self.connect()
+        cursor = self._connection.execute(
+            'INSERT INTO Locations (name, city, region, country, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?)',
+            (name, city, region, country, latitude, longitude)
+        )
+        self._connection.commit()
+        row_id = cursor.lastrowid
+        self.disconnect()
+        return row_id
+
+    def get_location_for_file(self, md5_hash: str) -> Optional[dict]:
+        self.connect()
+        cursor = self._connection.execute(
+            'SELECT l.id, l.name, l.city, l.region, l.country, l.latitude, l.longitude '
+            'FROM Locations l JOIN FileDetails fd ON l.id = fd.location_id '
+            'WHERE fd.md5_hash = ?', (md5_hash,)
+        )
+        row = cursor.fetchone()
+        self.disconnect()
+        if row is None:
+            return None
+        keys = ['id', 'name', 'city', 'region', 'country', 'latitude', 'longitude']
+        return dict(zip(keys, row))
+
+    def assign_location(self, md5_hash: str, location_id: Optional[int]) -> None:
+        self.connect()
+        self._connection.execute(
+            'INSERT INTO FileDetails (md5_hash, location_id) VALUES (?, ?) '
+            'ON CONFLICT(md5_hash) DO UPDATE SET location_id = excluded.location_id',
+            (md5_hash, location_id)
+        )
+        self._connection.commit()
+        self.disconnect()
 
     def get_clip_preview(self, md5_hash: str) -> bytes | None:
         self.connect()
