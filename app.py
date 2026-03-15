@@ -14,6 +14,7 @@ from api.config import ConfigApi
 from api.files import FilesApi
 from api.keywords import KeywordsApi
 from api.locations import LocationsApi
+from api.search import SearchApi
 from api.tracking import TrackingApi
 from api.tasks import TasksApi
 from api.troubleshoot import TroubleShootingApi
@@ -35,6 +36,7 @@ async def lifespan(application: FastAPI):
     application.include_router(BaseApi)
     application.include_router(ConfigApi)
     application.include_router(FilesApi)
+    application.include_router(SearchApi)
     application.include_router(KeywordsApi)
     application.include_router(LocationsApi)
     application.include_router(TrackingApi)

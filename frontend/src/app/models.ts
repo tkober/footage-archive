@@ -88,6 +88,36 @@ export interface Location {
   longitude?: number | null;
 }
 
+export interface FileSearchQuery {
+  media_types?: string[];
+  keywords?: string[];
+  country?: string | null;
+  date_from?: string | null;
+  date_to?: string | null;
+  camera_make?: string | null;
+  camera_model?: string | null;
+  video_codec?: string | null;
+  page?: number;
+  page_size?: number;
+}
+
+export interface SearchResult {
+  md5_hash: string;
+  file_name: string;
+  directory: string;
+  media_type: string | null;
+  recorded_at: string | null;
+  country: string | null;
+  city: string | null;
+}
+
+export interface SearchResponse {
+  total: number;
+  page: number;
+  page_size: number;
+  items: SearchResult[];
+}
+
 export interface MapPoint {
   latitude: number;
   longitude: number;

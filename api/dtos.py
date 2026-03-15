@@ -135,6 +135,36 @@ class MapPoint(BaseModel):
     media_type: Optional[str] = None
 
 
+class FileSearchQuery(BaseModel):
+    media_types: list[str] = []
+    keywords: list[str] = []
+    country: Optional[str] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    camera_make: Optional[str] = None
+    camera_model: Optional[str] = None
+    video_codec: Optional[str] = None
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=50, ge=1, le=200)
+
+
+class SearchResult(BaseModel):
+    md5_hash: str
+    file_name: str
+    directory: str
+    media_type: Optional[str]
+    recorded_at: Optional[str]
+    country: Optional[str]
+    city: Optional[str]
+
+
+class SearchResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: list[SearchResult]
+
+
 class FileInfo(BaseModel):
     name: str
     path: str

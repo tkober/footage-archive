@@ -311,6 +311,99 @@ class Database:
             for row in rows
         ]
 
+    _FACET_FIELDS = {
+        'country':      ('Locations l JOIN FileDetails fd ON l.id = fd.location_id', 'l.country'),
+        'camera_make':  ('PhotoDetails', 'camera_make'),
+        'camera_model': ('PhotoDetails', 'camera_model'),
+        'video_codec':  ('VideoDetails', 'video_codec'),
+    }
+
+    def get_facet_values(self, field: str, q: str, limit: int) -> list[str]:
+        if field not in self._FACET_FIELDS:
+            return []
+        table, col = self._FACET_FIELDS[field]
+        self.connect()
+        cursor = self._connection.execute(
+            f'SELECT DISTINCT {col} FROM {table} '
+            f'WHERE {col} IS NOT NULL AND {col} LIKE ? '
+            f'ORDER BY {col} LIMIT ?',
+            (f'%{q}%', limit)
+        )
+        rows = [r[0] for r in cursor.fetchall()]
+        self.disconnect()
+        return rows
+
+    def search_files(self, query: dict) -> tuple[int, list[dict]]:
+        self.connect()
+        conditions: list[str] = []
+        params: list = []
+
+        if query.get('media_types'):
+            placeholders = ','.join('?' * len(query['media_types']))
+            conditions.append(f'f.media_type IN ({placeholders})')
+            params.extend(query['media_types'])
+
+        if query.get('keywords'):
+            placeholders = ','.join('?' * len(query['keywords']))
+            conditions.append(
+                f'f.md5_hash IN ('
+                f'SELECT fk.md5_hash FROM FileKeywords fk '
+                f'JOIN Keywords k ON fk.keyword_id = k.id '
+                f'WHERE k.keyword IN ({placeholders}))'
+            )
+            params.extend(query['keywords'])
+
+        if query.get('country'):
+            conditions.append('l.country = ?')
+            params.append(query['country'])
+
+        if query.get('date_from'):
+            conditions.append('fd.recorded_at >= ?')
+            params.append(query['date_from'])
+
+        if query.get('date_to'):
+            conditions.append('fd.recorded_at <= ?')
+            params.append(query['date_to'])
+
+        if query.get('camera_make'):
+            conditions.append('pd.camera_make = ?')
+            params.append(query['camera_make'])
+
+        if query.get('camera_model'):
+            conditions.append('pd.camera_model = ?')
+            params.append(query['camera_model'])
+
+        if query.get('video_codec'):
+            conditions.append('vd.video_codec = ?')
+            params.append(query['video_codec'])
+
+        where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
+        base = (
+            'FROM Files f '
+            'LEFT JOIN FileDetails fd ON f.md5_hash = fd.md5_hash '
+            'LEFT JOIN Locations l ON fd.location_id = l.id '
+            'LEFT JOIN VideoDetails vd ON f.md5_hash = vd.md5_hash '
+            'LEFT JOIN PhotoDetails pd ON f.md5_hash = pd.md5_hash '
+            f'{where}'
+        )
+
+        total = self._connection.execute(f'SELECT COUNT(*) {base}', params).fetchone()[0]
+
+        page = query.get('page', 1)
+        page_size = query.get('page_size', 50)
+        offset = (page - 1) * page_size
+        rows = self._connection.execute(
+            f'SELECT f.md5_hash, f.file_name, f.directory, f.media_type, '
+            f'fd.recorded_at, l.country, l.city {base} '
+            f'ORDER BY fd.recorded_at DESC NULLS LAST, f.file_name '
+            f'LIMIT ? OFFSET ?',
+            params + [page_size, offset]
+        ).fetchall()
+
+        self.disconnect()
+        keys = ['md5_hash', 'file_name', 'directory', 'media_type', 'recorded_at', 'country', 'city']
+        return total, [dict(zip(keys, r)) for r in rows]
+
     def get_all_keywords(self) -> list[str]:
         self.connect()
         cursor = self._connection.execute(

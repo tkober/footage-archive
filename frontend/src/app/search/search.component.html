@@ -1,0 +1,248 @@
+<div class="search-page">
+
+  <!-- ── Filter panel ── -->
+  <aside class="filter-panel">
+    <h2 class="filter-heading">Search</h2>
+
+    <!-- Media type -->
+    <section class="filter-section">
+      <h3 class="filter-label">Type</h3>
+      <div class="checkbox-group">
+        @for (opt of mediaTypeOptions; track opt.value) {
+          <label class="checkbox-item">
+            <input type="checkbox"
+                   [checked]="selectedMediaTypes().has(opt.value)"
+                   (change)="toggleMediaType(opt.value)" />
+            {{ opt.label }}
+          </label>
+        }
+      </div>
+    </section>
+
+    <!-- Keywords -->
+    <section class="filter-section">
+      <h3 class="filter-label">Keywords</h3>
+      <div class="chip-row">
+        @for (kw of selectedKeywords(); track kw) {
+          <span class="chip">{{ kw }}<button class="chip-remove" (click)="removeKeyword(kw)">×</button></span>
+        }
+      </div>
+      <div class="facet-input-row">
+        <input class="facet-input"
+               list="kw-suggestions"
+               placeholder="Add keyword…"
+               [value]="keywordInput()"
+               (input)="keywordInput.set($any($event.target).value)"
+               (keydown.enter)="addKeyword($any($event.target).value)" />
+        <datalist id="kw-suggestions">
+          @for (kw of keywordSuggestions(); track kw) {
+            <option [value]="kw"></option>
+          }
+        </datalist>
+      </div>
+    </section>
+
+    <!-- Country -->
+    <section class="filter-section">
+      <h3 class="filter-label">Country</h3>
+      @if (country()) {
+        <span class="chip">{{ country() }}<button class="chip-remove" (click)="clearFacet('country')">×</button></span>
+      } @else {
+        <div class="facet-input-row">
+          <input class="facet-input"
+                 list="country-suggestions"
+                 placeholder="Type to search…"
+                 (input)="onFacetInput('country', $any($event.target).value)"
+                 (change)="country.set($any($event.target).value); onFilterChange()" />
+          <datalist id="country-suggestions">
+            @for (c of countrySuggestions(); track c) {
+              <option [value]="c"></option>
+            }
+          </datalist>
+        </div>
+      }
+    </section>
+
+    <!-- Date range -->
+    <section class="filter-section">
+      <h3 class="filter-label">Date range</h3>
+      <input class="facet-input" type="date"
+             [value]="dateFrom()"
+             (change)="dateFrom.set($any($event.target).value); onFilterChange()" />
+      <input class="facet-input" type="date" style="margin-top: 4px"
+             [value]="dateTo()"
+             (change)="dateTo.set($any($event.target).value); onFilterChange()" />
+    </section>
+
+    <!-- Camera (photo) -->
+    @if (showPhotoFilters()) {
+      <section class="filter-section">
+        <h3 class="filter-label">Camera make</h3>
+        @if (cameraMake()) {
+          <span class="chip">{{ cameraMake() }}<button class="chip-remove" (click)="clearFacet('cameraMake')">×</button></span>
+        } @else {
+          <div class="facet-input-row">
+            <input class="facet-input"
+                   list="make-suggestions"
+                   placeholder="Type to search…"
+                   (input)="onFacetInput('camera_make', $any($event.target).value)"
+                   (change)="cameraMake.set($any($event.target).value); onFilterChange()" />
+            <datalist id="make-suggestions">
+              @for (m of cameraMakeSuggestions(); track m) {
+                <option [value]="m"></option>
+              }
+            </datalist>
+          </div>
+        }
+        <h3 class="filter-label" style="margin-top: 12px">Camera model</h3>
+        @if (cameraModel()) {
+          <span class="chip">{{ cameraModel() }}<button class="chip-remove" (click)="clearFacet('cameraModel')">×</button></span>
+        } @else {
+          <div class="facet-input-row">
+            <input class="facet-input"
+                   list="model-suggestions"
+                   placeholder="Type to search…"
+                   (input)="onFacetInput('camera_model', $any($event.target).value)"
+                   (change)="cameraModel.set($any($event.target).value); onFilterChange()" />
+            <datalist id="model-suggestions">
+              @for (m of cameraModelSuggestions(); track m) {
+                <option [value]="m"></option>
+              }
+            </datalist>
+          </div>
+        }
+      </section>
+    }
+
+    <!-- Video codec -->
+    @if (showVideoFilters()) {
+      <section class="filter-section">
+        <h3 class="filter-label">Video codec</h3>
+        @if (videoCodec()) {
+          <span class="chip">{{ videoCodec() }}<button class="chip-remove" (click)="clearFacet('videoCodec')">×</button></span>
+        } @else {
+          <div class="facet-input-row">
+            <input class="facet-input"
+                   list="codec-suggestions"
+                   placeholder="Type to search…"
+                   (input)="onFacetInput('video_codec', $any($event.target).value)"
+                   (change)="videoCodec.set($any($event.target).value); onFilterChange()" />
+            <datalist id="codec-suggestions">
+              @for (c of videoCodecSuggestions(); track c) {
+                <option [value]="c"></option>
+              }
+            </datalist>
+          </div>
+        }
+      </section>
+    }
+  </aside>
+
+  <!-- ── Results + detail (sliding overlay like browser) ── -->
+  <div class="view-container" [class.detail-open]="selectedFile() || loadingDetails()">
+
+  <div class="list-view">
+
+    <!-- Status bar -->
+    @if (hasFilters()) {
+      <div class="results-status">
+        @if (loading() && results().length === 0) {
+          <span>Searching…</span>
+        } @else {
+          <span>{{ total() }} result{{ total() === 1 ? '' : 's' }}</span>
+        }
+      </div>
+    }
+
+    <!-- Empty prompt -->
+    @if (!hasFilters()) {
+      <div class="empty-state">
+        <p>Use the filters to search across the archive.</p>
+      </div>
+    } @else if (!loading() && results().length === 0) {
+      <div class="empty-state">
+        <p>No files match your filters.</p>
+      </div>
+    }
+
+    <!-- Videos grid -->
+    @if (videoResults().length) {
+      <div class="grid-section">
+        <span class="section-label">Videos</span>
+        <div class="file-grid video-grid">
+          @for (result of videoResults(); track result.md5_hash) {
+            <div class="file-card"
+                 (click)="selectResult(result)"
+                 [class.selected]="selectedFile()?.md5_hash === result.md5_hash">
+              @if (result.md5_hash) {
+                <img class="card-strip" [src]="api.clipPreviewUrl(result.md5_hash)" alt="" />
+              } @else {
+                <div class="placeholder-thumb video-thumb">
+                  <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
+                  </svg>
+                </div>
+              }
+              <div class="card-footer">
+                <span class="card-name" [title]="result.file_name">{{ result.file_name }}</span>
+                @if (result.recorded_at) {
+                  <span class="card-date">{{ result.recorded_at.slice(0, 10) }}</span>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- Stills grid -->
+    @if (photoResults().length) {
+      <div class="grid-section">
+        <span class="section-label">Stills</span>
+        <div class="file-grid stills-grid">
+          @for (result of photoResults(); track result.md5_hash) {
+            <div class="file-card"
+                 (click)="selectResult(result)"
+                 [class.selected]="selectedFile()?.md5_hash === result.md5_hash">
+              @if (result.md5_hash) {
+                <img class="card-thumb" [src]="api.clipPreviewUrl(result.md5_hash)" alt="" />
+              } @else {
+                <div class="placeholder-thumb photo-thumb">
+                  <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                  </svg>
+                </div>
+              }
+              <div class="card-footer">
+                <span class="card-name" [title]="result.file_name">{{ result.file_name }}</span>
+                @if (result.recorded_at) {
+                  <span class="card-date">{{ result.recorded_at.slice(0, 10) }}</span>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- Load more -->
+    @if (results().length > 0 && results().length < total()) {
+      <div class="load-more-row">
+        <button class="load-more-btn" [disabled]="loading()" (click)="loadMore()">
+          {{ loading() ? 'Loading…' : 'Load more' }}
+        </button>
+      </div>
+    }
+  </div><!-- /list-view -->
+
+  <!-- Detail (slides in from right, same as browser) -->
+  <div class="detail-view">
+    <app-file-detail-panel
+      [file]="selectedFile()"
+      [loading]="loadingDetails()"
+      (closed)="closeDetail()" />
+  </div>
+
+  </div><!-- /view-container -->
+
+</div>

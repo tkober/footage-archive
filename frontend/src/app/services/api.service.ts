@@ -4,7 +4,7 @@ import { Observable, Subject } from 'rxjs';
 import * as L from 'leaflet';
 
 import { environment } from '../../environments/environment';
-import { Config, DirectoryQuery, DirectoryResponse, FileInfo, Location, MapPoint, Task } from '../models';
+import { Config, DirectoryQuery, DirectoryResponse, FileInfo, FileSearchQuery, Location, MapPoint, SearchResponse, Task } from '../models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -59,6 +59,14 @@ export class ApiService {
 
   removeKeyword(md5Hash: string, keyword: string): Observable<void> {
     return this.http.delete<void>(`${this.base}/keywords/`, { body: { md5_hash: md5Hash, keyword } });
+  }
+
+  getFacetValues(field: string, q: string): Observable<string[]> {
+    return this.http.get<string[]>(`${this.base}/files/search-facets`, { params: { field, q } });
+  }
+
+  searchFiles(query: FileSearchQuery): Observable<SearchResponse> {
+    return this.http.post<SearchResponse>(`${this.base}/files/search`, query);
   }
 
   getMapPoints(bounds: L.LatLngBounds, zoom: number): Observable<MapPoint[]> {

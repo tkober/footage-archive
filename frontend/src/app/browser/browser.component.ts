@@ -1,11 +1,9 @@
-import { DatePipe } from '@angular/common';
-import { Component, computed, effect, ElementRef, HostListener, inject, OnInit, signal, ViewChild } from '@angular/core';
+import { Component, computed, HostListener, inject, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, switchMap, map, tap } from 'rxjs';
-import * as L from 'leaflet';
 
 import { ContextMenuComponent } from './context-menu/context-menu.component';
-import { ModalComponent } from '../modal/modal.component';
+import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
 import { ApiService } from '../services/api.service';
 import { FileInfo, Location, PathChild, VIDEO_TYPES, PHOTO_TYPES } from '../models';
 
@@ -14,7 +12,7 @@ const PAGE_SIZE = 50;
 @Component({
   selector: 'app-browser',
   standalone: true,
-  imports: [DatePipe, ContextMenuComponent, ModalComponent],
+  imports: [ContextMenuComponent, FileDetailPanelComponent],
   templateUrl: './browser.component.html',
   styleUrl: './browser.component.css'
 })
@@ -37,57 +35,23 @@ export class BrowserComponent implements OnInit {
   contextMenuY = signal(0);
   private page = 1;
 
-  editingName = signal(false);
-  editNameValue = signal('');
-  renameError = signal<string | null>(null);
-  newKeywordValue = signal('');
-  allKeywords = signal<string[]>([]);
-  allLocations = signal<Location[]>([]);
-  showCreateLocation = signal(false);
-  newLocCountry = signal('');
-  newLocRegion  = signal('');
-  newLocCity    = signal('');
-  newLocName    = signal('');
-  newLocLat     = signal('');
-  newLocLon     = signal('');
-  geocoding     = signal(false);
-  geocodeError  = signal(false);
-
+  // Bulk mode
   bulkMode       = signal(false);
   bulkSelected   = signal<Set<string>>(new Set());
   bulkKeyword    = signal('');
   bulkLocationId = signal('');
   bulkApplying   = signal(false);
-  keywordSuggestions = computed(() => {
-    const input = this.newKeywordValue().toLowerCase();
-    const applied = new Set(this.selectedFile()?.keywords ?? []);
-    return this.allKeywords().filter(
-      kw => !applied.has(kw) && (input === '' || kw.toLowerCase().includes(input))
-    );
-  });
-  @ViewChild('nameInput') nameInputRef?: ElementRef<HTMLInputElement>;
-  @ViewChild('locMapContainer') locMapContainerRef?: ElementRef<HTMLDivElement>;
-  private locMap: L.Map | null = null;
-  private locMarker: L.Marker | null = null;
+  allKeywords    = signal<string[]>([]);
+  allLocations   = signal<Location[]>([]);
 
-  @ViewChild('detailMapContainer') detailMapContainerRef?: ElementRef<HTMLDivElement>;
-  private detailMap: L.Map | null = null;
-
-  dirs        = computed(() => this.entries().filter(e => e.type === 'directory'));
-  videoFiles  = computed(() => this.entries().filter(e => e.type === 'file' && VIDEO_TYPES.includes(e.media_type as any)));
-  photoFiles  = computed(() => this.entries().filter(e => e.type === 'file' && PHOTO_TYPES.includes(e.media_type as any)));
-  untrackedFiles  = computed(() => this.entries().filter(
+  dirs           = computed(() => this.entries().filter(e => e.type === 'directory'));
+  videoFiles     = computed(() => this.entries().filter(e => e.type === 'file' && VIDEO_TYPES.includes(e.media_type as any)));
+  photoFiles     = computed(() => this.entries().filter(e => e.type === 'file' && PHOTO_TYPES.includes(e.media_type as any)));
+  untrackedFiles = computed(() => this.entries().filter(
     e => e.type === 'file' && !VIDEO_TYPES.includes(e.media_type as any) && !PHOTO_TYPES.includes(e.media_type as any)
   ));
-  hasMore = computed(() => this.entries().length < this.total());
+  hasMore    = computed(() => this.entries().length < this.total());
   showDetail = computed(() => this.loadingDetails() || !!this.selectedFile());
-
-  previewUrl = computed(() => {
-    const file = this.selectedFile();
-    if (!file?.md5_hash) return null;
-    if (!VIDEO_TYPES.includes(file.media_type as any) && !PHOTO_TYPES.includes(file.media_type as any)) return null;
-    return this.api.clipPreviewUrl(file.md5_hash);
-  });
 
   breadcrumbs = computed(() => {
     const root = this.rootDir();
@@ -102,27 +66,6 @@ export class BrowserComponent implements OnInit {
       path: '/' + currentParts.slice(0, rootParts.length - 1 + i + 1).join('/')
     }));
   });
-
-  constructor() {
-    effect(() => {
-      if (this.showCreateLocation()) {
-        setTimeout(() => this.initLocMap(), 0);
-      } else {
-        this.destroyLocMap();
-      }
-    });
-
-    effect(() => {
-      const file = this.selectedFile();
-      const lat = file?.location?.latitude ?? file?.latitude;
-      const lon = file?.location?.longitude ?? file?.longitude;
-      if (lat != null && lon != null) {
-        setTimeout(() => this.initDetailMap(lat, lon), 0);
-      } else {
-        this.destroyDetailMap();
-      }
-    });
-  }
 
   ngOnInit() {
     this.api.getConfig().pipe(
@@ -200,8 +143,6 @@ export class BrowserComponent implements OnInit {
         next: info => {
           this.selectedFile.set(info);
           this.loadingDetails.set(false);
-          this.api.getAllKeywords().subscribe({ next: kws => this.allKeywords.set(kws) });
-          this.api.getLocations().subscribe({ next: locs => this.allLocations.set(locs) });
         },
         error: () => this.loadingDetails.set(false),
       });
@@ -210,7 +151,6 @@ export class BrowserComponent implements OnInit {
 
   @HostListener('document:keydown.escape')
   onEscapeKey() {
-    if (this.showCreateLocation()) return; // modal handles its own ESC
     if (this.showDetail()) this.closeDetails();
     else if (this.bulkMode()) this.exitBulkMode();
   }
@@ -218,233 +158,15 @@ export class BrowserComponent implements OnInit {
   closeDetails() {
     this.selectedFile.set(null);
     this.loadingDetails.set(false);
-    this.editingName.set(false);
-    this.renameError.set(null);
-    this.showCreateLocation.set(false);
-    this.newLocCountry.set('');
-    this.newLocRegion.set('');
-    this.newLocCity.set('');
-    this.newLocName.set('');
-    this.newLocLat.set('');
-    this.newLocLon.set('');
   }
 
-  startEditName() {
-    const file = this.selectedFile();
-    if (!file) return;
-    this.editNameValue.set(file.name);
-    this.editingName.set(true);
-    this.renameError.set(null);
-    setTimeout(() => {
-      const el = this.nameInputRef?.nativeElement;
-      if (el) {
-        el.focus();
-        const lastDot = file.name.lastIndexOf('.');
-        const stemEnd = lastDot > 0 ? lastDot : file.name.length;
-        el.setSelectionRange(0, stemEnd);
-      }
-    }, 0);
-  }
-
-  saveNameEdit() {
-    const file = this.selectedFile();
-    if (!file) return;
-    const newName = this.editNameValue().trim();
-    if (!newName || newName === file.name) {
-      this.cancelNameEdit();
-      return;
-    }
-    this.api.renameFile(file.path, newName).subscribe({
-      next: (updated) => {
-        this.selectedFile.set(updated);
-        this.entries.update(list =>
-          list.map(e => e.path === file.path ? { ...e, name: updated.name, path: updated.path } : e)
-        );
-        this.editingName.set(false);
-        this.renameError.set(null);
-      },
-      error: (err) => this.renameError.set(err.error?.detail ?? 'Rename failed'),
-    });
-  }
-
-  cancelNameEdit() {
-    this.editingName.set(false);
-    this.renameError.set(null);
-  }
-
-  private reloadFileDetails(path: string) {
-    this.api.getFileDetails(path).subscribe({
-      next: info => this.selectedFile.set(info),
-    });
-  }
-
-  addKeyword() {
-    const file = this.selectedFile();
-    const kw = this.newKeywordValue().trim();
-    if (!file?.md5_hash || !kw) return;
-    this.newKeywordValue.set('');
-    this.api.addKeyword(file.md5_hash, kw).subscribe({
-      next: () => {
-        this.reloadFileDetails(file.path);
-        this.api.getAllKeywords().subscribe({ next: kws => this.allKeywords.set(kws) });
-      },
-    });
-  }
-
-  removeKeyword(keyword: string) {
-    const file = this.selectedFile();
-    if (!file?.md5_hash) return;
-    this.api.removeKeyword(file.md5_hash, keyword).subscribe({
-      next: () => this.reloadFileDetails(file.path),
-    });
-  }
-
-  assignLocation(locationId: number | null) {
-    const file = this.selectedFile();
-    if (!file?.md5_hash) return;
-    this.api.assignLocation(file.md5_hash, locationId).subscribe({
-      next: (updated) => this.selectedFile.set(updated),
-    });
-  }
-
-  createLocation() {
-    const lat = this.newLocLat() ? parseFloat(this.newLocLat()) : null;
-    const lon = this.newLocLon() ? parseFloat(this.newLocLon()) : null;
-    this.api.createLocation({
-      country: this.newLocCountry() || null,
-      region:  this.newLocRegion()  || null,
-      city:    this.newLocCity()    || null,
-      name:    this.newLocName()    || null,
-      latitude:  isNaN(lat as any) ? null : lat,
-      longitude: isNaN(lon as any) ? null : lon,
-    }).subscribe({
-      next: (loc) => {
-        this.allLocations.update(list => [...list, loc]);
-        if (this.bulkMode()) {
-          this.bulkAssignLocation(loc.id);
-        } else {
-          this.assignLocation(loc.id);
-        }
-        this.cancelCreateLocation();
-      },
-    });
-  }
-
-  cancelCreateLocation() {
-    this.showCreateLocation.set(false);
-    this.newLocCountry.set('');
-    this.newLocRegion.set('');
-    this.newLocCity.set('');
-    this.newLocName.set('');
-    this.newLocLat.set('');
-    this.newLocLon.set('');
-    this.geocoding.set(false);
-    this.geocodeError.set(false);
-  }
-
-  geocodeLocation() {
-    const name    = this.newLocName().trim();
-    const city    = this.newLocCity().trim();
-    const region  = this.newLocRegion().trim();
-    const country = this.newLocCountry().trim();
-
-    if (!name && !city && !country) return;
-
-    const q1 = [name, city, region, country].filter(Boolean).join(', ');
-    const q2 = [name, city, country].filter(Boolean).join(', ');
-    const q3 = [city, country].filter(Boolean).join(', ');
-    const queries = [...new Set([q1, q2, q3].filter(Boolean))];
-
-    this.geocoding.set(true);
-    this.geocodeError.set(false);
-    this.tryGeocode(queries, 0);
-  }
-
-  private tryGeocode(queries: string[], index: number) {
-    if (index >= queries.length) {
-      this.geocoding.set(false);
-      this.geocodeError.set(true);
-      return;
-    }
-    this.api.geocode(queries[index]).subscribe({
-      next: (results) => {
-        if (results?.length) {
-          this.geocoding.set(false);
-          this.setLocPin(parseFloat(results[0].lat), parseFloat(results[0].lon));
-        } else {
-          this.tryGeocode(queries, index + 1);
-        }
-      },
-      error: () => this.tryGeocode(queries, index + 1),
-    });
-  }
-
-  private initLocMap() {
-    const el = this.locMapContainerRef?.nativeElement;
-    if (!el || this.locMap) return;
-    this.locMap = L.map(el).setView([20, 0], 2);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      maxZoom: 19
-    }).addTo(this.locMap);
-    this.locMap.on('click', (e: L.LeafletMouseEvent) => this.setLocPin(e.latlng.lat, e.latlng.lng));
-    const lat = parseFloat(this.newLocLat());
-    const lon = parseFloat(this.newLocLon());
-    if (!isNaN(lat) && !isNaN(lon)) this.setLocPin(lat, lon);
-  }
-
-  private destroyLocMap() {
-    this.locMap?.remove();
-    this.locMap = null;
-    this.locMarker = null;
-  }
-
-  private setLocPin(lat: number, lon: number) {
-    this.newLocLat.set(lat.toFixed(6));
-    this.newLocLon.set(lon.toFixed(6));
-    if (this.locMarker) {
-      this.locMarker.setLatLng([lat, lon]);
-    } else {
-      const icon = L.divIcon({ className: 'loc-map-pin', iconSize: [16, 16], iconAnchor: [8, 8] });
-      this.locMarker = L.marker([lat, lon], { draggable: true, icon }).addTo(this.locMap!);
-      this.locMarker.on('dragend', () => {
-        const pos = this.locMarker!.getLatLng();
-        this.newLocLat.set(pos.lat.toFixed(6));
-        this.newLocLon.set(pos.lng.toFixed(6));
-      });
-    }
-    this.locMap!.setView([lat, lon], Math.max(this.locMap!.getZoom(), 10));
-  }
-
-  private initDetailMap(lat: number, lon: number) {
-    const el = this.detailMapContainerRef?.nativeElement;
-    if (!el) return;
-    this.destroyDetailMap();
-    this.detailMap = L.map(el).setView([lat, lon], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      maxZoom: 19
-    }).addTo(this.detailMap);
-    const icon = L.divIcon({ className: 'loc-map-pin', iconSize: [16, 16], iconAnchor: [8, 8] });
-    L.marker([lat, lon], { icon }).addTo(this.detailMap);
-  }
-
-  private destroyDetailMap() {
-    this.detailMap?.remove();
-    this.detailMap = null;
-  }
-
-  locationGeo(loc: Location): string {
-    return [loc.country, loc.region, loc.city].filter(Boolean).join(' › ');
-  }
-
-  locationName(loc: Location): string {
-    return loc.name ?? this.locationGeo(loc);
-  }
-
-  formatLocation(loc: Location): string {
-    const geo = this.locationGeo(loc);
-    return loc.name ? `${loc.name} — ${geo}` : geo;
+  onFileRenamed(updated: FileInfo) {
+    this.selectedFile.set(updated);
+    this.entries.update(list =>
+      list.map(e => e.md5_hash === updated.md5_hash
+        ? { ...e, name: updated.name, path: updated.path }
+        : e)
+    );
   }
 
   onBackgroundContextMenu(event: MouseEvent) {
@@ -547,20 +269,14 @@ export class BrowserComponent implements OnInit {
     });
   }
 
-  isPhotoMediaType(mediaType: string | null | undefined): boolean {
-    return PHOTO_TYPES.includes(mediaType as any);
-  }
-
-  formatBytes(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
-    return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
-  }
-
   entryPreviewUrl(entry: PathChild): string | null {
     if (!entry.md5_hash) return null;
     if (!VIDEO_TYPES.includes(entry.media_type as any) && !PHOTO_TYPES.includes(entry.media_type as any)) return null;
     return this.api.clipPreviewUrl(entry.md5_hash);
+  }
+
+  formatLocation(loc: Location): string {
+    const geo = [loc.country, loc.region, loc.city].filter(Boolean).join(' › ');
+    return loc.name ? `${loc.name} — ${geo}` : geo;
   }
 }
