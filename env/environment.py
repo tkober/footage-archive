@@ -55,5 +55,5 @@ class Environment:
         return mapping
 
     def get_browser_hidden_extensions(self) -> list[str]:
-        raw = self.loadEnvironmentVariable("BROWSER_HIDDEN_EXTENSIONS", ".xmp,.acr,.psd,.lrv")
+        raw = self.loadEnvironmentVariable("BROWSER_HIDDEN_EXTENSIONS", ".xmp,.acr,.psd,.lrv,.identifier")
         return [e.strip().lower() for e in raw.split(",") if e.strip()]

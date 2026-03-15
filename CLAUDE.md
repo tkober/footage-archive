@@ -45,7 +45,7 @@ MEDIA_TYPE_VIDEO=.mov,.mp4
 MEDIA_TYPE_PHOTO=.jpg,.jpeg,.rw2
 MEDIA_TYPE_360_VIDEO=.insv
 MEDIA_TYPE_360_PHOTO=.insp,.dng
-BROWSER_HIDDEN_EXTENSIONS=.xmp,.acr,.psd,.lrv
+BROWSER_HIDDEN_EXTENSIONS=.xmp,.acr,.psd,.lrv,.identifier
 ```
 
 **Test footage** lives in `footage/` (gitignored):
@@ -78,7 +78,7 @@ Docker env vars to set on Unraid:
 - `MEDIA_TYPE_PHOTO=.jpg,.jpeg,.rw2`
 - `MEDIA_TYPE_360_VIDEO=.insv`
 - `MEDIA_TYPE_360_PHOTO=.insp,.dng`
-- `BROWSER_HIDDEN_EXTENSIONS=.xmp,.acr,.psd,.lrv`
+- `BROWSER_HIDDEN_EXTENSIONS=.xmp,.acr,.psd,.lrv,.identifier`
 - `TASK_POLL_INTERVAL_MS=5000` (default, optional)
 
 ---
@@ -139,7 +139,7 @@ footage-archive/
 
 **media_type** is assigned at scan time from configurable extension maps (`MEDIA_TYPE_*` env vars): `video`, `photo`, `360_video`, `360_photo`, or NULL for unrecognised extensions.
 
-**Sidecar/proxy files** (`.xmp`, `.acr`, `.psd`, `.lrv`) are hidden from the browser via `BROWSER_HIDDEN_EXTENSIONS` but not prevented from being tracked if explicitly requested.
+**Sidecar/proxy files** (`.xmp`, `.acr`, `.psd`, `.lrv`, `.identifier`) are hidden from the browser via `BROWSER_HIDDEN_EXTENSIONS` but not prevented from being tracked if explicitly requested.
 
 ---
 
