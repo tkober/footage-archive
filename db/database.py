@@ -100,6 +100,12 @@ class Database:
         self._connection.commit()
         self.disconnect()
 
+    def insert_raw_preview(self, md5_hash: str, data: bytes, identifier: str = generate_identifier()):
+        self.connect()
+        df = pd.DataFrame([{'md5_hash': md5_hash, 'data': data}])
+        self.__upsert_into_table(df, 'ClipPreviews', temp_table_suffix=identifier)
+        self.disconnect()
+
     def insert_clip_preview(self, clip_preview: ClipPreview, identifier: str = generate_identifier()):
         self.connect()
         df = pd.DataFrame([clip_preview.model_dump()])

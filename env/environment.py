@@ -32,11 +32,7 @@ class Environment:
         return int(self.loadEnvironmentVariable("TASK_POLL_INTERVAL_MS", "5000"))
 
     def get_scanning_file_extensions(self) -> [str]:
-        return (
-            self.loadEnvironmentVariable("SCANNING_FILE_EXTENSIONS", ".mov")
-            .lower()
-            .split(",")
-        )
+        return list(self.get_media_type_map().keys())
 
     def get_media_type_map(self) -> dict[str, str]:
         mapping = {}

@@ -10,7 +10,7 @@ from api.dtos import FileQuery
 from davinci.davinciresolve import Metadata, DerivedMetadataColumns
 from db.database import Database
 from ffmpeg.ffmpeg import FFmpegInput, FFmpeg, FFprobe
-from photos.exif import probe_photo
+from photos.exif import probe_photo, generate_photo_thumbnail
 from scanner.scanner import Scanner, ScanResult
 from tasks.taskmanager import TaskManager, TaskRequest
 
@@ -134,6 +134,11 @@ def _probe_and_save(sc: ScanResult, db: Database, generate_clip_preview: bool):
 
         _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=probe.recorded_at)
         db.insert_photo_details(pd.DataFrame([probe.model_dump()]))
+
+        if generate_clip_preview:
+            thumbnail = generate_photo_thumbnail(sc.md5_hash, file_path)
+            if thumbnail:
+                db.insert_raw_preview(sc.md5_hash, thumbnail, identifier=sc.md5_hash)
 
     else:
         _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=None)

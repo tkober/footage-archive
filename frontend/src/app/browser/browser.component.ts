@@ -84,7 +84,8 @@ export class BrowserComponent implements OnInit {
 
   previewUrl = computed(() => {
     const file = this.selectedFile();
-    if (!file?.md5_hash || !VIDEO_TYPES.includes(file.media_type as any)) return null;
+    if (!file?.md5_hash) return null;
+    if (!VIDEO_TYPES.includes(file.media_type as any) && !PHOTO_TYPES.includes(file.media_type as any)) return null;
     return this.api.clipPreviewUrl(file.md5_hash);
   });
 
@@ -546,6 +547,10 @@ export class BrowserComponent implements OnInit {
     });
   }
 
+  isPhotoMediaType(mediaType: string | null | undefined): boolean {
+    return PHOTO_TYPES.includes(mediaType as any);
+  }
+
   formatBytes(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -554,7 +559,8 @@ export class BrowserComponent implements OnInit {
   }
 
   entryPreviewUrl(entry: PathChild): string | null {
-    if (!entry.md5_hash || !VIDEO_TYPES.includes(entry.media_type as any)) return null;
+    if (!entry.md5_hash) return null;
+    if (!VIDEO_TYPES.includes(entry.media_type as any) && !PHOTO_TYPES.includes(entry.media_type as any)) return null;
     return this.api.clipPreviewUrl(entry.md5_hash);
   }
 }

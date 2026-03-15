@@ -1,7 +1,8 @@
+import io
 import logging
 from fractions import Fraction
 
-from PIL import Image
+from PIL import Image, ImageOps
 from PIL.ExifTags import TAGS
 from pydantic import BaseModel
 
@@ -74,6 +75,22 @@ def probe_photo(md5_hash: str, file_path: str) -> PhotoProbeResult | None:
 
     except Exception as e:
         logging.debug(f'Photo probe failed for {file_path}: {e}')
+        return None
+
+
+def generate_photo_thumbnail(md5_hash: str, file_path: str, max_width: int = 600) -> bytes | None:
+    try:
+        img = Image.open(file_path)
+        img = ImageOps.exif_transpose(img)
+        if img.mode not in ('RGB', 'L'):
+            img = img.convert('RGB')
+        ratio = max_width / img.width
+        img = img.resize((max_width, int(img.height * ratio)), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG', quality=82)
+        return buf.getvalue()
+    except Exception as e:
+        logging.debug(f'Photo thumbnail generation failed for {file_path}: {e}')
         return None
 
 

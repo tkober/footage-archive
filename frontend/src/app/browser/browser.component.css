@@ -186,6 +186,13 @@
   display: block;
   width: 100%;
   height: auto;
+  max-height: 280px;
+  object-fit: cover;
+}
+
+.detail-strip-img.is-photo {
+  object-fit: contain;
+  background: #f4f4f5;
 }
 
 /* Detail content area */
@@ -628,6 +635,15 @@
   display: block;
   width: 100%;
   height: auto;
+}
+
+/* Photo thumbnail */
+.card-thumb {
+  display: block;
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 4px 4px 0 0;
 }
 
 /* Placeholder thumbnails */

@@ -150,11 +150,15 @@
                   @if (bulkMode()) {
                     <span class="bulk-check" [class.checked]="isBulkSelected(entry)"></span>
                   }
-                  <div class="placeholder-thumb photo-thumb">
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
-                    </svg>
-                  </div>
+                  @if (entryPreviewUrl(entry); as thumbUrl) {
+                    <img class="card-thumb" [src]="thumbUrl" alt="" />
+                  } @else {
+                    <div class="placeholder-thumb photo-thumb">
+                      <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                      </svg>
+                    </div>
+                  }
                   <div class="card-footer">
                     <span class="tracked-dot" [class.is-tracked]="entry.tracked === true"></span>
                     <span class="card-name">{{ entry.name }}</span>
@@ -231,7 +235,9 @@
 
         @if (previewUrl()) {
           <div class="detail-strip-wrap">
-            <img class="detail-strip-img" [src]="previewUrl()!" alt="Clip preview" />
+            <img class="detail-strip-img"
+                 [class.is-photo]="isPhotoMediaType(file.media_type)"
+                 [src]="previewUrl()!" alt="Clip preview" />
           </div>
         }
 
