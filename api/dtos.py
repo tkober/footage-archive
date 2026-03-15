@@ -63,6 +63,33 @@ class ConfigResponse(BaseModel):
     browser_hidden_extensions: list[str]
 
 
+class VideoDetails(BaseModel):
+    width: Optional[int] = None
+    height: Optional[int] = None
+    duration_tc: Optional[str] = None
+    frame_rate: Optional[float] = None
+    frame_rate_verbose: Optional[str] = None
+    video_codec: Optional[str] = None
+    bit_depth: Optional[int] = None
+    audio_codec: Optional[str] = None
+    audio_sample_rate: Optional[int] = None
+    audio_channels: Optional[int] = None
+    audio_bit_depth: Optional[int] = None
+
+
+class PhotoDetails(BaseModel):
+    width: Optional[int] = None
+    height: Optional[int] = None
+    camera_make: Optional[str] = None
+    camera_model: Optional[str] = None
+    iso: Optional[int] = None
+    aperture: Optional[float] = None
+    shutter_speed: Optional[str] = None
+    focal_length: Optional[float] = None
+    color_space: Optional[str] = None
+    bit_depth: Optional[int] = None
+
+
 class FileInfo(BaseModel):
     name: str
     path: str
@@ -73,3 +100,5 @@ class FileInfo(BaseModel):
     md5_hash: Optional[str] = None
     media_type: Optional[str] = None
     last_indexed_at: Optional[str] = None
+    video_details: Optional[VideoDetails] = None
+    photo_details: Optional[PhotoDetails] = None

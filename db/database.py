@@ -119,6 +119,35 @@ class Database:
             'last_indexed_at': row[5],
         }
 
+    def get_video_details(self, md5_hash: str) -> Optional[dict]:
+        self.connect()
+        cursor = self._connection.execute(
+            'SELECT width, height, frame_rate, frame_rate_verbose, video_codec, bit_depth, '
+            'audio_codec, audio_bit_depth, audio_sample_rate, audio_channels, duration_tc '
+            'FROM VideoDetails WHERE md5_hash = ?', (md5_hash,)
+        )
+        row = cursor.fetchone()
+        self.disconnect()
+        if row is None:
+            return None
+        keys = ['width', 'height', 'frame_rate', 'frame_rate_verbose', 'video_codec', 'bit_depth',
+                'audio_codec', 'audio_bit_depth', 'audio_sample_rate', 'audio_channels', 'duration_tc']
+        return dict(zip(keys, row))
+
+    def get_photo_details(self, md5_hash: str) -> Optional[dict]:
+        self.connect()
+        cursor = self._connection.execute(
+            'SELECT width, height, camera_make, camera_model, iso, aperture, shutter_speed, '
+            'focal_length, color_space, bit_depth FROM PhotoDetails WHERE md5_hash = ?', (md5_hash,)
+        )
+        row = cursor.fetchone()
+        self.disconnect()
+        if row is None:
+            return None
+        keys = ['width', 'height', 'camera_make', 'camera_model', 'iso', 'aperture',
+                'shutter_speed', 'focal_length', 'color_space', 'bit_depth']
+        return dict(zip(keys, row))
+
     def get_clip_preview(self, md5_hash: str) -> bytes | None:
         self.connect()
         cursor = self._connection.execute(

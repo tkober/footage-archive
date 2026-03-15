@@ -51,6 +51,33 @@ export type MediaType = 'video' | 'photo' | '360_video' | '360_photo';
 export const VIDEO_TYPES: MediaType[] = ['video', '360_video'];
 export const PHOTO_TYPES: MediaType[] = ['photo', '360_photo'];
 
+export interface VideoDetails {
+  width: number | null;
+  height: number | null;
+  duration_tc: string | null;
+  frame_rate: number | null;
+  frame_rate_verbose: string | null;
+  video_codec: string | null;
+  bit_depth: number | null;
+  audio_codec: string | null;
+  audio_sample_rate: number | null;
+  audio_channels: number | null;
+  audio_bit_depth: number | null;
+}
+
+export interface PhotoDetails {
+  width: number | null;
+  height: number | null;
+  camera_make: string | null;
+  camera_model: string | null;
+  iso: number | null;
+  aperture: number | null;
+  shutter_speed: string | null;
+  focal_length: number | null;
+  color_space: string | null;
+  bit_depth: number | null;
+}
+
 export interface FileInfo {
   name: string;
   path: string;
@@ -61,4 +88,6 @@ export interface FileInfo {
   md5_hash: string | null;
   media_type: MediaType | null;
   last_indexed_at: string | null;
+  video_details?: VideoDetails | null;
+  photo_details?: PhotoDetails | null;
 }

@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
-from api.dtos import DirectoryQuery, DirectoryResponse, FileInfo, FileQuery, PathChild, PathType, FileDescriptor, SortField, SortOrder
+from api.dtos import DirectoryQuery, DirectoryResponse, FileInfo, FileQuery, PathChild, PathType, FileDescriptor, SortField, SortOrder, VideoDetails, PhotoDetails
 from db.database import Database
 from env.environment import Environment
 from scanner.scanner import Scanner
@@ -76,7 +76,22 @@ async def get_file_details(path: str) -> FileInfo:
         raise HTTPException(status_code=400, detail='Path is a directory')
 
     stat = p.stat()
-    db_record = Database().get_file_by_path(str(p))
+    db = Database()
+    db_record = db.get_file_by_path(str(p))
+
+    video_details = None
+    photo_details = None
+    if db_record:
+        md5 = db_record['md5_hash']
+        media_type = db_record['media_type']
+        if media_type in ('video', '360_video'):
+            raw = db.get_video_details(md5)
+            if raw:
+                video_details = VideoDetails(**raw)
+        elif media_type in ('photo', '360_photo'):
+            raw = db.get_photo_details(md5)
+            if raw:
+                photo_details = PhotoDetails(**raw)
 
     return FileInfo(
         name=p.name,
@@ -88,6 +103,8 @@ async def get_file_details(path: str) -> FileInfo:
         md5_hash=db_record['md5_hash'] if db_record else None,
         media_type=db_record['media_type'] if db_record else None,
         last_indexed_at=db_record['last_indexed_at'] if db_record else None,
+        video_details=video_details,
+        photo_details=photo_details,
     )
 
 
