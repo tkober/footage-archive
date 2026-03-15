@@ -91,7 +91,7 @@ footage-archive/
 ├── api/
 │   ├── base.py             # GET / (redirect to /docs), GET /version
 │   ├── config.py           # GET /config  ← root_dir, task_poll_interval_ms
-│   ├── files.py            # POST /files/directory, GET /files/details, POST /files/checksum
+│   ├── files.py            # POST /files/directory, GET /files/details, PATCH /files/rename, POST /files/checksum
 │   ├── tracking.py         # POST /tracking/scan-directory, /scan-file, /import-metadata
 │   ├── tasks.py            # GET/DELETE /tasks, DELETE /tasks/{id}
 │   ├── troubleshoot.py     # GET/POST /trouble-shooting/missing-preview
@@ -168,12 +168,14 @@ footage-archive/
 - [x] Missing preview detection + repair endpoint
 - [x] `GET /config` endpoint (root_dir, task_poll_interval_ms)
 - [x] `POST /files/directory` with sorting, pagination, ROOT_DIR hardening, hidden extension filtering
-- [x] `GET /files/details` — filesystem info + DB tracking status per file
+- [x] `GET /files/details` — filesystem info + DB tracking status + VideoDetails/PhotoDetails per file
+- [x] `PATCH /files/rename` — rename file on disk + update Files record
 - [x] Background task FAILED status with error message
 - [x] Background task progress reporting (step messages while running)
 - [x] Angular shell: header with page title, collapsible dark sidebar, lazy routing
 - [x] Browser page: directory navigation with breadcrumbs, load-more pagination
-- [x] File detail panel: opens on click, shows name/size/modified/tracking status
+- [x] File detail panel: full-screen slide-in with animation, VideoDetails/PhotoDetails in "Technical" section
+- [x] Inline filename editing in detail view (pen icon on hover → input → Enter to save, Escape to cancel)
 - [x] Right-click context menu: "Scan directory" / "Track file" triggers tracking
 - [x] Tasks widget in header: live badge, polling, progress, FAILED display, per-task dismiss
 
@@ -181,15 +183,11 @@ footage-archive/
 
 ## What's Next (Priority Order)
 
-### 1. File Detail Panel — Rich Metadata
-The detail panel shows filesystem info and tracking status. Extend with:
-- `VideoDetails` (codec, resolution, fps, audio, shot/scene/take)
-- `PhotoDetails` (make, model, ISO, aperture, shutter, focal length)
-- `FileDetails` (description, recorded_at, location)
-- `Keywords` tags
-- `ClipPreviews` thumbnail strip
-
-Requires new read endpoints for the detail tables.
+### 1. File Detail Panel — Editable Fields
+The panel already shows VideoDetails, PhotoDetails, and supports filename editing. Next:
+- Tags/keywords (needs new DB API + `+` button UI — `Keywords` table exists, `api/tags.py` is empty placeholder)
+- Description / notes field (`FileDetails.description` exists in DB, not yet exposed)
+- `recorded_at` from `FileDetails` (populated on scan, not yet shown in UI)
 
 ### 2. Location Management
 `Locations` table exists in the schema but there's no UI or API to create/assign locations yet.
