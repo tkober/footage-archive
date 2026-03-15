@@ -174,28 +174,28 @@ footage-archive/
 - [x] Background task progress reporting (step messages while running)
 - [x] Angular shell: header with page title, collapsible dark sidebar, lazy routing
 - [x] Browser page: directory navigation with breadcrumbs, load-more pagination
-- [x] File detail panel: full-screen slide-in with animation, VideoDetails/PhotoDetails in "Technical" section
+- [x] File detail panel: two-column layout (metadata left, location+map right), tracking dot next to filename
 - [x] Inline filename editing in detail view (pen icon on hover → input → Enter to save, Escape to cancel)
 - [x] Right-click context menu: "Scan directory" / "Track file" triggers tracking
 - [x] Tasks widget in header: live badge, polling, progress, FAILED display, per-task dismiss
+- [x] Keywords/tags: add + remove from detail panel, autocomplete from all existing keywords
+- [x] Location management: `GET/POST /locations`, `PATCH /files/location` — create + assign from detail panel
+- [x] Interactive map in "New location" modal: Leaflet + OSM tiles, click-to-pin, draggable marker, geocoding via Nominatim with progressive retry (drops region/name on failure, max 3 attempts)
+- [x] Read-only location map in file detail panel (zoom/pan enabled)
+- [x] Bulk edit mode in grid: "Select" button → checkbox selection → assign location or add keyword to all selected tracked files in parallel; sticky action bar; ESC to cancel
 
 ---
 
 ## What's Next (Priority Order)
 
-### 1. File Detail Panel — Editable Fields
-The panel already shows VideoDetails, PhotoDetails, and supports filename editing. Next:
-- Tags/keywords (needs new DB API + `+` button UI — `Keywords` table exists, `api/tags.py` is empty placeholder)
-- Description / notes field (`FileDetails.description` exists in DB, not yet exposed)
-- `recorded_at` from `FileDetails` (populated on scan, not yet shown in UI)
+### 1. Tag/Keyword Browsing
+`api/tags.py` is an empty placeholder. Implement tag listing and filtering files by tag from the browser.
 
-### 2. Location Management
-`Locations` table exists in the schema but there's no UI or API to create/assign locations yet.
-- `GET/POST /locations` — CRUD for location records
-- Assign a location to a file from the detail panel
+### 2. Description / Notes Field
+`FileDetails.description` exists in the DB but is not yet exposed in the UI or API.
 
-### 3. Tag/Keyword Browsing
-`api/tags.py` is an empty placeholder. Implement tag listing and filtering files by tag.
+### 3. `recorded_at` Field
+Populated on scan, not yet shown in the detail panel.
 
 ### 4. Settings Page
 Configure extension maps, trigger manual scans, view task history.
