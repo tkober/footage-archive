@@ -99,7 +99,7 @@ footage-archive/
 ├── db/database.py          # SQLite via sqlite3 + pandas, upsert pattern
 ├── scanner/scanner.py      # recursive dir walk + MD5 hashing, media_type assignment
 ├── ffmpeg/ffmpeg.py        # FFprobe (full stream info → VideoProbeResult) + clip preview
-├── photos/exif.py          # Pillow EXIF extraction → PhotoProbeResult
+├── photos/exif.py          # Pillow EXIF extraction → PhotoProbeResult + GPS DMS parsing + thumbnail generation
 ├── davinci/davinciresolve.py  # DaVinci Resolve CSV metadata parser
 ├── tasks/taskmanager.py    # in-memory singleton background task queue
 ├── env/environment.py      # env var reader with fallbacks
@@ -131,7 +131,7 @@ footage-archive/
 | `PhotoDetails` | `md5_hash` | Photo-specific: EXIF (make, model, ISO, aperture, shutter, focal length, color space) |
 | `Locations` | `id` (autoincrement) | Reusable named places with hierarchy: country, region, city, name, lat/lon |
 | `Keywords` | `md5_hash + keyword` | Tag associations |
-| `ClipPreviews` | `md5_hash` | Horizontal JPEG keyframe strip stored as BLOB |
+| `ClipPreviews` | `md5_hash` | JPEG preview stored as BLOB — 5-frame horizontal strip for videos, single resized thumbnail for photos |
 
 **Indexes:** `Files.directory` (for fast browser lookups), `Locations.country`, `Locations.city`, `Locations.(country, region, city)`
 
@@ -149,7 +149,9 @@ footage-archive/
 - **ROOT_DIR boundary** — `/files/directory` rejects any path outside `ROOT_DIR` (403). The frontend fetches `ROOT_DIR` from `/config` on startup and uses it as the navigation root.
 - **Background tasks** — long-running scans run as background tasks with queryable status, progress reporting, and FAILED state. In-memory only (lost on restart).
 - **Scan populates details automatically** — FFprobe fills `VideoDetails` + `FileDetails.recorded_at` for video files; Pillow EXIF fills `PhotoDetails` + `FileDetails.recorded_at` for photos. DaVinci Resolve CSV import can later overwrite with richer editorial metadata via `INSERT OR REPLACE`.
-- **File-centric tracking, no shot grouping** — RAW+JPEG pairs from the same shot are tracked independently. No "shot" entity for now. Location hierarchy lives in `Locations`; precise GPS per file lives in `FileDetails`.
+- **File-centric tracking, no shot grouping** — RAW+JPEG pairs from the same shot are tracked independently. No "shot" entity for now. Location hierarchy lives in `Locations`; precise GPS per file lives in `FileDetails.latitude/longitude`.
+- **GPS auto-extraction** — EXIF GPS (DMS format) is parsed from JPEGs at scan time and stored in `FileDetails.latitude/longitude`. The detail panel map uses named Location coords first, falling back to raw GPS if no location is assigned. RAW formats (RW2, DNG) don't carry extractable GPS via Pillow.
+- **Photo thumbnails reuse ClipPreviews** — `generate_photo_thumbnail()` in `photos/exif.py` produces a 600px-wide JPEG via Pillow (EXIF-rotation-corrected). Stored in the same `ClipPreviews` table, served by the same `/files/clip-preview/{md5_hash}` endpoint. RAW files silently skip (Pillow can't decode them).
 - **DaVinci Resolve CSV** as the primary editorial metadata enrichment path — imports shot/scene/take/angle/move/shot_type directly from Resolve's export.
 - **Task poll interval** — configurable via `TASK_POLL_INTERVAL_MS` env var, exposed through `/config` so the frontend picks it up dynamically.
 
@@ -163,8 +165,9 @@ footage-archive/
 - [x] Auto-population of `VideoDetails` from FFprobe on scan
 - [x] Auto-population of `PhotoDetails` from Pillow EXIF on scan
 - [x] Auto-population of `FileDetails.last_modified_at` + `recorded_at` on scan
+- [x] GPS coordinate extraction from JPEG EXIF → `FileDetails.latitude/longitude` (auto-shown on map in detail panel)
 - [x] DaVinci Resolve CSV metadata ingestion → `FileDetails` + `VideoDetails` + `Keywords`
-- [x] Clip preview generation (5-frame JPEG strip) → `ClipPreviews`
+- [x] Clip preview generation (5-frame JPEG strip for videos, single thumbnail for photos) → `ClipPreviews`
 - [x] Missing preview detection + repair endpoint
 - [x] `GET /config` endpoint (root_dir, task_poll_interval_ms)
 - [x] `POST /files/directory` with sorting, pagination, ROOT_DIR hardening, hidden extension filtering
@@ -181,8 +184,10 @@ footage-archive/
 - [x] Keywords/tags: add + remove from detail panel, autocomplete from all existing keywords
 - [x] Location management: `GET/POST /locations`, `PATCH /files/location` — create + assign from detail panel
 - [x] Interactive map in "New location" modal: Leaflet + OSM tiles, click-to-pin, draggable marker, geocoding via Nominatim with progressive retry (drops region/name on failure, max 3 attempts)
-- [x] Read-only location map in file detail panel (zoom/pan enabled)
+- [x] Read-only location map in file detail panel (zoom/pan enabled) — shows named location coords or raw GPS fallback
 - [x] Bulk edit mode in grid: "Select" button → checkbox selection → assign location or add keyword to all selected tracked files in parallel; sticky action bar; ESC to cancel
+- [x] Photo thumbnails in browser grid and detail panel (600px JPEG, EXIF-rotation-corrected, `object-fit: contain` in detail view to avoid cropping)
+- [x] Tracked status badge on files in browser grid listing
 
 ---
 
