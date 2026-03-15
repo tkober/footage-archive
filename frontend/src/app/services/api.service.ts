@@ -72,14 +72,10 @@ export class ApiService {
     return this.http.patch<FileInfo>(`${this.base}/files/location`, { md5_hash: md5Hash, location_id: locationId });
   }
 
-  geocode(fields: { name?: string; city?: string; region?: string; country?: string }): Observable<{ lat: string; lon: string }[]> {
-    const params: Record<string, string> = { format: 'json', limit: '1' };
-    if (fields.name)    params['amenity'] = fields.name;
-    if (fields.city)    params['city']    = fields.city;
-    if (fields.region)  params['state']   = fields.region;
-    if (fields.country) params['country'] = fields.country;
+  geocode(query: string): Observable<{ lat: string; lon: string }[]> {
     return this.http.get<{ lat: string; lon: string }[]>(
-      'https://nominatim.openstreetmap.org/search', { params }
+      'https://nominatim.openstreetmap.org/search',
+      { params: { q: query, format: 'json', limit: '1' } }
     );
   }
 }

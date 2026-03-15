@@ -313,25 +313,39 @@ export class BrowserComponent implements OnInit {
   }
 
   geocodeLocation() {
-    const fields = {
-      name:    this.newLocName().trim()    || undefined,
-      city:    this.newLocCity().trim()    || undefined,
-      region:  this.newLocRegion().trim()  || undefined,
-      country: this.newLocCountry().trim() || undefined,
-    };
-    if (!Object.values(fields).some(Boolean)) return;
+    const name    = this.newLocName().trim();
+    const city    = this.newLocCity().trim();
+    const region  = this.newLocRegion().trim();
+    const country = this.newLocCountry().trim();
+
+    if (!name && !city && !country) return;
+
+    const q1 = [name, city, region, country].filter(Boolean).join(', ');
+    const q2 = [name, city, country].filter(Boolean).join(', ');
+    const q3 = [city, country].filter(Boolean).join(', ');
+    const queries = [...new Set([q1, q2, q3].filter(Boolean))];
+
     this.geocoding.set(true);
     this.geocodeError.set(false);
-    this.api.geocode(fields).subscribe({
+    this.tryGeocode(queries, 0);
+  }
+
+  private tryGeocode(queries: string[], index: number) {
+    if (index >= queries.length) {
+      this.geocoding.set(false);
+      this.geocodeError.set(true);
+      return;
+    }
+    this.api.geocode(queries[index]).subscribe({
       next: (results) => {
-        this.geocoding.set(false);
         if (results?.length) {
+          this.geocoding.set(false);
           this.setLocPin(parseFloat(results[0].lat), parseFloat(results[0].lon));
         } else {
-          this.geocodeError.set(true);
+          this.tryGeocode(queries, index + 1);
         }
       },
-      error: () => { this.geocoding.set(false); this.geocodeError.set(true); }
+      error: () => this.tryGeocode(queries, index + 1),
     });
   }
 
