@@ -1,7 +1,7 @@
 import { DatePipe } from '@angular/common';
 import { Component, computed, effect, ElementRef, HostListener, inject, OnInit, signal, ViewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { switchMap, map, tap } from 'rxjs';
+import { forkJoin, switchMap, map, tap } from 'rxjs';
 import * as L from 'leaflet';
 
 import { ContextMenuComponent } from './context-menu/context-menu.component';
@@ -52,6 +52,12 @@ export class BrowserComponent implements OnInit {
   newLocLon     = signal('');
   geocoding     = signal(false);
   geocodeError  = signal(false);
+
+  bulkMode       = signal(false);
+  bulkSelected   = signal<Set<string>>(new Set());
+  bulkKeyword    = signal('');
+  bulkLocationId = signal('');
+  bulkApplying   = signal(false);
   keywordSuggestions = computed(() => {
     const input = this.newKeywordValue().toLowerCase();
     const applied = new Set(this.selectedFile()?.keywords ?? []);
@@ -180,6 +186,10 @@ export class BrowserComponent implements OnInit {
   }
 
   onEntryClick(entry: PathChild) {
+    if (this.bulkMode()) {
+      if (entry.type === 'file') this.toggleBulkSelect(entry);
+      return;
+    }
     if (entry.type === 'directory') {
       this.navigateTo(entry.path);
     } else {
@@ -462,6 +472,73 @@ export class BrowserComponent implements OnInit {
       : this.api.trackFile(entry.path);
 
     call.subscribe({ next: () => this.api.taskRefresh$.next() });
+  }
+
+  enterBulkMode() {
+    this.bulkMode.set(true);
+    if (!this.allLocations().length)
+      this.api.getLocations().subscribe({ next: locs => this.allLocations.set(locs) });
+    if (!this.allKeywords().length)
+      this.api.getAllKeywords().subscribe({ next: kws => this.allKeywords.set(kws) });
+  }
+
+  exitBulkMode() {
+    this.bulkMode.set(false);
+    this.bulkSelected.set(new Set());
+    this.bulkKeyword.set('');
+    this.bulkLocationId.set('');
+  }
+
+  toggleBulkSelect(entry: PathChild) {
+    this.bulkSelected.update(s => {
+      const next = new Set(s);
+      next.has(entry.path) ? next.delete(entry.path) : next.add(entry.path);
+      return next;
+    });
+  }
+
+  isBulkSelected(entry: PathChild): boolean {
+    return this.bulkSelected().has(entry.path);
+  }
+
+  clearBulkSelection() {
+    this.bulkSelected.set(new Set());
+  }
+
+  selectAllBulk() {
+    const all = [...this.videoFiles(), ...this.photoFiles(), ...this.untrackedFiles()]
+      .map(e => e.path);
+    this.bulkSelected.set(new Set(all));
+  }
+
+  private bulkTrackedEntries(): PathChild[] {
+    const sel = this.bulkSelected();
+    return [...this.videoFiles(), ...this.photoFiles(), ...this.untrackedFiles()]
+      .filter(e => sel.has(e.path) && !!e.md5_hash);
+  }
+
+  bulkAddKeyword() {
+    const kw = this.bulkKeyword().trim();
+    const targets = this.bulkTrackedEntries();
+    if (!kw || !targets.length) return;
+    this.bulkApplying.set(true);
+    this.bulkKeyword.set('');
+    forkJoin(targets.map(e => this.api.addKeyword(e.md5_hash!, kw))).subscribe({
+      next: () => this.bulkApplying.set(false),
+      error: () => this.bulkApplying.set(false),
+    });
+  }
+
+  bulkAssignLocation() {
+    const locationId = +this.bulkLocationId() || null;
+    if (!locationId) return;
+    const targets = this.bulkTrackedEntries();
+    if (!targets.length) return;
+    this.bulkApplying.set(true);
+    forkJoin(targets.map(e => this.api.assignLocation(e.md5_hash!, locationId))).subscribe({
+      next: () => { this.bulkApplying.set(false); this.bulkLocationId.set(''); },
+      error: () => { this.bulkApplying.set(false); this.bulkLocationId.set(''); },
+    });
   }
 
   formatBytes(bytes: number): string {

@@ -18,6 +18,10 @@
       </svg>
       Scan
     </button>
+    <button class="select-mode-btn" [class.active]="bulkMode()"
+            (click)="bulkMode() ? exitBulkMode() : enterBulkMode()">
+      Select
+    </button>
     }
   </nav>
 
@@ -25,6 +29,40 @@
 
     <!-- Grid view -->
     <div class="list-view" (contextmenu)="onBackgroundContextMenu($event)">
+
+      @if (bulkMode()) {
+        <div class="bulk-bar">
+          <span class="bulk-count">{{ bulkSelected().size }} selected</span>
+          <button class="bulk-select-all-btn" (click)="selectAllBulk()">All</button>
+          <button class="bulk-clear-btn" (click)="clearBulkSelection()">Clear</button>
+          <div class="bulk-actions">
+            <input class="bulk-keyword-input"
+                   list="bulk-keyword-suggestions"
+                   placeholder="Add keyword…"
+                   [value]="bulkKeyword()"
+                   (input)="bulkKeyword.set($any($event.target).value)"
+                   (keydown.enter)="bulkAddKeyword()" />
+            <datalist id="bulk-keyword-suggestions">
+              @for (kw of allKeywords(); track kw) { <option [value]="kw"></option> }
+            </datalist>
+            <button class="bulk-action-btn"
+                    (click)="bulkAddKeyword()"
+                    [disabled]="bulkApplying() || !bulkKeyword().trim() || !bulkSelected().size">Add tag</button>
+            <select class="bulk-loc-select"
+                    [value]="bulkLocationId()"
+                    (change)="bulkLocationId.set($any($event.target).value)">
+              <option value="">— location —</option>
+              @for (loc of allLocations(); track loc.id) {
+                <option [value]="loc.id">{{ formatLocation(loc) }}</option>
+              }
+            </select>
+            <button class="bulk-action-btn"
+                    (click)="bulkAssignLocation()"
+                    [disabled]="bulkApplying() || !bulkLocationId() || !bulkSelected().size">Assign</button>
+            <button class="bulk-done-btn" (click)="exitBulkMode()">Done</button>
+          </div>
+        </div>
+      }
 
       @if (loading()) {
         <div class="state-msg">Loading…</div>
@@ -54,9 +92,13 @@
               @for (entry of videoFiles(); track entry.path) {
                 @if (entryPreviewUrl(entry); as thumbUrl) {
                   <div class="file-card"
-                       [class.selected]="selectedFile()?.path === entry.path"
+                       [class.selected]="!bulkMode() && selectedFile()?.path === entry.path"
+                       [class.bulk-selected]="bulkMode() && isBulkSelected(entry)"
                        (click)="onEntryClick(entry)"
                        (contextmenu)="onEntryContextMenu($event, entry)">
+                    @if (bulkMode()) {
+                      <span class="bulk-check" [class.checked]="isBulkSelected(entry)"></span>
+                    }
                     <img class="card-strip" [src]="thumbUrl" alt="" />
                     <div class="card-footer">
                       <span class="tracked-dot" [class.is-tracked]="entry.tracked === true"></span>
@@ -68,9 +110,13 @@
                   </div>
                 } @else {
                   <div class="file-card"
-                       [class.selected]="selectedFile()?.path === entry.path"
+                       [class.selected]="!bulkMode() && selectedFile()?.path === entry.path"
+                       [class.bulk-selected]="bulkMode() && isBulkSelected(entry)"
                        (click)="onEntryClick(entry)"
                        (contextmenu)="onEntryContextMenu($event, entry)">
+                    @if (bulkMode()) {
+                      <span class="bulk-check" [class.checked]="isBulkSelected(entry)"></span>
+                    }
                     <div class="placeholder-thumb video-thumb">
                       <svg viewBox="0 0 24 24" fill="currentColor">
                         <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
@@ -96,9 +142,13 @@
             <div class="file-grid stills-grid">
               @for (entry of photoFiles(); track entry.path) {
                 <div class="file-card"
-                     [class.selected]="selectedFile()?.path === entry.path"
+                     [class.selected]="!bulkMode() && selectedFile()?.path === entry.path"
+                     [class.bulk-selected]="bulkMode() && isBulkSelected(entry)"
                      (click)="onEntryClick(entry)"
                      (contextmenu)="onEntryContextMenu($event, entry)">
+                  @if (bulkMode()) {
+                    <span class="bulk-check" [class.checked]="isBulkSelected(entry)"></span>
+                  }
                   <div class="placeholder-thumb photo-thumb">
                     <svg viewBox="0 0 24 24" fill="currentColor">
                       <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
@@ -123,9 +173,13 @@
             <div class="file-grid stills-grid">
               @for (entry of untrackedFiles(); track entry.path) {
                 <div class="file-card"
-                     [class.selected]="selectedFile()?.path === entry.path"
+                     [class.selected]="!bulkMode() && selectedFile()?.path === entry.path"
+                     [class.bulk-selected]="bulkMode() && isBulkSelected(entry)"
                      (click)="onEntryClick(entry)"
                      (contextmenu)="onEntryContextMenu($event, entry)">
+                  @if (bulkMode()) {
+                    <span class="bulk-check" [class.checked]="isBulkSelected(entry)"></span>
+                  }
                   <div class="placeholder-thumb">
                     <svg viewBox="0 0 24 24" fill="currentColor">
                       <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
