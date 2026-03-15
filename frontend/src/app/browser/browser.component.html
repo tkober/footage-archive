@@ -421,37 +421,10 @@
                   }
                 </select>
                 <button class="location-new-btn"
-                        (click)="showCreateLocation.set(!showCreateLocation())"
-                        [class.active]="showCreateLocation()">
+                        (click)="showCreateLocation.set(true)">
                   + New
                 </button>
               </div>
-              @if (showCreateLocation()) {
-                <div class="location-create-form">
-                  <input class="loc-input" placeholder="Country"
-                         [value]="newLocCountry()" (input)="newLocCountry.set($any($event.target).value)"
-                         (keydown.escape)="$event.stopPropagation()" />
-                  <input class="loc-input" placeholder="Region"
-                         [value]="newLocRegion()" (input)="newLocRegion.set($any($event.target).value)"
-                         (keydown.escape)="$event.stopPropagation()" />
-                  <input class="loc-input" placeholder="City"
-                         [value]="newLocCity()" (input)="newLocCity.set($any($event.target).value)"
-                         (keydown.escape)="$event.stopPropagation()" />
-                  <input class="loc-input" placeholder="Name / landmark"
-                         [value]="newLocName()" (input)="newLocName.set($any($event.target).value)"
-                         (keydown.escape)="$event.stopPropagation()" />
-                  <input class="loc-input" placeholder="Latitude" type="number"
-                         [value]="newLocLat()" (input)="newLocLat.set($any($event.target).value)"
-                         (keydown.escape)="$event.stopPropagation()" />
-                  <input class="loc-input" placeholder="Longitude" type="number"
-                         [value]="newLocLon()" (input)="newLocLon.set($any($event.target).value)"
-                         (keydown.escape)="$event.stopPropagation()" />
-                  <div class="location-create-actions">
-                    <button class="loc-save-btn" (click)="createLocation()">Save</button>
-                    <button class="loc-cancel-btn" (click)="cancelCreateLocation()">Cancel</button>
-                  </div>
-                </div>
-              }
             </div>
           }
 
@@ -462,6 +435,29 @@
   </div>
 
 </div>
+
+@if (showCreateLocation()) {
+  <app-modal title="New location" (close)="cancelCreateLocation()">
+    <div class="location-create-form">
+      <input class="loc-input" placeholder="Country"
+             [value]="newLocCountry()" (input)="newLocCountry.set($any($event.target).value)" />
+      <input class="loc-input" placeholder="Region"
+             [value]="newLocRegion()" (input)="newLocRegion.set($any($event.target).value)" />
+      <input class="loc-input" placeholder="City"
+             [value]="newLocCity()" (input)="newLocCity.set($any($event.target).value)" />
+      <input class="loc-input" placeholder="Name / landmark"
+             [value]="newLocName()" (input)="newLocName.set($any($event.target).value)" />
+      <input class="loc-input" placeholder="Latitude" type="number"
+             [value]="newLocLat()" (input)="newLocLat.set($any($event.target).value)" />
+      <input class="loc-input" placeholder="Longitude" type="number"
+             [value]="newLocLon()" (input)="newLocLon.set($any($event.target).value)" />
+      <div class="location-create-actions">
+        <button class="loc-save-btn" (click)="createLocation()">Save</button>
+        <button class="loc-cancel-btn" (click)="cancelCreateLocation()">Cancel</button>
+      </div>
+    </div>
+  </app-modal>
+}
 
 @if (contextMenuEntry(); as ctxEntry) {
   <app-context-menu

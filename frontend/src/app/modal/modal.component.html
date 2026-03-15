@@ -1,0 +1,11 @@
+<div class="modal-backdrop" (click)="onBackdropClick()">
+  <div class="modal-box" (click)="$event.stopPropagation()">
+    <div class="modal-header">
+      <span class="modal-title">{{ title }}</span>
+      <button class="modal-close" (click)="close.emit()" title="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <ng-content />
+    </div>
+  </div>
+</div>

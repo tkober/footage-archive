@@ -4,6 +4,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { switchMap, map, tap } from 'rxjs';
 
 import { ContextMenuComponent } from './context-menu/context-menu.component';
+import { ModalComponent } from '../modal/modal.component';
 import { ApiService } from '../services/api.service';
 import { FileInfo, Location, PathChild, VIDEO_TYPES, PHOTO_TYPES } from '../models';
 
@@ -12,7 +13,7 @@ const PAGE_SIZE = 50;
 @Component({
   selector: 'app-browser',
   standalone: true,
-  imports: [DatePipe, ContextMenuComponent],
+  imports: [DatePipe, ContextMenuComponent, ModalComponent],
   templateUrl: './browser.component.html',
   styleUrl: './browser.component.css'
 })
@@ -168,6 +169,7 @@ export class BrowserComponent implements OnInit {
 
   @HostListener('document:keydown.escape')
   onEscapeKey() {
+    if (this.showCreateLocation()) return; // modal handles its own ESC
     if (this.showDetail()) this.closeDetails();
   }
 
