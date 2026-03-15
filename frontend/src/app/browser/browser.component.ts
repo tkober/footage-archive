@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, computed, ElementRef, inject, OnInit, signal, ViewChild } from '@angular/core';
+import { Component, computed, ElementRef, HostListener, inject, OnInit, signal, ViewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { switchMap, map, tap } from 'rxjs';
 
@@ -147,6 +147,11 @@ export class BrowserComponent implements OnInit {
     }
   }
 
+  @HostListener('document:keydown.escape')
+  onEscapeKey() {
+    if (this.showDetail()) this.closeDetails();
+  }
+
   closeDetails() {
     this.selectedFile.set(null);
     this.loadingDetails.set(false);
@@ -197,8 +202,16 @@ export class BrowserComponent implements OnInit {
     this.renameError.set(null);
   }
 
+  onBackgroundContextMenu(event: MouseEvent) {
+    const path = this.currentPath();
+    if (!path) return;
+    const syntheticDir: PathChild = { name: path.split('/').pop() || path, path, type: 'directory', file_extension: null, tracked: null };
+    this.onEntryContextMenu(event, syntheticDir);
+  }
+
   onEntryContextMenu(event: MouseEvent, entry: PathChild) {
     event.preventDefault();
+    event.stopPropagation();
     this.contextMenuX.set(event.clientX);
     this.contextMenuY.set(event.clientY);
     this.contextMenuEntry.set(entry);
@@ -206,6 +219,12 @@ export class BrowserComponent implements OnInit {
 
   closeContextMenu() {
     this.contextMenuEntry.set(null);
+  }
+
+  scanCurrentDirectory() {
+    const path = this.currentPath();
+    if (!path) return;
+    this.api.scanDirectory(path).subscribe({ next: () => this.api.taskRefresh$.next() });
   }
 
   onContextMenuAction(entry: PathChild) {

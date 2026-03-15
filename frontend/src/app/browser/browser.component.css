@@ -38,6 +38,26 @@
   cursor: default;
 }
 
+.scan-current-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  color: #6b7280;
+  background: none;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.scan-current-btn:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
 .crumb.active:hover {
   background: none;
 }
