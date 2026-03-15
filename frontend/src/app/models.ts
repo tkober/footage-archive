@@ -88,6 +88,17 @@ export interface Location {
   longitude?: number | null;
 }
 
+export interface MapPoint {
+  latitude: number;
+  longitude: number;
+  count: number;
+  video_count: number;
+  photo_count: number;
+  md5_hash: string | null;
+  file_name: string | null;
+  media_type: string | null;
+}
+
 export interface FileInfo {
   name: string;
   path: string;

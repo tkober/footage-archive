@@ -124,6 +124,17 @@ class AssignLocationRequest(BaseModel):
     location_id: Optional[int] = None
 
 
+class MapPoint(BaseModel):
+    latitude: float
+    longitude: float
+    count: int
+    video_count: int
+    photo_count: int
+    md5_hash: Optional[str] = None
+    file_name: Optional[str] = None
+    media_type: Optional[str] = None
+
+
 class FileInfo(BaseModel):
     name: str
     path: str

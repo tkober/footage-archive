@@ -253,6 +253,64 @@ class Database:
             return (row[0], row[1])
         return None
 
+    _CLUSTER_CELL_SIZES = [20.0, 20.0, 20.0, 20.0, 8.0, 8.0, 3.0, 3.0, 1.0, 1.0, 0.3, 0.3, 0.05, 0.05]
+
+    def get_map_points(self, west: float, south: float, east: float, north: float,
+                       zoom: int) -> list[dict]:
+        self.connect()
+        base_sql = '''
+            SELECT f.md5_hash, f.file_name, f.media_type,
+                   COALESCE(l.latitude,  fd.latitude)  AS lat,
+                   COALESCE(l.longitude, fd.longitude) AS lon
+            FROM Files f
+            JOIN FileDetails fd ON f.md5_hash = fd.md5_hash
+            LEFT JOIN Locations l ON fd.location_id = l.id
+            WHERE COALESCE(l.latitude,  fd.latitude)  IS NOT NULL
+              AND COALESCE(l.longitude, fd.longitude) IS NOT NULL
+              AND COALESCE(l.latitude,  fd.latitude)  BETWEEN ? AND ?
+              AND COALESCE(l.longitude, fd.longitude) BETWEEN ? AND ?
+        '''
+        params = (south, north, west, east)
+
+        if zoom >= 14:
+            cursor = self._connection.execute(base_sql, params)
+            rows = cursor.fetchall()
+            self.disconnect()
+            keys = ['md5_hash', 'file_name', 'media_type', 'lat', 'lon']
+            result = []
+            for row in rows:
+                r = dict(zip(keys, row))
+                is_video = r['media_type'] in ('video', '360_video')
+                result.append({
+                    'latitude': r['lat'], 'longitude': r['lon'],
+                    'count': 1,
+                    'video_count': 1 if is_video else 0,
+                    'photo_count': 0 if is_video else 1,
+                    'md5_hash': r['md5_hash'],
+                    'file_name': r['file_name'],
+                    'media_type': r['media_type'],
+                })
+            return result
+
+        cell = self._CLUSTER_CELL_SIZES[min(zoom, len(self._CLUSTER_CELL_SIZES) - 1)]
+        cluster_sql = f'''
+            SELECT ROUND(lat / {cell}) * {cell} AS latitude,
+                   ROUND(lon / {cell}) * {cell} AS longitude,
+                   COUNT(*) AS count,
+                   SUM(CASE WHEN media_type IN ('video', '360_video') THEN 1 ELSE 0 END) AS video_count,
+                   SUM(CASE WHEN media_type NOT IN ('video', '360_video') THEN 1 ELSE 0 END) AS photo_count
+            FROM ({base_sql})
+            GROUP BY latitude, longitude
+        '''
+        cursor = self._connection.execute(cluster_sql, params)
+        rows = cursor.fetchall()
+        self.disconnect()
+        keys = ['latitude', 'longitude', 'count', 'video_count', 'photo_count']
+        return [
+            {**dict(zip(keys, row)), 'md5_hash': None, 'file_name': None, 'media_type': None}
+            for row in rows
+        ]
+
     def get_all_keywords(self) -> list[str]:
         self.connect()
         cursor = self._connection.execute(

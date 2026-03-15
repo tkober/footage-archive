@@ -1,9 +1,10 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, Subject } from 'rxjs';
+import * as L from 'leaflet';
 
 import { environment } from '../../environments/environment';
-import { Config, DirectoryQuery, DirectoryResponse, FileInfo, Location, Task } from '../models';
+import { Config, DirectoryQuery, DirectoryResponse, FileInfo, Location, MapPoint, Task } from '../models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -58,6 +59,18 @@ export class ApiService {
 
   removeKeyword(md5Hash: string, keyword: string): Observable<void> {
     return this.http.delete<void>(`${this.base}/keywords/`, { body: { md5_hash: md5Hash, keyword } });
+  }
+
+  getMapPoints(bounds: L.LatLngBounds, zoom: number): Observable<MapPoint[]> {
+    return this.http.get<MapPoint[]>(`${this.base}/locations/map-points`, {
+      params: {
+        bbox_west:  bounds.getWest(),
+        bbox_south: bounds.getSouth(),
+        bbox_east:  bounds.getEast(),
+        bbox_north: bounds.getNorth(),
+        zoom,
+      }
+    });
   }
 
   getLocations(): Observable<Location[]> {
