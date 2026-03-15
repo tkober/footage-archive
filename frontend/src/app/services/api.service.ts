@@ -36,6 +36,10 @@ export class ApiService {
     return `${this.base}/files/clip-preview/${md5Hash}`;
   }
 
+  renameFile(path: string, newName: string): Observable<FileInfo> {
+    return this.http.patch<FileInfo>(`${this.base}/files/rename`, { path, new_name: newName });
+  }
+
   getTasks(): Observable<Task[]> {
     return this.http.get<Task[]>(`${this.base}/tasks/`);
   }

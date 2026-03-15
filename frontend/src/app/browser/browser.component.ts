@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, ElementRef, inject, OnInit, signal, ViewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { switchMap, map, tap } from 'rxjs';
 
@@ -34,6 +34,11 @@ export class BrowserComponent implements OnInit {
   contextMenuX = signal(0);
   contextMenuY = signal(0);
   private page = 1;
+
+  editingName = signal(false);
+  editNameValue = signal('');
+  renameError = signal<string | null>(null);
+  @ViewChild('nameInput') nameInputRef?: ElementRef<HTMLInputElement>;
 
   dirs        = computed(() => this.entries().filter(e => e.type === 'directory'));
   videoFiles  = computed(() => this.entries().filter(e => e.type === 'file' && VIDEO_TYPES.includes(e.media_type as any)));
@@ -145,6 +150,51 @@ export class BrowserComponent implements OnInit {
   closeDetails() {
     this.selectedFile.set(null);
     this.loadingDetails.set(false);
+    this.editingName.set(false);
+    this.renameError.set(null);
+  }
+
+  startEditName() {
+    const file = this.selectedFile();
+    if (!file) return;
+    this.editNameValue.set(file.name);
+    this.editingName.set(true);
+    this.renameError.set(null);
+    setTimeout(() => {
+      const el = this.nameInputRef?.nativeElement;
+      if (el) {
+        el.focus();
+        const lastDot = file.name.lastIndexOf('.');
+        const stemEnd = lastDot > 0 ? lastDot : file.name.length;
+        el.setSelectionRange(0, stemEnd);
+      }
+    }, 0);
+  }
+
+  saveNameEdit() {
+    const file = this.selectedFile();
+    if (!file) return;
+    const newName = this.editNameValue().trim();
+    if (!newName || newName === file.name) {
+      this.cancelNameEdit();
+      return;
+    }
+    this.api.renameFile(file.path, newName).subscribe({
+      next: (updated) => {
+        this.selectedFile.set(updated);
+        this.entries.update(list =>
+          list.map(e => e.path === file.path ? { ...e, name: updated.name, path: updated.path } : e)
+        );
+        this.editingName.set(false);
+        this.renameError.set(null);
+      },
+      error: (err) => this.renameError.set(err.error?.detail ?? 'Rename failed'),
+    });
+  }
+
+  cancelNameEdit() {
+    this.editingName.set(false);
+    this.renameError.set(null);
   }
 
   onEntryContextMenu(event: MouseEvent, entry: PathChild) {

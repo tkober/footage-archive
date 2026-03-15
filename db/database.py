@@ -148,6 +148,15 @@ class Database:
                 'shutter_speed', 'focal_length', 'color_space', 'bit_depth']
         return dict(zip(keys, row))
 
+    def rename_file(self, md5_hash: str, new_file_name: str):
+        self.connect()
+        self._connection.execute(
+            'UPDATE Files SET file_name = ? WHERE md5_hash = ?',
+            (new_file_name, md5_hash)
+        )
+        self._connection.commit()
+        self.disconnect()
+
     def get_clip_preview(self, md5_hash: str) -> bytes | None:
         self.connect()
         cursor = self._connection.execute(

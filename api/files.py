@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
-from api.dtos import DirectoryQuery, DirectoryResponse, FileInfo, FileQuery, PathChild, PathType, FileDescriptor, SortField, SortOrder, VideoDetails, PhotoDetails
+from api.dtos import DirectoryQuery, DirectoryResponse, FileInfo, FileQuery, PathChild, PathType, FileDescriptor, SortField, SortOrder, VideoDetails, PhotoDetails, RenameRequest
 from db.database import Database
 from env.environment import Environment
 from scanner.scanner import Scanner
@@ -63,22 +63,9 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
     return DirectoryResponse(total=total, page=query.page, page_size=query.page_size, items=items)
 
 
-@FilesApi.get('/details')
-async def get_file_details(path: str) -> FileInfo:
-    root = Path(_env.get_root_dir())
-    p = Path(path).resolve()
-
-    if not p.is_relative_to(root):
-        raise HTTPException(status_code=403, detail='Access outside root directory is not allowed')
-    if not p.exists():
-        raise HTTPException(status_code=404, detail='File does not exist')
-    if p.is_dir():
-        raise HTTPException(status_code=400, detail='Path is a directory')
-
+def _build_file_info(p: Path, db: Database) -> FileInfo:
     stat = p.stat()
-    db = Database()
     db_record = db.get_file_by_path(str(p))
-
     video_details = None
     photo_details = None
     if db_record:
@@ -92,7 +79,6 @@ async def get_file_details(path: str) -> FileInfo:
             raw = db.get_photo_details(md5)
             if raw:
                 photo_details = PhotoDetails(**raw)
-
     return FileInfo(
         name=p.name,
         path=str(p),
@@ -106,6 +92,52 @@ async def get_file_details(path: str) -> FileInfo:
         video_details=video_details,
         photo_details=photo_details,
     )
+
+
+@FilesApi.get('/details')
+async def get_file_details(path: str) -> FileInfo:
+    root = Path(_env.get_root_dir())
+    p = Path(path).resolve()
+
+    if not p.is_relative_to(root):
+        raise HTTPException(status_code=403, detail='Access outside root directory is not allowed')
+    if not p.exists():
+        raise HTTPException(status_code=404, detail='File does not exist')
+    if p.is_dir():
+        raise HTTPException(status_code=400, detail='Path is a directory')
+
+    return _build_file_info(p, Database())
+
+
+@FilesApi.patch('/rename')
+async def rename_file(request: RenameRequest) -> FileInfo:
+    root = Path(_env.get_root_dir())
+    p = Path(request.path).resolve()
+
+    if not p.is_relative_to(root):
+        raise HTTPException(status_code=403, detail='Access outside root directory is not allowed')
+    if not p.exists():
+        raise HTTPException(status_code=404, detail='File not found')
+    if p.is_dir():
+        raise HTTPException(status_code=400, detail='Path is a directory')
+
+    new_name = request.new_name.strip()
+    if not new_name or '/' in new_name or '\\' in new_name:
+        raise HTTPException(status_code=400, detail='Invalid filename')
+
+    new_path = p.parent / new_name
+    if new_path.exists():
+        raise HTTPException(status_code=409, detail='A file with that name already exists')
+
+    db = Database()
+    db_record = db.get_file_by_path(str(p))
+
+    p.rename(new_path)
+
+    if db_record:
+        db.rename_file(db_record['md5_hash'], new_name)
+
+    return _build_file_info(new_path, db)
 
 
 @FilesApi.get('/clip-preview/{md5_hash}')

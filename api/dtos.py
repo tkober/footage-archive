@@ -90,6 +90,11 @@ class PhotoDetails(BaseModel):
     bit_depth: Optional[int] = None
 
 
+class RenameRequest(BaseModel):
+    path: StrictStr
+    new_name: StrictStr
+
+
 class FileInfo(BaseModel):
     name: str
     path: str

@@ -171,7 +171,29 @@
         }
 
         <div class="detail-content">
-          <h1 class="detail-filename">{{ file.name }}</h1>
+          <div class="filename-wrap">
+            @if (!editingName()) {
+              <h1 class="detail-filename">{{ file.name }}</h1>
+              <button class="edit-pen" (click)="startEditName()" title="Rename">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                  <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                </svg>
+              </button>
+            } @else {
+              <div class="filename-edit-row">
+                <input #nameInput class="filename-input"
+                       [value]="editNameValue()"
+                       (input)="editNameValue.set($any($event.target).value)"
+                       (keydown.enter)="saveNameEdit()"
+                       (keydown.escape)="cancelNameEdit()" />
+                <button class="save-name-btn" (click)="saveNameEdit()" title="Save">✓</button>
+                <button class="cancel-name-btn" (click)="cancelNameEdit()" title="Cancel">✕</button>
+              </div>
+              @if (renameError()) {
+                <div class="rename-error">{{ renameError() }}</div>
+              }
+            }
+          </div>
 
           <div class="detail-section">
             <span class="detail-section-label">File</span>
