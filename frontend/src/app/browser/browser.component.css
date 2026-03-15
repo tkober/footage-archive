@@ -582,18 +582,30 @@
 /* Location */
 .location-assigned {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   margin-bottom: 8px;
 }
 
 .location-pill {
-  font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   background: #f0fdf4;
-  color: #166534;
   border: 1px solid #bbf7d0;
-  border-radius: 12px;
-  padding: 3px 10px;
+  border-radius: 8px;
+  padding: 4px 10px;
+}
+
+.location-pill-name {
+  font-size: 0.8rem;
+  color: #166534;
+  font-weight: 500;
+}
+
+.location-pill-geo {
+  font-size: 0.7rem;
+  color: #16a34a;
 }
 
 .location-remove {
@@ -651,9 +663,28 @@
 }
 
 .location-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.loc-input-name {
+  font-size: 0.9rem;
+  padding: 8px 10px;
+}
+
+.loc-section-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+  margin-bottom: -4px;
+}
+
+.loc-section-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 6px;
 }
 
 .loc-input {

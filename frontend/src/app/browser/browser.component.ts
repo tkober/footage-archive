@@ -294,8 +294,17 @@ export class BrowserComponent implements OnInit {
     this.newLocLon.set('');
   }
 
+  locationGeo(loc: Location): string {
+    return [loc.country, loc.region, loc.city].filter(Boolean).join(' › ');
+  }
+
+  locationName(loc: Location): string {
+    return loc.name ?? this.locationGeo(loc);
+  }
+
   formatLocation(loc: Location): string {
-    return [loc.country, loc.region, loc.city, loc.name].filter(Boolean).join(' › ');
+    const geo = this.locationGeo(loc);
+    return loc.name ? `${loc.name} — ${geo}` : geo;
   }
 
   onBackgroundContextMenu(event: MouseEvent) {

@@ -406,7 +406,12 @@
               <span class="detail-section-label">Location</span>
               @if (file.location) {
                 <div class="location-assigned">
-                  <span class="location-pill">{{ formatLocation(file.location) }}</span>
+                  <div class="location-pill">
+                    <span class="location-pill-name">{{ locationName(file.location) }}</span>
+                    @if (file.location.name && locationGeo(file.location)) {
+                      <span class="location-pill-geo">{{ locationGeo(file.location) }}</span>
+                    }
+                  </div>
                   <button class="location-remove" (click)="assignLocation(null)" title="Remove location">✕</button>
                 </div>
               }
@@ -439,18 +444,27 @@
 @if (showCreateLocation()) {
   <app-modal title="New location" (close)="cancelCreateLocation()">
     <div class="location-create-form">
-      <input class="loc-input" placeholder="Country"
-             [value]="newLocCountry()" (input)="newLocCountry.set($any($event.target).value)" />
-      <input class="loc-input" placeholder="Region"
-             [value]="newLocRegion()" (input)="newLocRegion.set($any($event.target).value)" />
-      <input class="loc-input" placeholder="City"
-             [value]="newLocCity()" (input)="newLocCity.set($any($event.target).value)" />
-      <input class="loc-input" placeholder="Name / landmark"
+      <input class="loc-input loc-input-name" placeholder="Name / landmark"
              [value]="newLocName()" (input)="newLocName.set($any($event.target).value)" />
-      <input class="loc-input" placeholder="Latitude" type="number"
-             [value]="newLocLat()" (input)="newLocLat.set($any($event.target).value)" />
-      <input class="loc-input" placeholder="Longitude" type="number"
-             [value]="newLocLon()" (input)="newLocLon.set($any($event.target).value)" />
+
+      <span class="loc-section-label">Location</span>
+      <div class="loc-section-grid">
+        <input class="loc-input" placeholder="Country"
+               [value]="newLocCountry()" (input)="newLocCountry.set($any($event.target).value)" />
+        <input class="loc-input" placeholder="Region"
+               [value]="newLocRegion()" (input)="newLocRegion.set($any($event.target).value)" />
+        <input class="loc-input" placeholder="City"
+               [value]="newLocCity()" (input)="newLocCity.set($any($event.target).value)" />
+      </div>
+
+      <span class="loc-section-label">Coordinates</span>
+      <div class="loc-section-grid">
+        <input class="loc-input" placeholder="Latitude" type="number"
+               [value]="newLocLat()" (input)="newLocLat.set($any($event.target).value)" />
+        <input class="loc-input" placeholder="Longitude" type="number"
+               [value]="newLocLon()" (input)="newLocLon.set($any($event.target).value)" />
+      </div>
+
       <div class="location-create-actions">
         <button class="loc-save-btn" (click)="createLocation()">Save</button>
         <button class="loc-cancel-btn" (click)="cancelCreateLocation()">Cancel</button>
