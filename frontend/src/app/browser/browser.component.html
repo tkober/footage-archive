@@ -442,7 +442,7 @@
 </div>
 
 @if (showCreateLocation()) {
-  <app-modal title="New location" (close)="cancelCreateLocation()">
+  <app-modal title="New location" [wide]="true" (close)="cancelCreateLocation()">
     <div class="location-create-form">
       <input class="loc-input loc-input-name" placeholder="Name / landmark"
              [value]="newLocName()" (input)="newLocName.set($any($event.target).value)" />
@@ -458,12 +458,21 @@
       </div>
 
       <span class="loc-section-label">Coordinates</span>
-      <div class="loc-section-grid">
-        <input class="loc-input" placeholder="Latitude" type="number"
-               [value]="newLocLat()" (input)="newLocLat.set($any($event.target).value)" />
-        <input class="loc-input" placeholder="Longitude" type="number"
-               [value]="newLocLon()" (input)="newLocLon.set($any($event.target).value)" />
+      <div class="loc-coords-row">
+        <div class="loc-section-grid">
+          <input class="loc-input" placeholder="Latitude" type="number"
+                 [value]="newLocLat()" (input)="newLocLat.set($any($event.target).value)" />
+          <input class="loc-input" placeholder="Longitude" type="number"
+                 [value]="newLocLon()" (input)="newLocLon.set($any($event.target).value)" />
+        </div>
+        <button class="loc-geocode-btn" (click)="geocodeLocation()" [disabled]="geocoding()">
+          {{ geocoding() ? '…' : 'Locate' }}
+        </button>
       </div>
+      @if (geocodeError()) {
+        <span class="loc-geocode-error">No results found</span>
+      }
+      <div #locMapContainer class="loc-map-container"></div>
 
       <div class="location-create-actions">
         <button class="loc-save-btn" (click)="createLocation()">Save</button>

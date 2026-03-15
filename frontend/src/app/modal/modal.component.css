@@ -48,6 +48,10 @@
   color: #e5e7eb;
 }
 
+.modal-wide {
+  max-width: 640px;
+}
+
 .modal-body {
   padding: 16px;
 }

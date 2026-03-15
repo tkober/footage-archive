@@ -1,7 +1,8 @@
 import { DatePipe } from '@angular/common';
-import { Component, computed, ElementRef, HostListener, inject, OnInit, signal, ViewChild } from '@angular/core';
+import { Component, computed, effect, ElementRef, HostListener, inject, OnInit, signal, ViewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { switchMap, map, tap } from 'rxjs';
+import * as L from 'leaflet';
 
 import { ContextMenuComponent } from './context-menu/context-menu.component';
 import { ModalComponent } from '../modal/modal.component';
@@ -49,6 +50,8 @@ export class BrowserComponent implements OnInit {
   newLocName    = signal('');
   newLocLat     = signal('');
   newLocLon     = signal('');
+  geocoding     = signal(false);
+  geocodeError  = signal(false);
   keywordSuggestions = computed(() => {
     const input = this.newKeywordValue().toLowerCase();
     const applied = new Set(this.selectedFile()?.keywords ?? []);
@@ -57,6 +60,9 @@ export class BrowserComponent implements OnInit {
     );
   });
   @ViewChild('nameInput') nameInputRef?: ElementRef<HTMLInputElement>;
+  @ViewChild('locMapContainer') locMapContainerRef?: ElementRef<HTMLDivElement>;
+  private locMap: L.Map | null = null;
+  private locMarker: L.Marker | null = null;
 
   dirs        = computed(() => this.entries().filter(e => e.type === 'directory'));
   videoFiles  = computed(() => this.entries().filter(e => e.type === 'file' && VIDEO_TYPES.includes(e.media_type as any)));
@@ -86,6 +92,16 @@ export class BrowserComponent implements OnInit {
       path: '/' + currentParts.slice(0, rootParts.length - 1 + i + 1).join('/')
     }));
   });
+
+  constructor() {
+    effect(() => {
+      if (this.showCreateLocation()) {
+        setTimeout(() => this.initLocMap(), 0);
+      } else {
+        this.destroyLocMap();
+      }
+    });
+  }
 
   ngOnInit() {
     this.api.getConfig().pipe(
@@ -292,6 +308,68 @@ export class BrowserComponent implements OnInit {
     this.newLocName.set('');
     this.newLocLat.set('');
     this.newLocLon.set('');
+    this.geocoding.set(false);
+    this.geocodeError.set(false);
+  }
+
+  geocodeLocation() {
+    const fields = {
+      name:    this.newLocName().trim()    || undefined,
+      city:    this.newLocCity().trim()    || undefined,
+      region:  this.newLocRegion().trim()  || undefined,
+      country: this.newLocCountry().trim() || undefined,
+    };
+    if (!Object.values(fields).some(Boolean)) return;
+    this.geocoding.set(true);
+    this.geocodeError.set(false);
+    this.api.geocode(fields).subscribe({
+      next: (results) => {
+        this.geocoding.set(false);
+        if (results?.length) {
+          this.setLocPin(parseFloat(results[0].lat), parseFloat(results[0].lon));
+        } else {
+          this.geocodeError.set(true);
+        }
+      },
+      error: () => { this.geocoding.set(false); this.geocodeError.set(true); }
+    });
+  }
+
+  private initLocMap() {
+    const el = this.locMapContainerRef?.nativeElement;
+    if (!el || this.locMap) return;
+    this.locMap = L.map(el).setView([20, 0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19
+    }).addTo(this.locMap);
+    this.locMap.on('click', (e: L.LeafletMouseEvent) => this.setLocPin(e.latlng.lat, e.latlng.lng));
+    const lat = parseFloat(this.newLocLat());
+    const lon = parseFloat(this.newLocLon());
+    if (!isNaN(lat) && !isNaN(lon)) this.setLocPin(lat, lon);
+  }
+
+  private destroyLocMap() {
+    this.locMap?.remove();
+    this.locMap = null;
+    this.locMarker = null;
+  }
+
+  private setLocPin(lat: number, lon: number) {
+    this.newLocLat.set(lat.toFixed(6));
+    this.newLocLon.set(lon.toFixed(6));
+    if (this.locMarker) {
+      this.locMarker.setLatLng([lat, lon]);
+    } else {
+      const icon = L.divIcon({ className: 'loc-map-pin', iconSize: [16, 16], iconAnchor: [8, 8] });
+      this.locMarker = L.marker([lat, lon], { draggable: true, icon }).addTo(this.locMap!);
+      this.locMarker.on('dragend', () => {
+        const pos = this.locMarker!.getLatLng();
+        this.newLocLat.set(pos.lat.toFixed(6));
+        this.newLocLon.set(pos.lng.toFixed(6));
+      });
+    }
+    this.locMap!.setView([lat, lon], Math.max(this.locMap!.getZoom(), 10));
   }
 
   locationGeo(loc: Location): string {

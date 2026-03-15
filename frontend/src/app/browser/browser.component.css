@@ -738,3 +738,57 @@
 .loc-cancel-btn:hover {
   background: #2a2a2a;
 }
+
+.loc-coords-row {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.loc-coords-row .loc-section-grid {
+  flex: 1;
+}
+
+.loc-geocode-btn {
+  font-size: 0.75rem;
+  padding: 6px 10px;
+  background: #1d4ed8;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  align-self: stretch;
+  transition: background 120ms ease;
+}
+
+.loc-geocode-btn:hover:not(:disabled) {
+  background: #1e40af;
+}
+
+.loc-geocode-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.loc-geocode-error {
+  font-size: 0.72rem;
+  color: #f87171;
+  margin-top: -4px;
+}
+
+.loc-map-container {
+  height: 220px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #444;
+}
+
+:host ::ng-deep .loc-map-pin {
+  width: 16px;
+  height: 16px;
+  background: #16a34a;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}

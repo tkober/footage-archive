@@ -8,6 +8,7 @@ import { Component, EventEmitter, HostListener, Input, Output } from '@angular/c
 })
 export class ModalComponent {
   @Input() title = '';
+  @Input() wide = false;
   @Output() close = new EventEmitter<void>();
 
   @HostListener('document:keydown.escape')
