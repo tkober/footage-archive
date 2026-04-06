@@ -12,27 +12,10 @@ from PIL import Image
 
 from db.database import Database
 from shot_classifier.models import ShotClassification
-from shot_classifier.prompt import build_system_prompt
+from shot_classifier.prompt import build_system_prompt, build_user_message
 
 MODEL = "gpt-4o-mini"
 TEMPERATURE = 0
-
-USER_MESSAGE = """\
-The image is a 5-frame horizontal contact strip sampled evenly across the clip duration \
-(leftmost frame = clip start, rightmost frame = clip end).
-
-To classify camera movement, compare the position and scale of background elements \
-between the leftmost and rightmost frames:
-- Pan: static background elements shift horizontally across frames
-- Tilt: static background elements shift vertically across frames
-- Zoom: subjects and background elements change scale (grow larger or smaller)
-- Dolly/tracking: perspective changes, parallax between near and far elements
-- Handheld: small random displacement and slight blur between frames
-- Static: no displacement, no scale change, no blur — background is identical across all frames
-
-Do not conclude "static" unless the background is genuinely identical in all frames. \
-Classify the shot.\
-"""
 
 
 class ShotClassifier:
@@ -44,6 +27,7 @@ class ShotClassifier:
 
         b64 = base64.b64encode(strip).decode()
         system_prompt = build_system_prompt()
+        user_message = build_user_message()
 
         mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000"))
         mlflow.set_experiment("shot-classifier")
@@ -55,7 +39,7 @@ class ShotClassifier:
             mlflow.log_param("prompt_hash", hashlib.md5(system_prompt.encode()).hexdigest()[:8])
 
             mlflow.log_text(system_prompt, "system_prompt.txt")
-            mlflow.log_text(USER_MESSAGE, "user_message.txt")
+            mlflow.log_text(user_message, "user_message.txt")
             mlflow.log_image(Image.open(io.BytesIO(strip)), "input_strip.jpg")
 
             t0 = time.time()
@@ -64,7 +48,7 @@ class ShotClassifier:
                 result = llm.with_structured_output(ShotClassification).invoke([
                     SystemMessage(content=system_prompt),
                     HumanMessage(content=[
-                        {"type": "text", "text": USER_MESSAGE},
+                        {"type": "text", "text": user_message},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
                     ]),
                 ])

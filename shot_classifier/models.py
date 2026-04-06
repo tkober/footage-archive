@@ -2,6 +2,18 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+# Visual cues for detecting each movement_type from a contact strip.
+# Kept here so they stay in sync with the Literal enum above.
+MOVEMENT_TYPE_CUES: dict[str, str] = {
+    "static":   "background is identical across all frames — no displacement, scale change, or blur",
+    "handheld": "small random displacement and slight blur between frames, no clear direction",
+    "pan":      "static background elements shift horizontally between leftmost and rightmost frame",
+    "tilt":     "static background elements shift vertically between leftmost and rightmost frame",
+    "tracking": "camera follows a moving subject; background shifts while subject stays centred",
+    "dolly":    "perspective changes with parallax between near and far elements (distinct from zoom: geometry changes, not just scale)",
+    "zoom":     "subjects and background change scale uniformly without perspective or parallax change",
+}
+
 
 class Movement(BaseModel):
     """Camera movement of the shot."""
