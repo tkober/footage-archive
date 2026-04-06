@@ -146,3 +146,45 @@ export interface FileInfo {
   latitude?: number | null;
   longitude?: number | null;
 }
+
+export interface ShotMovement {
+  movement_type: string;
+  movement_direction: string;
+  movement_intensity: string;
+  zoom: string;
+  zoom_intensity: string;
+}
+
+export interface ShotFraming {
+  shot_size: string;
+  angle: string;
+  composition: string;
+}
+
+export interface ShotScene {
+  location_type: string;
+  environment: string;
+  subjects: string[];
+  activity: string;
+}
+
+export interface ShotVisual {
+  time_of_day: string;
+  lighting_type: string;
+  lighting_style: string;
+  color_tone: string;
+  mood: string;
+}
+
+export interface ShotTechnical {
+  camera_motion_vector: string;
+  stability: string;
+}
+
+export interface ShotClassification {
+  movement: ShotMovement;
+  framing: ShotFraming;
+  scene: ShotScene;
+  visual: ShotVisual;
+  technical: ShotTechnical;
+}

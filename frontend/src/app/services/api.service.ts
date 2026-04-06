@@ -4,7 +4,7 @@ import { Observable, Subject } from 'rxjs';
 import * as L from 'leaflet';
 
 import { environment } from '../../environments/environment';
-import { Config, DirectoryQuery, DirectoryResponse, FileInfo, FileSearchQuery, Location, MapPoint, SearchResponse, Task } from '../models';
+import { Config, DirectoryQuery, DirectoryResponse, FileInfo, FileSearchQuery, Location, MapPoint, SearchResponse, ShotClassification, Task } from '../models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -91,6 +91,10 @@ export class ApiService {
 
   assignLocation(md5Hash: string, locationId: number | null): Observable<FileInfo> {
     return this.http.patch<FileInfo>(`${this.base}/files/location`, { md5_hash: md5Hash, location_id: locationId });
+  }
+
+  classifyShot(path: string): Observable<ShotClassification> {
+    return this.http.post<ShotClassification>(`${this.base}/ai/classify-shot`, { path });
   }
 
   geocode(query: string): Observable<{ lat: string; lon: string }[]> {

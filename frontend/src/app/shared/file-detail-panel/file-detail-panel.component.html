@@ -175,6 +175,23 @@
           </div>
         }
 
+        @if (file.video_details && file.tracked) {
+          <div class="detail-section">
+            <div class="detail-section-header">
+              <span class="detail-section-label">AI Shot Classification</span>
+              <button class="action-btn" (click)="classifyShot()" [disabled]="classifying()">
+                {{ classifying() ? 'Classifying…' : 'Classify' }}
+              </button>
+            </div>
+            @if (classificationError()) {
+              <span class="detail-error">{{ classificationError() }}</span>
+            }
+            @if (classificationResult(); as result) {
+              <pre class="classification-json">{{ result | json }}</pre>
+            }
+          </div>
+        }
+
         @if (file.photo_details; as pd) {
           <div class="detail-section">
             <span class="detail-section-label">Technical</span>

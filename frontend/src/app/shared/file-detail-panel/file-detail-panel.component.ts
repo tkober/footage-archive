@@ -1,15 +1,15 @@
 import { Component, computed, effect, ElementRef, inject, OnDestroy, signal, ViewChild, input, output } from '@angular/core';
-import { DatePipe } from '@angular/common';
+import { DatePipe, JsonPipe } from '@angular/common';
 import * as L from 'leaflet';
 
 import { ModalComponent } from '../../modal/modal.component';
 import { ApiService } from '../../services/api.service';
-import { FileInfo, Location, VIDEO_TYPES, PHOTO_TYPES } from '../../models';
+import { FileInfo, Location, ShotClassification, VIDEO_TYPES, PHOTO_TYPES } from '../../models';
 
 @Component({
   selector: 'app-file-detail-panel',
   standalone: true,
-  imports: [DatePipe, ModalComponent],
+  imports: [DatePipe, JsonPipe, ModalComponent],
   templateUrl: './file-detail-panel.component.html',
   styleUrl: './file-detail-panel.component.css',
 })
@@ -53,6 +53,11 @@ export class FileDetailPanelComponent implements OnDestroy {
   geocoding          = signal(false);
   geocodeError       = signal(false);
 
+  // ── AI Classification ──
+  classificationResult = signal<ShotClassification | null>(null);
+  classificationError  = signal<string | null>(null);
+  classifying          = signal(false);
+
   // ── Preview ──
   previewUrl = computed(() => {
     const file = this.selectedFile();
@@ -78,6 +83,9 @@ export class FileDetailPanelComponent implements OnDestroy {
       this.editingName.set(false);
       this.renameError.set(null);
       this.newKeywordValue.set('');
+      this.classificationResult.set(null);
+      this.classificationError.set(null);
+      this.classifying.set(false);
       if (f) {
         this.api.getAllKeywords().subscribe(kws => this.allKeywords.set(kws));
         this.api.getLocations().subscribe(locs => this.allLocations.set(locs));
@@ -158,6 +166,18 @@ export class FileDetailPanelComponent implements OnDestroy {
     if (!file) return;
     this.api.getFileDetails(file.path).subscribe({
       next: info => this.selectedFile.set(info),
+    });
+  }
+
+  classifyShot() {
+    const file = this.selectedFile();
+    if (!file?.path) return;
+    this.classifying.set(true);
+    this.classificationResult.set(null);
+    this.classificationError.set(null);
+    this.api.classifyShot(file.path).subscribe({
+      next: r  => { this.classificationResult.set(r); this.classifying.set(false); },
+      error: e => { this.classificationError.set(e.error?.detail ?? 'Classification failed'); this.classifying.set(false); },
     });
   }
 

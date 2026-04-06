@@ -534,3 +534,48 @@
   border-radius: 50%;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
 }
+
+/* AI Classification */
+.detail-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.action-btn {
+  font-size: 0.75rem;
+  padding: 3px 10px;
+  background: none;
+  color: #6366f1;
+  border: 1px solid #6366f1;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.action-btn:hover:not(:disabled) {
+  background: #eef2ff;
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.detail-error {
+  font-size: 0.8rem;
+  color: #dc2626;
+}
+
+.classification-json {
+  font-size: 0.72rem;
+  font-family: monospace;
+  background: #f4f4f5;
+  border: 1px solid #e4e4e7;
+  border-radius: 4px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  white-space: pre;
+  color: #18181b;
+  margin: 0;
+}
