@@ -17,11 +17,22 @@ from shot_classifier.prompt import build_system_prompt
 MODEL = "gpt-4o-mini"
 TEMPERATURE = 0
 
-USER_MESSAGE = (
-    "The image is a 5-frame horizontal contact strip sampled evenly across the clip duration "
-    "(left = start, right = end). Analyse camera and subject displacement between frames to "
-    "determine movement. Classify the shot."
-)
+USER_MESSAGE = """\
+The image is a 5-frame horizontal contact strip sampled evenly across the clip duration \
+(leftmost frame = clip start, rightmost frame = clip end).
+
+To classify camera movement, compare the position and scale of background elements \
+between the leftmost and rightmost frames:
+- Pan: static background elements shift horizontally across frames
+- Tilt: static background elements shift vertically across frames
+- Zoom: subjects and background elements change scale (grow larger or smaller)
+- Dolly/tracking: perspective changes, parallax between near and far elements
+- Handheld: small random displacement and slight blur between frames
+- Static: no displacement, no scale change, no blur — background is identical across all frames
+
+Do not conclude "static" unless the background is genuinely identical in all frames. \
+Classify the shot.\
+"""
 
 
 class ShotClassifier:
