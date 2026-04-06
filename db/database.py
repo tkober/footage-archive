@@ -72,10 +72,8 @@ class Database:
         self.disconnect()
 
     def insert_file_details(self, details: pd.DataFrame, identifier: str = generate_identifier()):
-        """Upserts into FileDetails and VideoDetails based on the columns present in the dataframe."""
         self.connect()
         self.__upsert_into_table(details, 'FileDetails', temp_table_suffix=identifier)
-        self.__upsert_into_table(details, 'VideoDetails', temp_table_suffix=identifier + '_v')
         self.disconnect()
 
     def insert_video_details(self, details: pd.DataFrame, identifier: str = generate_identifier()):

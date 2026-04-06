@@ -186,6 +186,7 @@ def scan_files_in_metadata(query: FileQuery, report: Callable[[str], None]):
     db = Database()
     db.insert_scan_results(scan_results)
     db.insert_file_details(details_merged)
+    db.insert_video_details(details_merged)
     db.insert_keywords(keywords_merged)
 
     if query.generate_clip_preview:
