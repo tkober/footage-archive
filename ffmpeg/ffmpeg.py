@@ -209,3 +209,27 @@ class FFmpeg:
             overall_width=total_width,
             data=image_bytes
         )
+
+    def extract_frames(self, video: FFmpegInput, width=320, height=180, max_keyframes=5) -> list[bytes]:
+        """Extract individual frames as a list of JPEG bytes, one per keyframe timestamp."""
+        timestamps = self.timestamp_for_keyframes(video, max_keyframes=max_keyframes)
+        frames = []
+        for i, timestamp in enumerate(timestamps):
+            frame_file = f"{self._identifier}_frame_{i}.jpeg"
+            command = [
+                'ffmpeg', '-y',
+                '-ss', timestamp,
+                '-i', video.file_path,
+                '-vframes', '1',
+                '-vf', f'scale={width}:{height}',
+                '-q:v', '2',
+                frame_file
+            ]
+            subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            path = Path(frame_file)
+            if path.exists():
+                frames.append(path.read_bytes())
+                path.unlink()
+            else:
+                logging.warning(f'ffmpeg failed to extract frame at {timestamp} from {video.file_path}')
+        return frames

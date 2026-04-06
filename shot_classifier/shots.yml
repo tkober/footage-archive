@@ -1,0 +1,90 @@
+schema_version: v1
+
+description: >
+  Classify a video shot for editing purposes.
+  Focus on camera movement, direction, framing, and visual characteristics.
+  Use ONLY the provided enum values for core fields.
+  If unsure, use "unknown".
+
+fields:
+
+  movement:
+    description: Camera movement of the shot.
+    movement_type:
+      type: enum
+      values: [static, handheld, pan, tilt, tracking, dolly, zoom]
+      description: Type of camera movement.
+    movement_direction:
+      type: enum
+      values: [left_to_right, right_to_left, forward, backward, up, down, none]
+      description: Dominant spatial movement direction (not for zoom).
+    movement_intensity:
+      type: enum
+      values: [none, slow, medium, fast]
+      description: Perceived speed of movement.
+    zoom:
+      type: enum
+      values: [none, zoom_in, zoom_out]
+      description: >
+        Optical zoom direction. Use this instead of movement_direction for zoom shots.
+    zoom_intensity:
+      type: enum
+      values: [none, subtle, medium, strong]
+      description: Strength of zoom effect.
+
+  framing:
+    description: How the shot is composed.
+    shot_size:
+      type: enum
+      values: [extreme_wide, wide, medium, close_up, macro]
+      description: Distance to subject.
+    angle:
+      type: enum
+      values: [eye_level, low_angle, high_angle, top_down]
+      description: Camera angle.
+    composition:
+      type: enum
+      values: [centered, rule_of_thirds, leading_lines, symmetry, unknown]
+      description: Visual composition style.
+
+  scene:
+    description: What is happening in the shot.
+    location_type:
+      type: enum
+      values: [indoor, outdoor, city, nature, transport, unknown]
+    environment:
+      type: string
+      description: Specific place (e.g. street, café, train).
+    subjects:
+      type: list[string]
+      description: Main visible objects or actors.
+    activity:
+      type: string
+      description: Main action (e.g. walking, driving).
+
+  visual:
+    description: Lighting and mood.
+    time_of_day:
+      type: enum
+      values: [morning, day, golden_hour, night, unknown]
+    lighting_type:
+      type: enum
+      values: [natural, artificial, mixed, unknown]
+    lighting_style:
+      type: enum
+      values: [soft, harsh, high_contrast, low_contrast, unknown]
+    color_tone:
+      type: enum
+      values: [warm, cold, neutral, neon, unknown]
+    mood:
+      type: string
+      description: Emotional tone (e.g. calm, busy, cinematic).
+
+  technical:
+    description: Optional technical metadata.
+    camera_motion_vector:
+      type: enum
+      values: [left, right, forward, backward, none, unknown]
+    stability:
+      type: enum
+      values: [stable, slightly_shaky, shaky, unknown]
