@@ -54,7 +54,8 @@ def probe_photo(md5_hash: str, file_path: str) -> PhotoProbeResult | None:
 
         exp_time = exif.get('ExposureTime')
         if exp_time is not None:
-            f = Fraction(exp_time).limit_denominator(10000)
+            raw = Fraction(exp_time)
+            f = Fraction(raw.numerator, raw.denominator).limit_denominator(10000)
             result.shutter_speed = f'1/{f.denominator}' if f.numerator == 1 else str(f)
 
         focal = exif.get('FocalLength')

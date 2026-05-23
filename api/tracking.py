@@ -130,11 +130,10 @@ def _probe_and_save(sc: ScanResult, db: Database, generate_clip_preview: bool):
         probe = probe_photo(md5_hash=sc.md5_hash, file_path=file_path)
         if probe is None:
             _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=None)
-            return
-
-        _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=probe.recorded_at,
-                           latitude=probe.latitude, longitude=probe.longitude)
-        db.insert_photo_details(pd.DataFrame([probe.model_dump()]))
+        else:
+            _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=probe.recorded_at,
+                               latitude=probe.latitude, longitude=probe.longitude)
+            db.insert_photo_details(pd.DataFrame([probe.model_dump()]))
 
         if generate_clip_preview:
             thumbnail = generate_photo_thumbnail(sc.md5_hash, file_path)
