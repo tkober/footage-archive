@@ -1,5 +1,7 @@
 import io
+import json
 import logging
+import subprocess
 from fractions import Fraction
 from pathlib import Path
 
@@ -29,6 +31,9 @@ class PhotoProbeResult(BaseModel):
 
 
 def probe_photo(md5_hash: str, file_path: str) -> PhotoProbeResult | None:
+    ext = Path(file_path).suffix.lower()
+    if ext == '.rw2':
+        return _probe_rw2(md5_hash, file_path)
     try:
         img = Image.open(file_path)
         width, height = img.size
@@ -87,6 +92,56 @@ def probe_photo(md5_hash: str, file_path: str) -> PhotoProbeResult | None:
     except Exception as e:
         logging.debug(f'Photo probe failed for {file_path}: {e}')
         return None
+
+
+def _probe_rw2(md5_hash: str, file_path: str) -> PhotoProbeResult | None:
+    try:
+        result = subprocess.run(
+            ['exiftool', '-json', '-Make', '-Model', '-ISO', '-FNumber',
+             '-ExposureTime', '-FocalLength', '-ColorSpace', '-BitsPerSample',
+             '-DateTimeOriginal', '-ImageWidth', '-ImageHeight',
+             '-GPSLatitude', '-GPSLatitudeRef', '-GPSLongitude', '-GPSLongitudeRef',
+             file_path],
+            capture_output=True, text=True,
+        )
+        data = json.loads(result.stdout)[0]
+    except Exception as e:
+        logging.debug(f'RW2 exiftool probe failed for {file_path}: {e}')
+        return None
+
+    probe = PhotoProbeResult(md5_hash=md5_hash, file_path=file_path)
+    probe.width = _int(data.get('ImageWidth'))
+    probe.height = _int(data.get('ImageHeight'))
+    probe.camera_make = _str(data.get('Make'))
+    probe.camera_model = _str(data.get('Model'))
+    probe.iso = _int(data.get('ISO'))
+    probe.recorded_at = _str(data.get('DateTimeOriginal'))
+    probe.color_space = _str(data.get('ColorSpace'))
+    probe.bit_depth = _int(data.get('BitsPerSample'))
+
+    f_number = data.get('FNumber')
+    if f_number is not None:
+        probe.aperture = round(float(f_number), 1)
+
+    # exiftool returns ExposureTime already formatted as "1/6400"
+    probe.shutter_speed = _str(data.get('ExposureTime'))
+
+    focal = data.get('FocalLength')
+    if focal is not None:
+        # exiftool returns "14.0 mm" — strip the unit
+        probe.focal_length = round(float(str(focal).split()[0]), 1)
+
+    # GPS: exiftool returns decimal degrees + ref as separate fields
+    lat = data.get('GPSLatitude')
+    lat_ref = data.get('GPSLatitudeRef')
+    lon = data.get('GPSLongitude')
+    lon_ref = data.get('GPSLongitudeRef')
+    if lat is not None and lat_ref is not None:
+        probe.latitude = round(float(lat) * (-1 if lat_ref == 'S' else 1), 6)
+    if lon is not None and lon_ref is not None:
+        probe.longitude = round(float(lon) * (-1 if lon_ref == 'W' else 1), 6)
+
+    return probe
 
 
 def generate_photo_thumbnail(md5_hash: str, file_path: str, max_width: int = 600) -> bytes | None:

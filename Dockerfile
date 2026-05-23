@@ -8,6 +8,7 @@ WORKDIR /footage-archive
 RUN apt-get update && apt-get install -y \
     build-essential \
     ffmpeg \
+    libimage-exiftool-perl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
