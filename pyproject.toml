@@ -15,4 +15,6 @@ dependencies = [
     "pyyaml>=6.0.3",
     "mlflow>=3.10.1",
     "langchain-community>=0.4.1",
+    "rawpy>=0.23.0",
+    "numpy>=1.26.0",
 ]

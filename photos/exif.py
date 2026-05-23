@@ -1,7 +1,10 @@
 import io
 import logging
 from fractions import Fraction
+from pathlib import Path
 
+import numpy as np
+import rawpy
 from PIL import Image, ImageOps
 from PIL.ExifTags import TAGS
 from pydantic import BaseModel
@@ -88,8 +91,14 @@ def probe_photo(md5_hash: str, file_path: str) -> PhotoProbeResult | None:
 
 def generate_photo_thumbnail(md5_hash: str, file_path: str, max_width: int = 600) -> bytes | None:
     try:
-        img = Image.open(file_path)
-        img = ImageOps.exif_transpose(img)
+        ext = Path(file_path).suffix.lower()
+        if ext == '.rw2':
+            img = _open_rw2(file_path)
+        else:
+            img = Image.open(file_path)
+            img = ImageOps.exif_transpose(img)
+        if img is None:
+            return None
         if img.mode not in ('RGB', 'L'):
             img = img.convert('RGB')
         ratio = max_width / img.width
@@ -100,6 +109,17 @@ def generate_photo_thumbnail(md5_hash: str, file_path: str, max_width: int = 600
     except Exception as e:
         logging.debug(f'Photo thumbnail generation failed for {file_path}: {e}')
         return None
+
+
+def _open_rw2(file_path: str) -> Image.Image | None:
+    with rawpy.imread(file_path) as raw:
+        rgb = raw.postprocess(
+            use_camera_wb=True,
+            half_size=False,
+            no_auto_bright=False,
+            output_bps=8,
+        )
+    return Image.fromarray(np.asarray(rgb, dtype=np.uint8))
 
 
 def _parse_gps_dms(dms, ref) -> float | None:
