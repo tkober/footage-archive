@@ -19,7 +19,8 @@ from api.search import SearchApi
 from api.tracking import TrackingApi
 from api.tasks import TasksApi
 from api.troubleshoot import TroubleShootingApi
-from db.database import Database
+from alembic import command
+from alembic.config import Config
 from env.environment import Environment
 
 env = Environment()
@@ -49,7 +50,7 @@ async def lifespan(application: FastAPI):
 
 
 if __name__ == '__main__':
-    Database().connect().migrate().setup().disconnect()
+    command.upgrade(Config('alembic.ini'), 'head')
 
     app = FastAPI(
         title='Footage Archive',

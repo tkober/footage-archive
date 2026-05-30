@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+from sqlalchemy.engine.url import make_url
+
 
 class Environment:
     @staticmethod
@@ -21,8 +23,19 @@ class Environment:
     def get_release_name(self) -> str:
         return self.loadEnvironmentVariable("RELEASE_NAME", "local")
 
-    def get_db_path(self) -> str:
-        return self.loadEnvironmentVariable("DB_PATH", "/backup/footage_archive.sqlite")
+    def get_database_url(self) -> str:
+        url = make_url(self.loadEnvironmentVariable("DB_URL")).set(
+            username=self.loadEnvironmentVariable("DB_USER"),
+            password=self.loadEnvironmentVariable("DB_PASSWORD"),
+        )
+        return url.render_as_string(hide_password=False)
+
+    def get_owner_database_url(self) -> str:
+        url = make_url(self.loadEnvironmentVariable("DB_URL")).set(
+            username=self.loadEnvironmentVariable("DB_OWNER_USER"),
+            password=self.loadEnvironmentVariable("DB_OWNER_PASSWORD"),
+        )
+        return url.render_as_string(hide_password=False)
 
     def get_root_dir(self) -> str:
         raw = self.loadEnvironmentVariable("ROOT_DIR", "/mnt/user/footage")

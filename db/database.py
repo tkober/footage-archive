@@ -1,11 +1,21 @@
-import sqlite3
 import uuid
 from pathlib import Path
 from typing import Optional
 
 import pandas as pd
+from sqlalchemy import case, delete, func, select, update
 
-from env.environment import Environment
+from db.engine import get_engine, upsert, upsert_ignore
+from db.models import (
+    clip_previews_table,
+    file_details_table,
+    file_keywords_table,
+    files_table,
+    keywords_table,
+    locations_table,
+    photo_details_table,
+    video_details_table,
+)
 from ffmpeg.ffmpeg import ClipPreview
 from scanner.scanner import ScanResult
 
@@ -14,239 +24,196 @@ def generate_identifier():
     return str(uuid.uuid4()).replace('-', '')
 
 
+def _df_to_records(df: pd.DataFrame, table) -> list[dict] | None:
+    """Filter DataFrame columns to those present in the table; require md5_hash."""
+    table_cols = {c.name for c in table.columns}
+    available = [c for c in df.columns if c in table_cols]
+    if not available or 'md5_hash' not in available:
+        return None
+    subset = df[available].where(pd.notna(df[available]), None)
+    return subset.to_dict(orient='records')
+
+
 class Database:
-    _env: Environment
-    _connection: sqlite3.Connection = None
+    # ------------------------------------------------------------------
+    # Insert / upsert
+    # ------------------------------------------------------------------
 
-    def __init__(self):
-        self._env = Environment()
+    def insert_scan_results(self, scan_results: list[ScanResult],
+                            identifier: str = generate_identifier()) -> None:
+        df = pd.DataFrame([r.model_dump() for r in scan_results])
+        records = _df_to_records(df, files_table)
+        if records:
+            with get_engine().begin() as conn:
+                conn.execute(upsert(files_table, records, ['md5_hash']))
 
-    def connect(self) -> 'Database':
-        if self._connection is None:
-            self._connection = sqlite3.connect(self._env.get_db_path())
+    def insert_file_details(self, details: pd.DataFrame,
+                            identifier: str = generate_identifier()) -> None:
+        records = _df_to_records(details, file_details_table)
+        if records:
+            with get_engine().begin() as conn:
+                conn.execute(upsert(file_details_table, records, ['md5_hash']))
 
-        return self
+    def insert_video_details(self, details: pd.DataFrame,
+                             identifier: str = generate_identifier()) -> None:
+        records = _df_to_records(details, video_details_table)
+        if records:
+            with get_engine().begin() as conn:
+                conn.execute(upsert(video_details_table, records, ['md5_hash']))
 
-    def migrate(self) -> 'Database':
-        cursor = self._connection.execute("PRAGMA table_info(Keywords)")
-        columns = [row[1] for row in cursor.fetchall()]
-        if 'md5_hash' in columns:
-            self._connection.executescript('''
-                CREATE TABLE IF NOT EXISTS Keywords_new (
-                    id      INTEGER PRIMARY KEY AUTOINCREMENT,
-                    keyword TEXT UNIQUE NOT NULL
-                );
-                INSERT OR IGNORE INTO Keywords_new (keyword) SELECT DISTINCT keyword FROM Keywords;
-                CREATE TABLE IF NOT EXISTS FileKeywords (
-                    md5_hash   TEXT,
-                    keyword_id INTEGER REFERENCES Keywords_new (id),
-                    PRIMARY KEY (md5_hash, keyword_id)
-                );
-                INSERT OR IGNORE INTO FileKeywords (md5_hash, keyword_id)
-                    SELECT k.md5_hash, kn.id FROM Keywords k
-                    JOIN Keywords_new kn ON k.keyword = kn.keyword;
-                DROP TABLE Keywords;
-                ALTER TABLE Keywords_new RENAME TO Keywords;
-            ''')
-            self._connection.commit()
-        return self
+    def insert_photo_details(self, details: pd.DataFrame,
+                             identifier: str = generate_identifier()) -> None:
+        records = _df_to_records(details, photo_details_table)
+        if records:
+            with get_engine().begin() as conn:
+                conn.execute(upsert(photo_details_table, records, ['md5_hash']))
 
-    def setup(self) -> 'Database':
-        with open('sql/setup.sql', 'r') as f:
-            script = f.read()
-            cursor = self._connection.cursor()
-            cursor.executescript(script)
-            self._connection.commit()
+    def insert_keywords(self, keywords: pd.DataFrame,
+                        identifier: str = generate_identifier()) -> None:
+        with get_engine().begin() as conn:
+            for _, row in keywords[['md5_hash', 'keyword']].iterrows():
+                conn.execute(
+                    upsert_ignore(keywords_table, [{'keyword': row['keyword']}], ['keyword'])
+                )
+                kw_id = conn.execute(
+                    select(keywords_table.c.id).where(keywords_table.c.keyword == row['keyword'])
+                ).scalar()
+                conn.execute(
+                    upsert_ignore(
+                        file_keywords_table,
+                        [{'md5_hash': row['md5_hash'], 'keyword_id': kw_id}],
+                        ['md5_hash', 'keyword_id'],
+                    )
+                )
 
-        return self
+    def insert_raw_preview(self, md5_hash: str, data: bytes,
+                           identifier: str = generate_identifier()) -> None:
+        with get_engine().begin() as conn:
+            conn.execute(
+                upsert(clip_previews_table, [{'md5_hash': md5_hash, 'data': data}], ['md5_hash'])
+            )
 
-    def disconnect(self):
-        if self._connection is not None:
-            self._connection.close()
-            self._connection = None
+    def insert_clip_preview(self, clip_preview: ClipPreview,
+                            identifier: str = generate_identifier()) -> None:
+        with get_engine().begin() as conn:
+            conn.execute(upsert(clip_previews_table, [clip_preview.model_dump()], ['md5_hash']))
 
-    def insert_scan_results(self, scan_results: [ScanResult], identifier: str = generate_identifier()) -> ScanResult:
-        scan_df = pd.DataFrame([r.model_dump() for r in scan_results])
-        self.connect()
-        self.__upsert_into_table(scan_df, 'Files', temp_table_suffix=identifier)
-        self.disconnect()
-
-    def insert_file_details(self, details: pd.DataFrame, identifier: str = generate_identifier()):
-        self.connect()
-        self.__upsert_into_table(details, 'FileDetails', temp_table_suffix=identifier)
-        self.disconnect()
-
-    def insert_video_details(self, details: pd.DataFrame, identifier: str = generate_identifier()):
-        self.connect()
-        self.__upsert_into_table(details, 'VideoDetails', temp_table_suffix=identifier)
-        self.disconnect()
-
-    def insert_photo_details(self, details: pd.DataFrame, identifier: str = generate_identifier()):
-        self.connect()
-        self.__upsert_into_table(details, 'PhotoDetails', temp_table_suffix=identifier)
-        self.disconnect()
-
-    def insert_keywords(self, keywords: pd.DataFrame, identifier: str = generate_identifier()):
-        self.connect()
-        for _, row in keywords[['md5_hash', 'keyword']].iterrows():
-            self._connection.execute(
-                'INSERT OR IGNORE INTO Keywords (keyword) VALUES (?)', (row['keyword'],))
-            self._connection.execute(
-                'INSERT OR IGNORE INTO FileKeywords (md5_hash, keyword_id) '
-                'SELECT ?, id FROM Keywords WHERE keyword = ?',
-                (row['md5_hash'], row['keyword']))
-        self._connection.commit()
-        self.disconnect()
-
-    def insert_raw_preview(self, md5_hash: str, data: bytes, identifier: str = generate_identifier()):
-        self.connect()
-        df = pd.DataFrame([{'md5_hash': md5_hash, 'data': data}])
-        self.__upsert_into_table(df, 'ClipPreviews', temp_table_suffix=identifier)
-        self.disconnect()
-
-    def insert_clip_preview(self, clip_preview: ClipPreview, identifier: str = generate_identifier()):
-        self.connect()
-        df = pd.DataFrame([clip_preview.model_dump()])
-        self.__upsert_into_table(df, 'ClipPreviews', temp_table_suffix=identifier)
-        self.disconnect()
-
-    def __upsert_into_table(self, df: pd.DataFrame, table: str, temp_table_suffix: str = 'temp'):
-        cursor = self._connection.execute(f"PRAGMA table_info({table});")
-        sql_columns = [row[1] for row in cursor.fetchall()]
-        available = [c for c in sql_columns if c in df.columns]
-        if not available or 'md5_hash' not in available:
-            return
-        df = df[available]
-        df.to_sql(f'{table}_{temp_table_suffix}', self._connection, if_exists='replace', index=False)
-        cols = ', '.join(available)
-        self._connection.execute(f'INSERT OR REPLACE INTO {table} ({cols}) SELECT {cols} FROM {table}_{temp_table_suffix}')
-        self._connection.commit()
-        self._connection.execute(f'DROP TABLE IF EXISTS {table}_{temp_table_suffix}')
-        self._connection.commit()
+    # ------------------------------------------------------------------
+    # Reads
+    # ------------------------------------------------------------------
 
     def get_tracked_files_in_directory(self, directory: str) -> dict:
-        self.connect()
-        cursor = self._connection.execute(
-            'SELECT file_name, md5_hash, media_type FROM Files WHERE directory = ?', (directory,)
+        stmt = (
+            select(files_table.c.file_name, files_table.c.md5_hash, files_table.c.media_type)
+            .where(files_table.c.directory == directory)
         )
-        result = {row[0]: {'md5_hash': row[1], 'media_type': row[2]} for row in cursor.fetchall()}
-        self.disconnect()
-        return result
+        with get_engine().connect() as conn:
+            rows = conn.execute(stmt).fetchall()
+        return {row[0]: {'md5_hash': row[1], 'media_type': row[2]} for row in rows}
 
     def get_file_by_hash(self, md5_hash: str) -> Optional[dict]:
-        self.connect()
-        cursor = self._connection.execute(
-            'SELECT md5_hash, file_name, file_extension, media_type, directory, last_indexed_at '
-            'FROM Files WHERE md5_hash = ?', (md5_hash,)
-        )
-        row = cursor.fetchone()
-        self.disconnect()
-        if row is None:
-            return None
-        return {
-            'md5_hash': row[0],
-            'file_name': row[1],
-            'file_extension': row[2],
-            'media_type': row[3],
-            'directory': row[4],
-            'last_indexed_at': row[5],
-        }
+        stmt = select(files_table).where(files_table.c.md5_hash == md5_hash)
+        with get_engine().connect() as conn:
+            row = conn.execute(stmt).fetchone()
+        return row._asdict() if row is not None else None
 
     def get_file_by_path(self, file_path: str) -> Optional[dict]:
         p = Path(file_path)
-        self.connect()
-        cursor = self._connection.execute(
-            'SELECT md5_hash, file_name, file_extension, media_type, directory, last_indexed_at '
-            'FROM Files WHERE directory = ? AND file_name = ?',
-            (str(p.parent), p.name)
+        stmt = (
+            select(files_table)
+            .where(files_table.c.directory == str(p.parent),
+                   files_table.c.file_name == p.name)
         )
-        row = cursor.fetchone()
-        self.disconnect()
-        if row is None:
-            return None
-        return {
-            'md5_hash': row[0],
-            'file_name': row[1],
-            'file_extension': row[2],
-            'media_type': row[3],
-            'directory': row[4],
-            'last_indexed_at': row[5],
-        }
+        with get_engine().connect() as conn:
+            row = conn.execute(stmt).fetchone()
+        return row._asdict() if row is not None else None
 
     def get_video_details(self, md5_hash: str) -> Optional[dict]:
-        self.connect()
-        cursor = self._connection.execute(
-            'SELECT width, height, frame_rate, frame_rate_verbose, video_codec, bit_depth, '
-            'audio_codec, audio_bit_depth, audio_sample_rate, audio_channels, duration_tc '
-            'FROM VideoDetails WHERE md5_hash = ?', (md5_hash,)
+        stmt = (
+            select(
+                video_details_table.c.width, video_details_table.c.height,
+                video_details_table.c.frame_rate, video_details_table.c.frame_rate_verbose,
+                video_details_table.c.video_codec, video_details_table.c.bit_depth,
+                video_details_table.c.audio_codec, video_details_table.c.audio_bit_depth,
+                video_details_table.c.audio_sample_rate, video_details_table.c.audio_channels,
+                video_details_table.c.duration_tc,
+            )
+            .where(video_details_table.c.md5_hash == md5_hash)
         )
-        row = cursor.fetchone()
-        self.disconnect()
-        if row is None:
-            return None
-        keys = ['width', 'height', 'frame_rate', 'frame_rate_verbose', 'video_codec', 'bit_depth',
-                'audio_codec', 'audio_bit_depth', 'audio_sample_rate', 'audio_channels', 'duration_tc']
-        return dict(zip(keys, row))
+        with get_engine().connect() as conn:
+            row = conn.execute(stmt).fetchone()
+        return row._asdict() if row is not None else None
 
     def get_photo_details(self, md5_hash: str) -> Optional[dict]:
-        self.connect()
-        cursor = self._connection.execute(
-            'SELECT width, height, camera_make, camera_model, iso, aperture, shutter_speed, '
-            'focal_length, color_space, bit_depth FROM PhotoDetails WHERE md5_hash = ?', (md5_hash,)
+        stmt = (
+            select(
+                photo_details_table.c.width, photo_details_table.c.height,
+                photo_details_table.c.camera_make, photo_details_table.c.camera_model,
+                photo_details_table.c.iso, photo_details_table.c.aperture,
+                photo_details_table.c.shutter_speed, photo_details_table.c.focal_length,
+                photo_details_table.c.color_space, photo_details_table.c.bit_depth,
+            )
+            .where(photo_details_table.c.md5_hash == md5_hash)
         )
-        row = cursor.fetchone()
-        self.disconnect()
-        if row is None:
-            return None
-        keys = ['width', 'height', 'camera_make', 'camera_model', 'iso', 'aperture',
-                'shutter_speed', 'focal_length', 'color_space', 'bit_depth']
-        return dict(zip(keys, row))
+        with get_engine().connect() as conn:
+            row = conn.execute(stmt).fetchone()
+        return row._asdict() if row is not None else None
 
-    def rename_file(self, md5_hash: str, new_file_name: str):
-        self.connect()
-        self._connection.execute(
-            'UPDATE Files SET file_name = ? WHERE md5_hash = ?',
-            (new_file_name, md5_hash)
+    def rename_file(self, md5_hash: str, new_file_name: str) -> None:
+        stmt = (
+            update(files_table)
+            .where(files_table.c.md5_hash == md5_hash)
+            .values(file_name=new_file_name)
         )
-        self._connection.commit()
-        self.disconnect()
+        with get_engine().begin() as conn:
+            conn.execute(stmt)
 
     def get_keywords(self, md5_hash: str) -> list[str]:
-        self.connect()
-        cursor = self._connection.execute(
-            'SELECT k.keyword FROM Keywords k '
-            'JOIN FileKeywords fk ON k.id = fk.keyword_id '
-            'WHERE fk.md5_hash = ? ORDER BY k.keyword ASC', (md5_hash,))
-        rows = cursor.fetchall()
-        self.disconnect()
+        stmt = (
+            select(keywords_table.c.keyword)
+            .join(file_keywords_table, keywords_table.c.id == file_keywords_table.c.keyword_id)
+            .where(file_keywords_table.c.md5_hash == md5_hash)
+            .order_by(keywords_table.c.keyword)
+        )
+        with get_engine().connect() as conn:
+            rows = conn.execute(stmt).fetchall()
         return [row[0] for row in rows]
 
     def add_keyword(self, md5_hash: str, keyword: str) -> None:
-        self.connect()
-        self._connection.execute(
-            'INSERT OR IGNORE INTO Keywords (keyword) VALUES (?)', (keyword,))
-        self._connection.execute(
-            'INSERT OR IGNORE INTO FileKeywords (md5_hash, keyword_id) '
-            'SELECT ?, id FROM Keywords WHERE keyword = ?', (md5_hash, keyword))
-        self._connection.commit()
-        self.disconnect()
+        with get_engine().begin() as conn:
+            conn.execute(upsert_ignore(keywords_table, [{'keyword': keyword}], ['keyword']))
+            kw_id = conn.execute(
+                select(keywords_table.c.id).where(keywords_table.c.keyword == keyword)
+            ).scalar()
+            conn.execute(
+                upsert_ignore(
+                    file_keywords_table,
+                    [{'md5_hash': md5_hash, 'keyword_id': kw_id}],
+                    ['md5_hash', 'keyword_id'],
+                )
+            )
 
     def delete_keyword(self, md5_hash: str, keyword: str) -> None:
-        self.connect()
-        self._connection.execute(
-            'DELETE FROM FileKeywords WHERE md5_hash = ? '
-            'AND keyword_id = (SELECT id FROM Keywords WHERE keyword = ?)',
-            (md5_hash, keyword))
-        self._connection.commit()
-        self.disconnect()
+        kw_subq = (
+            select(keywords_table.c.id)
+            .where(keywords_table.c.keyword == keyword)
+            .scalar_subquery()
+        )
+        stmt = (
+            delete(file_keywords_table)
+            .where(file_keywords_table.c.md5_hash == md5_hash,
+                   file_keywords_table.c.keyword_id == kw_subq)
+        )
+        with get_engine().begin() as conn:
+            conn.execute(stmt)
 
     def get_file_gps(self, md5_hash: str) -> tuple[float, float] | None:
-        self.connect()
-        cursor = self._connection.execute(
-            'SELECT latitude, longitude FROM FileDetails WHERE md5_hash = ?', (md5_hash,)
+        stmt = (
+            select(file_details_table.c.latitude, file_details_table.c.longitude)
+            .where(file_details_table.c.md5_hash == md5_hash)
         )
-        row = cursor.fetchone()
-        self.disconnect()
+        with get_engine().connect() as conn:
+            row = conn.execute(stmt).fetchone()
         if row and row[0] is not None and row[1] is not None:
             return (row[0], row[1])
         return None
@@ -255,29 +222,36 @@ class Database:
 
     def get_map_points(self, west: float, south: float, east: float, north: float,
                        zoom: int) -> list[dict]:
-        self.connect()
-        base_sql = '''
-            SELECT f.md5_hash, f.file_name, f.media_type,
-                   COALESCE(l.latitude,  fd.latitude)  AS lat,
-                   COALESCE(l.longitude, fd.longitude) AS lon
-            FROM Files f
-            JOIN FileDetails fd ON f.md5_hash = fd.md5_hash
-            LEFT JOIN Locations l ON fd.location_id = l.id
-            WHERE COALESCE(l.latitude,  fd.latitude)  IS NOT NULL
-              AND COALESCE(l.longitude, fd.longitude) IS NOT NULL
-              AND COALESCE(l.latitude,  fd.latitude)  BETWEEN ? AND ?
-              AND COALESCE(l.longitude, fd.longitude) BETWEEN ? AND ?
-        '''
-        params = (south, north, west, east)
+        coalesce_lat = func.coalesce(locations_table.c.latitude, file_details_table.c.latitude)
+        coalesce_lon = func.coalesce(locations_table.c.longitude, file_details_table.c.longitude)
+
+        base_stmt = (
+            select(
+                files_table.c.md5_hash,
+                files_table.c.file_name,
+                files_table.c.media_type,
+                coalesce_lat.label('lat'),
+                coalesce_lon.label('lon'),
+            )
+            .select_from(
+                files_table
+                .join(file_details_table, files_table.c.md5_hash == file_details_table.c.md5_hash)
+                .outerjoin(locations_table, file_details_table.c.location_id == locations_table.c.id)
+            )
+            .where(
+                coalesce_lat.isnot(None),
+                coalesce_lon.isnot(None),
+                coalesce_lat.between(south, north),
+                coalesce_lon.between(west, east),
+            )
+        )
 
         if zoom >= 14:
-            cursor = self._connection.execute(base_sql, params)
-            rows = cursor.fetchall()
-            self.disconnect()
-            keys = ['md5_hash', 'file_name', 'media_type', 'lat', 'lon']
+            with get_engine().connect() as conn:
+                rows = conn.execute(base_stmt).fetchall()
             result = []
             for row in rows:
-                r = dict(zip(keys, row))
+                r = row._asdict()
                 is_video = r['media_type'] in ('video', '360_video')
                 result.append({
                     'latitude': r['lat'], 'longitude': r['lon'],
@@ -291,187 +265,189 @@ class Database:
             return result
 
         cell = self._CLUSTER_CELL_SIZES[min(zoom, len(self._CLUSTER_CELL_SIZES) - 1)]
-        cluster_sql = f'''
-            SELECT ROUND(lat / {cell}) * {cell} AS latitude,
-                   ROUND(lon / {cell}) * {cell} AS longitude,
-                   COUNT(*) AS count,
-                   SUM(CASE WHEN media_type IN ('video', '360_video') THEN 1 ELSE 0 END) AS video_count,
-                   SUM(CASE WHEN media_type NOT IN ('video', '360_video') THEN 1 ELSE 0 END) AS photo_count
-            FROM ({base_sql})
-            GROUP BY latitude, longitude
-        '''
-        cursor = self._connection.execute(cluster_sql, params)
-        rows = cursor.fetchall()
-        self.disconnect()
-        keys = ['latitude', 'longitude', 'count', 'video_count', 'photo_count']
+        subq = base_stmt.subquery()
+        lat_cluster = (func.round(subq.c.lat / cell) * cell).label('latitude')
+        lon_cluster = (func.round(subq.c.lon / cell) * cell).label('longitude')
+        is_video_expr = subq.c.media_type.in_(['video', '360_video'])
+
+        cluster_stmt = (
+            select(
+                lat_cluster,
+                lon_cluster,
+                func.count().label('count'),
+                func.sum(case((is_video_expr, 1), else_=0)).label('video_count'),
+                func.sum(case((~is_video_expr, 1), else_=0)).label('photo_count'),
+            )
+            .select_from(subq)
+            .group_by(lat_cluster, lon_cluster)
+        )
+
+        with get_engine().connect() as conn:
+            rows = conn.execute(cluster_stmt).fetchall()
         return [
-            {**dict(zip(keys, row)), 'md5_hash': None, 'file_name': None, 'media_type': None}
+            {**row._asdict(), 'md5_hash': None, 'file_name': None, 'media_type': None}
             for row in rows
         ]
 
-    _FACET_FIELDS = {
-        'country':      ('Locations l JOIN FileDetails fd ON l.id = fd.location_id', 'l.country'),
-        'camera_make':  ('PhotoDetails', 'camera_make'),
-        'camera_model': ('PhotoDetails', 'camera_model'),
-        'video_codec':  ('VideoDetails', 'video_codec'),
+    _FACET_COLS = {
+        'camera_make':  photo_details_table.c.camera_make,
+        'camera_model': photo_details_table.c.camera_model,
+        'video_codec':  video_details_table.c.video_codec,
     }
 
     def get_facet_values(self, field: str, q: str, limit: int) -> list[str]:
-        if field not in self._FACET_FIELDS:
+        if field == 'country':
+            col = locations_table.c.country
+            stmt = (
+                select(col.distinct())
+                .join(file_details_table,
+                      locations_table.c.id == file_details_table.c.location_id)
+                .where(col.isnot(None), col.ilike(f'%{q}%'))
+                .order_by(col)
+                .limit(limit)
+            )
+        elif field in self._FACET_COLS:
+            col = self._FACET_COLS[field]
+            stmt = (
+                select(col.distinct())
+                .where(col.isnot(None), col.ilike(f'%{q}%'))
+                .order_by(col)
+                .limit(limit)
+            )
+        else:
             return []
-        table, col = self._FACET_FIELDS[field]
-        self.connect()
-        cursor = self._connection.execute(
-            f'SELECT DISTINCT {col} FROM {table} '
-            f'WHERE {col} IS NOT NULL AND {col} LIKE ? '
-            f'ORDER BY {col} LIMIT ?',
-            (f'%{q}%', limit)
-        )
-        rows = [r[0] for r in cursor.fetchall()]
-        self.disconnect()
-        return rows
+        with get_engine().connect() as conn:
+            return [r[0] for r in conn.execute(stmt).fetchall()]
 
     def search_files(self, query: dict) -> tuple[int, list[dict]]:
-        self.connect()
-        conditions: list[str] = []
-        params: list = []
+        conditions = []
 
         if query.get('media_types'):
-            placeholders = ','.join('?' * len(query['media_types']))
-            conditions.append(f'f.media_type IN ({placeholders})')
-            params.extend(query['media_types'])
+            conditions.append(files_table.c.media_type.in_(query['media_types']))
 
         if query.get('keywords'):
-            placeholders = ','.join('?' * len(query['keywords']))
-            conditions.append(
-                f'f.md5_hash IN ('
-                f'SELECT fk.md5_hash FROM FileKeywords fk '
-                f'JOIN Keywords k ON fk.keyword_id = k.id '
-                f'WHERE k.keyword IN ({placeholders}))'
+            kw_subq = (
+                select(file_keywords_table.c.md5_hash)
+                .join(keywords_table,
+                      file_keywords_table.c.keyword_id == keywords_table.c.id)
+                .where(keywords_table.c.keyword.in_(query['keywords']))
             )
-            params.extend(query['keywords'])
+            conditions.append(files_table.c.md5_hash.in_(kw_subq))
 
         if query.get('country'):
-            conditions.append('l.country = ?')
-            params.append(query['country'])
-
+            conditions.append(locations_table.c.country == query['country'])
         if query.get('date_from'):
-            conditions.append('fd.recorded_at >= ?')
-            params.append(query['date_from'])
-
+            conditions.append(file_details_table.c.recorded_at >= query['date_from'])
         if query.get('date_to'):
-            conditions.append('fd.recorded_at <= ?')
-            params.append(query['date_to'])
-
+            conditions.append(file_details_table.c.recorded_at <= query['date_to'])
         if query.get('camera_make'):
-            conditions.append('pd.camera_make = ?')
-            params.append(query['camera_make'])
-
+            conditions.append(photo_details_table.c.camera_make == query['camera_make'])
         if query.get('camera_model'):
-            conditions.append('pd.camera_model = ?')
-            params.append(query['camera_model'])
-
+            conditions.append(photo_details_table.c.camera_model == query['camera_model'])
         if query.get('video_codec'):
-            conditions.append('vd.video_codec = ?')
-            params.append(query['video_codec'])
+            conditions.append(video_details_table.c.video_codec == query['video_codec'])
 
-        where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
-        base = (
-            'FROM Files f '
-            'LEFT JOIN FileDetails fd ON f.md5_hash = fd.md5_hash '
-            'LEFT JOIN Locations l ON fd.location_id = l.id '
-            'LEFT JOIN VideoDetails vd ON f.md5_hash = vd.md5_hash '
-            'LEFT JOIN PhotoDetails pd ON f.md5_hash = pd.md5_hash '
-            f'{where}'
+        base_from = (
+            files_table
+            .outerjoin(file_details_table,
+                       files_table.c.md5_hash == file_details_table.c.md5_hash)
+            .outerjoin(locations_table,
+                       file_details_table.c.location_id == locations_table.c.id)
+            .outerjoin(video_details_table,
+                       files_table.c.md5_hash == video_details_table.c.md5_hash)
+            .outerjoin(photo_details_table,
+                       files_table.c.md5_hash == photo_details_table.c.md5_hash)
         )
 
-        total = self._connection.execute(f'SELECT COUNT(*) {base}', params).fetchone()[0]
+        count_stmt = select(func.count()).select_from(base_from)
+        data_stmt = (
+            select(
+                files_table.c.md5_hash, files_table.c.file_name,
+                files_table.c.directory, files_table.c.media_type,
+                file_details_table.c.recorded_at,
+                locations_table.c.country, locations_table.c.city,
+            )
+            .select_from(base_from)
+            .order_by(
+                file_details_table.c.recorded_at.desc().nullslast(),
+                files_table.c.file_name,
+            )
+            .limit(query.get('page_size', 50))
+            .offset((query.get('page', 1) - 1) * query.get('page_size', 50))
+        )
 
-        page = query.get('page', 1)
-        page_size = query.get('page_size', 50)
-        offset = (page - 1) * page_size
-        rows = self._connection.execute(
-            f'SELECT f.md5_hash, f.file_name, f.directory, f.media_type, '
-            f'fd.recorded_at, l.country, l.city {base} '
-            f'ORDER BY fd.recorded_at DESC NULLS LAST, f.file_name '
-            f'LIMIT ? OFFSET ?',
-            params + [page_size, offset]
-        ).fetchall()
+        if conditions:
+            count_stmt = count_stmt.where(*conditions)
+            data_stmt = data_stmt.where(*conditions)
 
-        self.disconnect()
-        keys = ['md5_hash', 'file_name', 'directory', 'media_type', 'recorded_at', 'country', 'city']
-        return total, [dict(zip(keys, r)) for r in rows]
+        with get_engine().connect() as conn:
+            total = conn.execute(count_stmt).scalar()
+            rows = conn.execute(data_stmt).fetchall()
+
+        return total, [row._asdict() for row in rows]
 
     def get_all_keywords(self) -> list[str]:
-        self.connect()
-        cursor = self._connection.execute(
-            'SELECT keyword FROM Keywords ORDER BY keyword ASC')
-        rows = cursor.fetchall()
-        self.disconnect()
+        stmt = select(keywords_table.c.keyword).order_by(keywords_table.c.keyword)
+        with get_engine().connect() as conn:
+            rows = conn.execute(stmt).fetchall()
         return [row[0] for row in rows]
 
     def get_all_locations(self) -> list[dict]:
-        self.connect()
-        cursor = self._connection.execute(
-            'SELECT id, name, city, region, country, latitude, longitude '
-            'FROM Locations ORDER BY country, city, name'
+        stmt = select(locations_table).order_by(
+            locations_table.c.country, locations_table.c.city, locations_table.c.name
         )
-        rows = cursor.fetchall()
-        self.disconnect()
-        keys = ['id', 'name', 'city', 'region', 'country', 'latitude', 'longitude']
-        return [dict(zip(keys, row)) for row in rows]
+        with get_engine().connect() as conn:
+            rows = conn.execute(stmt).fetchall()
+        return [row._asdict() for row in rows]
 
     def create_location(self, name: Optional[str], city: Optional[str], region: Optional[str],
-                        country: Optional[str], latitude: Optional[float], longitude: Optional[float]) -> int:
-        self.connect()
-        cursor = self._connection.execute(
-            'INSERT INTO Locations (name, city, region, country, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?)',
-            (name, city, region, country, latitude, longitude)
-        )
-        self._connection.commit()
-        row_id = cursor.lastrowid
-        self.disconnect()
-        return row_id
+                        country: Optional[str], latitude: Optional[float],
+                        longitude: Optional[float]) -> int:
+        with get_engine().begin() as conn:
+            return conn.execute(
+                locations_table.insert().returning(locations_table.c.id),
+                {'name': name, 'city': city, 'region': region,
+                 'country': country, 'latitude': latitude, 'longitude': longitude},
+            ).scalar()
 
     def get_location_for_file(self, md5_hash: str) -> Optional[dict]:
-        self.connect()
-        cursor = self._connection.execute(
-            'SELECT l.id, l.name, l.city, l.region, l.country, l.latitude, l.longitude '
-            'FROM Locations l JOIN FileDetails fd ON l.id = fd.location_id '
-            'WHERE fd.md5_hash = ?', (md5_hash,)
+        stmt = (
+            select(locations_table)
+            .join(file_details_table,
+                  locations_table.c.id == file_details_table.c.location_id)
+            .where(file_details_table.c.md5_hash == md5_hash)
         )
-        row = cursor.fetchone()
-        self.disconnect()
-        if row is None:
-            return None
-        keys = ['id', 'name', 'city', 'region', 'country', 'latitude', 'longitude']
-        return dict(zip(keys, row))
+        with get_engine().connect() as conn:
+            row = conn.execute(stmt).fetchone()
+        return row._asdict() if row is not None else None
 
     def assign_location(self, md5_hash: str, location_id: Optional[int]) -> None:
-        self.connect()
-        self._connection.execute(
-            'INSERT INTO FileDetails (md5_hash, location_id) VALUES (?, ?) '
-            'ON CONFLICT(md5_hash) DO UPDATE SET location_id = excluded.location_id',
-            (md5_hash, location_id)
-        )
-        self._connection.commit()
-        self.disconnect()
+        with get_engine().begin() as conn:
+            conn.execute(
+                upsert(file_details_table,
+                       [{'md5_hash': md5_hash, 'location_id': location_id}],
+                       ['md5_hash'])
+            )
 
     def get_clip_preview(self, md5_hash: str) -> bytes | None:
-        self.connect()
-        cursor = self._connection.execute(
-            'SELECT data FROM ClipPreviews WHERE md5_hash = ?', (md5_hash,)
+        stmt = (
+            select(clip_previews_table.c.data)
+            .where(clip_previews_table.c.md5_hash == md5_hash)
         )
-        row = cursor.fetchone()
-        self.disconnect()
+        with get_engine().connect() as conn:
+            row = conn.execute(stmt).fetchone()
         return row[0] if row else None
 
     def get_files_without_clip_preview(self) -> pd.DataFrame:
-        self.connect()
-        with open("sql/missing_clip_previews.sql", "r") as file:
-            sql_query = file.read()
-
-        result = pd.read_sql_query(sql_query, self._connection)
-        self.disconnect()
-
-        return result
+        stmt = (
+            select(
+                files_table.c.md5_hash,
+                files_table.c.file_name,
+                (files_table.c.directory + '/' + files_table.c.file_name).label('file_path'),
+            )
+            .outerjoin(clip_previews_table,
+                       files_table.c.md5_hash == clip_previews_table.c.md5_hash)
+            .where(clip_previews_table.c.md5_hash.is_(None))
+        )
+        with get_engine().connect() as conn:
+            return pd.read_sql_query(stmt, conn)
