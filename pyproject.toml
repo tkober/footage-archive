@@ -17,4 +17,5 @@ dependencies = [
     "langchain-community>=0.4.1",
     "rawpy>=0.23.0",
     "numpy>=1.26.0",
+    "alembic>=1.18.4",
 ]
