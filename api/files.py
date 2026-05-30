@@ -91,7 +91,7 @@ def _build_file_info(p: Path, db: Database) -> FileInfo:
         path=str(p),
         file_extension=p.suffix.lower() or None,
         size_bytes=stat.st_size,
-        modified_at=datetime.fromtimestamp(stat.st_mtime).isoformat(),
+        modified_at=datetime.fromtimestamp(stat.st_mtime),
         tracked=db_record is not None,
         md5_hash=db_record['md5_hash'] if db_record else None,
         media_type=db_record['media_type'] if db_record else None,

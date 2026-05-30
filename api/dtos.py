@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
@@ -170,11 +171,11 @@ class FileInfo(BaseModel):
     path: str
     file_extension: Optional[str]
     size_bytes: int
-    modified_at: str
+    modified_at: datetime
     tracked: bool
     md5_hash: Optional[str] = None
     media_type: Optional[str] = None
-    last_indexed_at: Optional[str] = None
+    last_indexed_at: Optional[datetime] = None
     video_details: Optional[VideoDetails] = None
     photo_details: Optional[PhotoDetails] = None
     keywords: list[str] = []
