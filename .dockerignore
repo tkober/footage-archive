@@ -5,7 +5,12 @@ run_local.sh
 Dockerfile
 .dockerignore
 frontend/
+footage/
+mlflow/data/
+.git/
 *.sqlite
 .venv
 .env
 venv/
+docker-compose.yml
+.env.example

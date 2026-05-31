@@ -1,0 +1,37 @@
+# Footage Archive — full stack (backend + frontend).
+# PostgreSQL is external (e.g. on the NAS); point DB_URL at it via the .env file.
+#
+#   docker compose up -d --build
+#
+# The frontend (nginx) is the only published service: it serves the Angular app
+# and reverse-proxies /api to the backend on the internal network, so the
+# backend port does not need to be exposed to the host.
+
+services:
+  backend:
+    build: .
+    image: footage-archive-backend
+    restart: unless-stopped
+    # DB_URL / DB_USER / DB_PASSWORD / DB_OWNER_* / MEDIA_TYPE_* / BROWSER_HIDDEN_EXTENSIONS
+    # come from .env. ROOT_DIR is forced to the in-container mount point below.
+    env_file:
+      - .env
+    environment:
+      ROOT_DIR: /footage
+    volumes:
+      # Host footage directory -> container. On Unraid: FOOTAGE_DIR=/mnt/user/footage
+      - ${FOOTAGE_DIR:-./footage}:/footage
+    expose:
+      - "8051"
+    # Uncomment to reach Swagger/the API directly from the host for debugging:
+    # ports:
+    #   - "8051:8051"
+
+  frontend:
+    build: ./frontend
+    image: footage-archive-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"

@@ -16,7 +16,8 @@ Runs on an Unraid NAS server, edited over a 5Gbit network.
 | Frontend | Angular 21.2, TypeScript 5.9 |
 | Metadata extraction | exiftool (all photo EXIF + full-dump endpoint) |
 | Preview generation | FFmpeg + FFprobe + Pillow + rawpy |
-| Containerisation | Docker (linux/amd64 for Unraid) |
+| Containerisation | Docker + Docker Compose (backend + frontend; linux/amd64 for Unraid) |
+| Frontend serving | nginx (serves static Angular bundle + reverse-proxies `/api` to the backend) |
 
 ---
 
@@ -89,7 +90,33 @@ footage/japan_2024/
 
 ---
 
+## Running with Docker Compose
+
+The full stack (backend + frontend) runs as a Compose stack. **PostgreSQL is external** (e.g. on the NAS) — Compose does not run a database; point `DB_URL` at the existing instance.
+
+```bash
+cp .env.example .env          # fill in DB creds, set FOOTAGE_DIR + FRONTEND_PORT
+docker compose up -d --build
+# → app at http://<host>:${FRONTEND_PORT:-8080}
+docker compose down           # stop
+```
+
+Two services (`docker-compose.yml`):
+- **`backend`** — built from the root `Dockerfile`; reads env from `.env`; `ROOT_DIR` is forced to `/footage` and the host `${FOOTAGE_DIR}` is mounted there. Port `8051` is internal-only (`expose`), not published — uncomment the `ports:` block to reach Swagger/the API directly for debugging.
+- **`frontend`** — built from `frontend/Dockerfile` (multi-stage: Node builds the Angular prod bundle → nginx serves it). The **only published service** (`${FRONTEND_PORT:-8080}:80`).
+
+**Single-origin design:** nginx (`frontend/nginx.conf`) serves the static SPA *and* reverse-proxies `/api/` → `backend:8051/` (the trailing slash strips the `/api` prefix, so `/api/config` → backend `/config`). The browser only ever talks to nginx, so there's no hardcoded backend host and no CORS needed. The production Angular build swaps in `environment.production.ts` (`apiUrl: '/api'`, relative) via `fileReplacements` in `angular.json`; the dev `ng serve` flow is unchanged (`environment.ts` → `http://localhost:8051`).
+
+```
+browser ──▶ frontend (nginx :8080) ──┬─▶ static Angular bundle
+                                      └─▶ /api/* ──▶ backend:8051 ──▶ external Postgres
+```
+
+---
+
 ## Deploying to Unraid
+
+> Legacy single-image flow (backend only). The Compose stack above is the current full-stack path.
 
 ```bash
 # build and export
@@ -118,6 +145,9 @@ Docker env vars to set on Unraid:
 
 ```
 footage-archive/
+├── docker-compose.yml      # Full stack: backend + frontend (external Postgres)
+├── Dockerfile              # Backend image (python:3.13-slim + ffmpeg + exiftool + uv)
+├── .env.example            # Template for .env (DB creds, media types, compose vars)
 ├── app.py                  # FastAPI entry point, lifespan, CORS, DB init
 ├── api/
 │   ├── base.py             # GET / (redirect to /docs), GET /version
@@ -149,6 +179,11 @@ footage-archive/
 ├── env/environment.py      # env var reader with fallbacks; builds DB URLs from DB_URL + DB_USER/DB_OWNER_USER
 ├── sql/                    # LEGACY raw-SQL files (setup.sql etc.) — superseded by Alembic + db/models.py, no longer loaded
 └── frontend/               # Angular 21 app
+    ├── Dockerfile          # Multi-stage: Node builds the prod bundle → nginx serves it
+    ├── nginx.conf          # Serves SPA (try_files fallback) + reverse-proxies /api → backend:8051
+    ├── src/environments/
+    │   ├── environment.ts             # dev: apiUrl http://localhost:8051
+    │   └── environment.production.ts  # prod: apiUrl /api (swapped in via angular.json fileReplacements)
     └── src/app/
         ├── app.component.*         # shell: header + tasks widget + collapsible sidebar
         ├── app.routes.ts           # lazy-loaded routes
@@ -206,6 +241,7 @@ footage-archive/
 - **Photo thumbnails reuse ClipPreviews** — `generate_photo_thumbnail()` in `photos/exif.py` produces a 600px-wide JPEG (Pillow for JPEG, EXIF-rotation-corrected; rawpy for RW2). Stored in the same `ClipPreviews` table, served by the same `/files/clip-preview/{md5_hash}` endpoint.
 - **DaVinci Resolve CSV** as the primary editorial metadata enrichment path — imports shot/scene/take/angle/move/shot_type directly from Resolve's export.
 - **Task poll interval** — configurable via `TASK_POLL_INTERVAL_MS` env var, exposed through `/config` so the frontend picks it up dynamically.
+- **Single-origin Compose stack** — the frontend's nginx serves the static Angular bundle *and* reverse-proxies `/api` to the backend on the internal network. The browser only talks to one origin, so there's no hardcoded backend host (prod `apiUrl` is the relative `/api`) and CORS is unnecessary. PostgreSQL stays external (NAS); Compose runs only `backend` + `frontend`.
 
 ---
 
@@ -214,6 +250,7 @@ footage-archive/
 - [x] Backend API with FastAPI, PostgreSQL (SQLAlchemy Core), background tasks
 - [x] Decoupled DB layer (`db/engine.py` + `db/models.py` + `db/database.py`); dialect-aware upserts
 - [x] PostgreSQL migration (from SQLite) with Alembic migrations applied on startup
+- [x] Docker Compose full-stack (`backend` + `frontend`/nginx, external Postgres); single-origin nginx reverse-proxy for `/api`, multi-stage frontend image
 - [x] Directory scanning with MD5 hashing + media_type assignment → `Files`
 - [x] Single file tracking → `Files`
 - [x] Auto-population of `VideoDetails` from FFprobe on scan
