@@ -1,0 +1,23 @@
+[project]
+name = "footage-archive"
+version = "0.1.0"
+description = "Personal footage archive and management tool"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115.0",
+    "pydantic>=2.10.0",
+    "uvicorn[standard]>=0.32.0",
+    "pandas>=2.2.3",
+    "pillow>=11.1.0",
+    "python-dotenv>=1.0.0",
+    "langchain>=1.2.15",
+    "langchain-openai>=1.1.12",
+    "pyyaml>=6.0.3",
+    "mlflow>=3.10.1",
+    "langchain-community>=0.4.1",
+    "rawpy>=0.23.0",
+    "numpy>=1.26.0",
+    "alembic>=1.18.4",
+    "sqlalchemy>=2.0",
+    "psycopg2-binary>=2.9",
+]

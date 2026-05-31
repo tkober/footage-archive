@@ -1,10 +1,27 @@
+import logging
 import math
 import re
 import io
 import subprocess
 import json
+from pathlib import Path
 from PIL import Image
 from pydantic import BaseModel
+
+
+def _seconds_to_tc(seconds: int) -> str:
+    hh = seconds // 3600
+    mm = (seconds % 3600) // 60
+    ss = seconds % 60
+    return f'{hh:02}:{mm:02}:{ss:02}:00'
+
+
+def _eval_frame_rate(fraction: str) -> float | None:
+    try:
+        num, den = fraction.split('/')
+        return round(int(num) / int(den), 3)
+    except Exception:
+        return None
 
 
 class FFmpegInput(BaseModel):
@@ -25,6 +42,22 @@ class FFmpegInput(BaseModel):
         return FFmpegInput(md5_hash=md5_hash, file_path=file_path, duration=duration_seconds)
 
 
+class VideoProbeResult(FFmpegInput):
+    """FFmpegInput extended with full stream metadata for VideoDetails."""
+    width: int | None = None
+    height: int | None = None
+    frame_rate: float | None = None
+    frame_rate_verbose: str | None = None
+    video_codec: str | None = None
+    bit_depth: int | None = None
+    audio_codec: str | None = None
+    audio_bit_depth: int | None = None
+    audio_sample_rate: int | None = None
+    audio_channels: int | None = None
+    duration_tc: str | None = None
+    recorded_at: str | None = None
+
+
 class ClipPreview(BaseModel):
     md5_hash: str
     frames: int
@@ -38,21 +71,63 @@ class ClipPreview(BaseModel):
 
 class FFprobe:
 
-    def probe_file(self, md5_hash: str, file_path: str) -> FFmpegInput | None:
+    def probe_file(self, md5_hash: str, file_path: str) -> VideoProbeResult | None:
         command = [
             "ffprobe",
             "-i", file_path,
             "-v", "quiet",
             "-print_format", "json",
-            "-show_format"
+            "-show_format",
+            "-show_streams",
         ]
         result = subprocess.run(command, capture_output=True, text=True)
-        info = json.loads(result.stdout)
+        try:
+            info = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return None
+
         if 'format' not in info:
             return None
 
-        duration = int(float(info['format']['duration']))
-        return FFmpegInput(md5_hash=md5_hash, file_path=file_path, duration=duration)
+        duration = int(float(info['format'].get('duration', 0)))
+        tags = info['format'].get('tags', {})
+        recorded_at = tags.get('creation_time') or tags.get('com.apple.quicktime.creationdate')
+
+        streams = info.get('streams', [])
+        video = next((s for s in streams if s.get('codec_type') == 'video'), None)
+        audio = next((s for s in streams if s.get('codec_type') == 'audio'), None)
+
+        probe = VideoProbeResult(
+            md5_hash=md5_hash,
+            file_path=file_path,
+            duration=duration,
+            duration_tc=_seconds_to_tc(duration),
+            recorded_at=recorded_at,
+        )
+
+        if video:
+            probe.width = video.get('width')
+            probe.height = video.get('height')
+            probe.video_codec = video.get('codec_name')
+            fr = video.get('r_frame_rate') or video.get('avg_frame_rate')
+            if fr:
+                probe.frame_rate_verbose = fr
+                probe.frame_rate = _eval_frame_rate(fr)
+            bps = video.get('bits_per_raw_sample')
+            if bps and str(bps) != '0':
+                probe.bit_depth = int(bps)
+
+        if audio:
+            probe.audio_codec = audio.get('codec_name')
+            sr = audio.get('sample_rate')
+            if sr:
+                probe.audio_sample_rate = int(sr)
+            probe.audio_channels = audio.get('channels')
+            ab = audio.get('bits_per_raw_sample')
+            if ab and str(ab) != '0':
+                probe.audio_bit_depth = int(ab)
+
+        return probe
 
 
 class FFmpeg:
@@ -67,40 +142,27 @@ class FFmpeg:
         ss = seconds % 60
         return f'{hh:02}:{mm:02}:{ss:02}'
 
-    def timestamp_for_keyframes(self, video: FFmpegInput, padding: int = 1, max_keyframes: int = 5) -> [str]:
-
-        if video.duration >= padding * 3:
-            steps = (video.duration - padding) / max_keyframes
-            result = [
-                math.floor((i + 1) * steps)
-                for i in range(max_keyframes)
-            ]
-            result = [
-                i for i in result
-                if padding <= i <= (video.duration - padding)
-            ]
-            result = [self._seconds_to_timecode(i) for i in set(result)]
-            result.sort()
-            return result
-
-        if video.duration >= padding * 2:
-            return [str(self._seconds_to_timecode(padding))]
-
-        return [str(self._seconds_to_timecode(0))]
+    def timestamp_for_keyframes(self, video: FFmpegInput, max_keyframes: int = 5) -> list[str]:
+        if video.duration <= 0:
+            return [self._seconds_to_timecode(0)]
+        step = video.duration / (max_keyframes + 1)
+        timestamps = sorted(set(math.floor(step * (i + 1)) for i in range(max_keyframes)))
+        return [self._seconds_to_timecode(t) for t in timestamps]
 
     def generate_clip_preview(
             self,
             video: FFmpegInput,
             width=320,
             height=180,
-            padding=10
+            padding=10,
+            max_keyframes=5
     ) -> ClipPreview:
         frame_files = []
-        timestamps = self.timestamp_for_keyframes(video)
+        timestamps = self.timestamp_for_keyframes(video, max_keyframes=max_keyframes)
         for i, timestamp in enumerate(timestamps):
             frame_file = f"{self._identifier}_{i}.jpeg"
             command = [
-                'ffmpeg',
+                'ffmpeg', '-y',
                 '-ss', timestamp,
                 '-i', video.file_path,
                 '-vframes', '1',
@@ -108,13 +170,22 @@ class FFmpeg:
                 '-q:v', '2',
                 frame_file
             ]
-            subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            frame_files.append(frame_file)
+            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if Path(frame_file).exists():
+                frame_files.append(frame_file)
+            else:
+                logging.warning(f'ffmpeg failed to extract frame at {timestamp} from {video.file_path}: {result.stderr.decode(errors="replace")}')
+
+        if not frame_files:
+            logging.warning(f'No frames extracted for {video.file_path}, skipping clip preview')
+            return None
 
         images = [Image.open(frame_file) for frame_file in frame_files]
+        while len(images) < max_keyframes:
+            images.append(images[-1].copy())
         total_width = sum(image.width for image in images) + padding * (len(images) - 1)
         max_height = max(image.height for image in images)
-        new_image = Image.new('RGB', (total_width, max_height), (0, 0, 0))  # Schwarz als Hintergrund
+        new_image = Image.new('RGB', (total_width, max_height), (0, 0, 0))
 
         x_offset = 0
         for image in images:
@@ -138,3 +209,27 @@ class FFmpeg:
             overall_width=total_width,
             data=image_bytes
         )
+
+    def extract_frames(self, video: FFmpegInput, width=320, height=180, max_keyframes=5) -> list[bytes]:
+        """Extract individual frames as a list of JPEG bytes, one per keyframe timestamp."""
+        timestamps = self.timestamp_for_keyframes(video, max_keyframes=max_keyframes)
+        frames = []
+        for i, timestamp in enumerate(timestamps):
+            frame_file = f"{self._identifier}_frame_{i}.jpeg"
+            command = [
+                'ffmpeg', '-y',
+                '-ss', timestamp,
+                '-i', video.file_path,
+                '-vframes', '1',
+                '-vf', f'scale={width}:{height}',
+                '-q:v', '2',
+                frame_file
+            ]
+            subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            path = Path(frame_file)
+            if path.exists():
+                frames.append(path.read_bytes())
+                path.unlink()
+            else:
+                logging.warning(f'ffmpeg failed to extract frame at {timestamp} from {video.file_path}')
+        return frames

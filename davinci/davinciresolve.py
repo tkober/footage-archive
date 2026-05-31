@@ -73,13 +73,14 @@ class Metadata:
         df[DerivedMetadataColumns.FILE_PATH.value] = df.apply(
             lambda row: str(Path(row[MetadataColumns.CLIP_DIRECTORY.value]) / row[MetadataColumns.FILE_NAME.value]), axis=1)
 
-        # Filter for essential ones
+        # Filter for essential ones — Resolution excluded (width/height are derived separately)
         cols = [
             col.value for col in MetadataColumns
             if col not in [
                 MetadataColumns.KEYWORDS,
                 MetadataColumns.FILE_NAME,
-                MetadataColumns.CLIP_DIRECTORY
+                MetadataColumns.CLIP_DIRECTORY,
+                MetadataColumns.RESOLUTION,
             ]
         ]
         cols += [col.value for col in DerivedMetadataColumns if col not in [DerivedMetadataColumns.KEYWORD]]
@@ -91,7 +92,6 @@ class Metadata:
             MetadataColumns.SHOT_FRAME_RATE: 'frame_rate_verbose',
             MetadataColumns.AUDIO_SAMPLE_RATE: 'audio_sample_rate',
             MetadataColumns.AUDIO_CHANNELS: 'audio_channels',
-            MetadataColumns.RESOLUTION: 'resolution',
             MetadataColumns.VIDEO_CODEC: 'video_codec',
             MetadataColumns.AUDIO_CODEC: 'audio_codec',
             MetadataColumns.DESCRIPTION: 'description',

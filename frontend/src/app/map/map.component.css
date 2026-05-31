@@ -1,0 +1,64 @@
+.map-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.map-container {
+  flex: 1;
+}
+
+/* ── Individual pins ── */
+:host ::ng-deep .map-pin {
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+
+:host ::ng-deep .map-pin-photo {
+  background: #16a34a;
+}
+
+:host ::ng-deep .map-pin-video {
+  background: #2563eb;
+}
+
+/* ── Cluster badges ── */
+:host ::ng-deep .mc-badge {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+:host ::ng-deep .mc-badge:hover {
+  transform: scale(1.15);
+}
+
+:host ::ng-deep .mc-badge--photo {
+  background: #16a34a;
+}
+
+:host ::ng-deep .mc-badge--video {
+  background: #2563eb;
+}
+
+:host ::ng-deep .mc-badge--mixed {
+  background: #7c3aed;
+}
+
+/* ── Individual marker popups ── */
+:host ::ng-deep .map-popup-type {
+  font-size: 0.75rem;
+  color: #6b7280;
+  text-transform: capitalize;
+}

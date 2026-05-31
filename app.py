@@ -3,15 +3,24 @@ import os
 from contextlib import asynccontextmanager
 
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
+load_dotenv()
+
+from api.ai import AiApi
 from api.base import BaseApi
+from api.config import ConfigApi
 from api.files import FilesApi
-from api.scanning import ScanningApi
+from api.keywords import KeywordsApi
+from api.locations import LocationsApi
+from api.search import SearchApi
+from api.tracking import TrackingApi
 from api.tasks import TasksApi
 from api.troubleshoot import TroubleShootingApi
-from db.database import Database
+from alembic import command
+from alembic.config import Config
 from env.environment import Environment
 
 env = Environment()
@@ -26,9 +35,14 @@ logger = logging.getLogger(f'{__name__}')
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+    application.include_router(AiApi)
     application.include_router(BaseApi)
+    application.include_router(ConfigApi)
     application.include_router(FilesApi)
-    application.include_router(ScanningApi)
+    application.include_router(SearchApi)
+    application.include_router(KeywordsApi)
+    application.include_router(LocationsApi)
+    application.include_router(TrackingApi)
     application.include_router(TasksApi)
     application.include_router(TroubleShootingApi)
 
@@ -36,7 +50,7 @@ async def lifespan(application: FastAPI):
 
 
 if __name__ == '__main__':
-    Database().connect().setup().disconnect()
+    command.upgrade(Config('alembic.ini'), 'head')
 
     app = FastAPI(
         title='Footage Archive',
@@ -56,5 +70,4 @@ if __name__ == '__main__':
         app,
         host=env.get_server_host(),
         port=env.get_server_port(),
-        env_file='../.env' if os.path.isfile('../.env') else None
     )

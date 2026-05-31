@@ -1,0 +1,245 @@
+<div class="browser">
+
+  <nav class="breadcrumbs">
+    @for (crumb of breadcrumbs(); track crumb.path; let last = $last) {
+      @if (!last) {
+        <button class="crumb" (click)="navigateTo(crumb.path)">{{ crumb.label }}</button>
+        <span class="sep">›</span>
+      } @else {
+        <span class="crumb active">{{ crumb.label }}</span>
+      }
+    }
+    @if (!showDetail()) {
+    <button class="scan-current-btn" title="Scan this directory" (click)="scanCurrentDirectory()">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/>
+        <line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      Scan
+    </button>
+    <button class="select-mode-btn" [class.active]="bulkMode()"
+            (click)="bulkMode() ? exitBulkMode() : enterBulkMode()">
+      Select
+    </button>
+    }
+  </nav>
+
+  <div class="view-container" [class.detail-open]="showDetail()">
+
+    <!-- Grid view -->
+    <div class="list-view" (contextmenu)="onBackgroundContextMenu($event)">
+
+      @if (bulkMode()) {
+        <div class="bulk-bar">
+          <span class="bulk-count">{{ bulkSelected().size }} selected</span>
+          <button class="bulk-select-all-btn" (click)="selectAllBulk()">All</button>
+          <button class="bulk-clear-btn" (click)="clearBulkSelection()">Clear</button>
+          <div class="bulk-actions">
+            <input class="bulk-keyword-input"
+                   list="bulk-keyword-suggestions"
+                   placeholder="Add keyword…"
+                   [value]="bulkKeyword()"
+                   (input)="bulkKeyword.set($any($event.target).value)"
+                   (keydown.enter)="bulkAddKeyword()" />
+            <datalist id="bulk-keyword-suggestions">
+              @for (kw of allKeywords(); track kw) { <option [value]="kw"></option> }
+            </datalist>
+            <button class="bulk-action-btn"
+                    (click)="bulkAddKeyword()"
+                    [disabled]="bulkApplying() || !bulkKeyword().trim() || !bulkSelected().size">Add tag</button>
+            <select class="bulk-loc-select"
+                    [value]="bulkLocationId()"
+                    (change)="bulkLocationId.set($any($event.target).value)">
+              <option value="">— location —</option>
+              @for (loc of allLocations(); track loc.id) {
+                <option [value]="loc.id">{{ formatLocation(loc) }}</option>
+              }
+            </select>
+            <button class="bulk-action-btn"
+                    (click)="bulkAssignLocation()"
+                    [disabled]="bulkApplying() || !bulkLocationId() || !bulkSelected().size">Assign</button>
+            <button class="bulk-done-btn" (click)="exitBulkMode()">Done</button>
+          </div>
+        </div>
+      }
+
+      @if (loading()) {
+        <div class="state-msg">Loading…</div>
+      } @else if (error()) {
+        <div class="state-msg error">{{ error() }}</div>
+      } @else {
+
+        @if (dirs().length) {
+          <div class="dirs-row">
+            @for (dir of dirs(); track dir.path) {
+              <button class="dir-chip"
+                      (click)="navigateTo(dir.path)"
+                      (contextmenu)="onEntryContextMenu($event, dir)">
+                <svg class="chip-icon" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>
+                </svg>
+                {{ dir.name }}
+              </button>
+            }
+          </div>
+        }
+
+        @if (videoFiles().length) {
+          <div class="grid-section">
+            <span class="section-label">Videos</span>
+            <div class="file-grid video-grid">
+              @for (entry of videoFiles(); track entry.path) {
+                @if (entryPreviewUrl(entry); as thumbUrl) {
+                  <div class="file-card"
+                       [class.selected]="!bulkMode() && selectedFile()?.path === entry.path"
+                       [class.bulk-selected]="bulkMode() && isBulkSelected(entry)"
+                       (click)="onEntryClick(entry)"
+                       (contextmenu)="onEntryContextMenu($event, entry)">
+                    @if (bulkMode()) {
+                      <span class="bulk-check" [class.checked]="isBulkSelected(entry)"></span>
+                    }
+                    <img class="card-strip" [src]="thumbUrl" alt="" />
+                    <div class="card-footer">
+                      <span class="tracked-dot" [class.is-tracked]="entry.tracked === true"></span>
+                      <span class="card-name">{{ entry.name }}</span>
+                      @if (entry.file_extension) {
+                        <span class="ext">{{ entry.file_extension }}</span>
+                      }
+                    </div>
+                  </div>
+                } @else {
+                  <div class="file-card"
+                       [class.selected]="!bulkMode() && selectedFile()?.path === entry.path"
+                       [class.bulk-selected]="bulkMode() && isBulkSelected(entry)"
+                       (click)="onEntryClick(entry)"
+                       (contextmenu)="onEntryContextMenu($event, entry)">
+                    @if (bulkMode()) {
+                      <span class="bulk-check" [class.checked]="isBulkSelected(entry)"></span>
+                    }
+                    <div class="placeholder-thumb video-thumb">
+                      <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
+                      </svg>
+                    </div>
+                    <div class="card-footer">
+                      <span class="tracked-dot" [class.is-tracked]="entry.tracked === true"></span>
+                      <span class="card-name">{{ entry.name }}</span>
+                      @if (entry.file_extension) {
+                        <span class="ext">{{ entry.file_extension }}</span>
+                      }
+                    </div>
+                  </div>
+                }
+              }
+            </div>
+          </div>
+        }
+
+        @if (photoFiles().length) {
+          <div class="grid-section">
+            <span class="section-label">Stills</span>
+            <div class="file-grid stills-grid">
+              @for (entry of photoFiles(); track entry.path) {
+                <div class="file-card"
+                     [class.selected]="!bulkMode() && selectedFile()?.path === entry.path"
+                     [class.bulk-selected]="bulkMode() && isBulkSelected(entry)"
+                     (click)="onEntryClick(entry)"
+                     (contextmenu)="onEntryContextMenu($event, entry)">
+                  @if (bulkMode()) {
+                    <span class="bulk-check" [class.checked]="isBulkSelected(entry)"></span>
+                  }
+                  @if (entryPreviewUrl(entry); as thumbUrl) {
+                    <img class="card-thumb" [src]="thumbUrl" alt="" />
+                  } @else {
+                    <div class="placeholder-thumb photo-thumb">
+                      <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                      </svg>
+                    </div>
+                  }
+                  <div class="card-footer">
+                    <span class="tracked-dot" [class.is-tracked]="entry.tracked === true"></span>
+                    <span class="card-name">{{ entry.name }}</span>
+                    @if (entry.file_extension) {
+                      <span class="ext">{{ entry.file_extension }}</span>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
+        }
+
+        @if (untrackedFiles().length) {
+          <div class="grid-section">
+            <span class="section-label">Untracked</span>
+            <div class="file-grid stills-grid">
+              @for (entry of untrackedFiles(); track entry.path) {
+                <div class="file-card"
+                     [class.selected]="!bulkMode() && selectedFile()?.path === entry.path"
+                     [class.bulk-selected]="bulkMode() && isBulkSelected(entry)"
+                     (click)="onEntryClick(entry)"
+                     (contextmenu)="onEntryContextMenu($event, entry)">
+                  @if (bulkMode()) {
+                    <span class="bulk-check" [class.checked]="isBulkSelected(entry)"></span>
+                  }
+                  <div class="placeholder-thumb">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                    </svg>
+                  </div>
+                  <div class="card-footer">
+                    <span class="tracked-dot" [class.is-tracked]="entry.tracked === true"></span>
+                    <span class="card-name">{{ entry.name }}</span>
+                    @if (entry.file_extension) {
+                      <span class="ext">{{ entry.file_extension }}</span>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
+        }
+
+        @if (!dirs().length && !videoFiles().length && !photoFiles().length && !untrackedFiles().length) {
+          <div class="state-msg empty">This directory is empty.</div>
+        }
+
+        @if (hasMore()) {
+          <div class="load-more">
+            <span class="count">Showing {{ entries().length }} of {{ total() }}</span>
+            <button class="load-more-btn" (click)="loadMore()" [disabled]="loadingMore()">
+              {{ loadingMore() ? 'Loading…' : 'Load more' }}
+            </button>
+          </div>
+        } @else if (total() > 0) {
+          <div class="load-more">
+            <span class="count">Showing all {{ total() }} items</span>
+          </div>
+        }
+
+      }
+    </div>
+
+    <!-- Detail view (slides in from right) -->
+    <div class="detail-view">
+      <app-file-detail-panel
+        [file]="selectedFile()"
+        [loading]="loadingDetails()"
+        (closed)="closeDetails()"
+        (renamed)="onFileRenamed($event)" />
+    </div>
+
+  </div>
+
+</div>
+
+@if (contextMenuEntry(); as ctxEntry) {
+  <app-context-menu
+    [entry]="ctxEntry"
+    [x]="contextMenuX()"
+    [y]="contextMenuY()"
+    (action)="onContextMenuAction($event)"
+    (close)="closeContextMenu()" />
+}

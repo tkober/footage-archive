@@ -1,0 +1,258 @@
+.widget {
+  position: relative;
+}
+
+/* Trigger button */
+.trigger {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #71717a;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.trigger:hover {
+  background: #f4f4f5;
+  color: #18181b;
+}
+
+.trigger.has-running {
+  color: #3b82f6;
+}
+
+.trigger.has-failed {
+  color: #ef4444;
+}
+
+.trigger-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: #3b82f6;
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 999px;
+  min-width: 14px;
+  text-align: center;
+}
+
+.badge-failed {
+  background: #ef4444;
+}
+
+/* Backdrop */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+/* Panel */
+.panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 50;
+  width: 340px;
+  background: #fff;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.10);
+  overflow: hidden;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e4e4e7;
+}
+
+.panel-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #18181b;
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.panel-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #a1a1aa;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.panel-action svg {
+  width: 14px;
+  height: 14px;
+}
+
+.panel-action:hover {
+  background: #f4f4f5;
+  color: #18181b;
+}
+
+.panel-clear {
+  background: none;
+  border: none;
+  font-size: 0.75rem;
+  color: #a1a1aa;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.panel-clear:hover {
+  background: #f4f4f5;
+  color: #18181b;
+}
+
+.empty {
+  padding: 20px 14px;
+  font-size: 0.875rem;
+  color: #a1a1aa;
+  text-align: center;
+}
+
+/* Task list */
+.task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #f4f4f5;
+}
+
+.task-item:last-child {
+  border-bottom: none;
+}
+
+.task-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Status dot */
+.task-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+..dot-pending   { background: #d4d4d8; }
+.dot-queued    { background: #f59e0b; }
+.dot-running   { background: #3b82f6; animation: pulse 1.2s ease-in-out infinite; }
+.dot-completed { background: #22c55e; }
+.dot-failed    { background: #ef4444; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+.task-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.task-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #18181b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-item.completed .task-name,
+.task-item.completed .task-desc {
+  color: #a1a1aa;
+}
+
+.task-progress {
+  font-size: 0.7rem;
+  color: #3b82f6;
+  margin-top: 2px;
+}
+
+.task-error {
+  font-size: 0.7rem;
+  color: #ef4444;
+  margin-top: 2px;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.task-desc {
+  font-size: 0.75rem;
+  color: #52525b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-meta {
+  font-size: 0.7rem;
+  color: #a1a1aa;
+}
+
+.task-remove {
+  background: none;
+  border: none;
+  font-size: 0.7rem;
+  color: #d4d4d8;
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.task-remove:hover {
+  background: #fee2e2;
+  color: #ef4444;
+}

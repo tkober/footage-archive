@@ -1,4 +1,5 @@
 .DS_Store
+footage/
 *__pycache__/
 *.sqlite
 venv/
@@ -6,3 +7,4 @@ venv/
 *.pyo
 *.pyd
 .env
+mlflow/data/
