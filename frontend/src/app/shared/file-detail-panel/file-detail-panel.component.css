@@ -408,6 +408,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 16px;
 }
 
 .loc-input-name {
@@ -578,4 +579,65 @@
   white-space: pre;
   color: #18181b;
   margin: 0;
+}
+
+/* ── All-metadata (exiftool dump) ── */
+.exif-open-btn {
+  align-self: flex-start;
+  margin-top: 10px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: #3b82f6;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.exif-open-btn:hover {
+  text-decoration: underline;
+}
+
+/* The modal is dark-themed (#1e1e1e), so the table uses light text. */
+.exif-state {
+  padding: 24px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 0.85rem;
+}
+.exif-error {
+  color: #f87171;
+}
+
+.exif-list {
+  font-size: 0.8rem;
+}
+/* Each group is its own containing block, so its head sticks only while the
+   group is in view, then gets pushed out by the next group's head. */
+.exif-group-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #2a2a2a;
+  color: #e5e7eb;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 0.7rem;
+  padding: 7px 16px;
+  border-top: 1px solid #3a3a3a;
+  border-bottom: 1px solid #3a3a3a;
+}
+.exif-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 240px) 1fr;
+  column-gap: 16px;
+  padding: 4px 16px;
+  border-bottom: 1px solid #2f2f2f;
+}
+.exif-tag {
+  color: #9ca3af;
+  word-break: break-word;
+}
+.exif-value {
+  color: #e5e7eb;
+  word-break: break-word;
 }

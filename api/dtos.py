@@ -89,6 +89,16 @@ class PhotoDetails(BaseModel):
     focal_length: Optional[float] = None
     color_space: Optional[str] = None
     bit_depth: Optional[int] = None
+    lens: Optional[str] = None
+    focal_length_35mm: Optional[float] = None
+    scale_factor_35mm: Optional[float] = None
+    field_of_view: Optional[float] = None
+
+
+class ExifTag(BaseModel):
+    group: str
+    tag: str
+    value: str
 
 
 class RenameRequest(BaseModel):
@@ -182,3 +192,4 @@ class FileInfo(BaseModel):
     location: Optional[LocationDto] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    altitude: Optional[float] = None

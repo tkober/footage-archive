@@ -14,7 +14,8 @@ Runs on an Unraid NAS server, edited over a 5Gbit network.
 | DB migrations | Alembic |
 | Package manager | uv (pyproject.toml + uv.lock) |
 | Frontend | Angular 21.2, TypeScript 5.9 |
-| Preview generation | FFmpeg + FFprobe + Pillow |
+| Metadata extraction | exiftool (all photo EXIF + full-dump endpoint) |
+| Preview generation | FFmpeg + FFprobe + Pillow + rawpy |
 | Containerisation | Docker (linux/amd64 for Unraid) |
 
 ---
@@ -26,6 +27,11 @@ Runs on an Unraid NAS server, edited over a 5Gbit network.
 FFmpeg (provides `ffmpeg` + `ffprobe`, required for video probing and clip previews):
 ```bash
 brew install ffmpeg
+```
+
+exiftool (required for all photo EXIF extraction and the full-metadata endpoint):
+```bash
+brew install exiftool
 ```
 
 A reachable PostgreSQL instance. For dev, create the roles + database and grant privileges using the scripts in `dbeaver/dev/` (run as a superuser; substitute the `${...}` password placeholders):
@@ -116,7 +122,7 @@ footage-archive/
 ├── api/
 │   ├── base.py             # GET / (redirect to /docs), GET /version
 │   ├── config.py           # GET /config  ← root_dir, task_poll_interval_ms
-│   ├── files.py            # POST /files/directory, GET /files/details, PATCH /files/rename, GET /files/clip-preview/{md5_hash}, PATCH /files/location, POST /files/checksum
+│   ├── files.py            # POST /files/directory, GET /files/details, GET /files/exif (full exiftool dump), PATCH /files/rename, GET /files/clip-preview/{md5_hash}, PATCH /files/location, POST /files/checksum
 │   ├── search.py           # GET /files/search-facets (facet autocomplete), POST /files/search (filtered, paginated search)
 │   ├── keywords.py         # GET /keywords (all), POST /keywords (add to file), DELETE /keywords (remove from file)
 │   ├── locations.py        # GET /locations, POST /locations (create), GET /locations/map-points (clustered map markers)
@@ -136,7 +142,7 @@ footage-archive/
 ├── dbeaver/dev/            # One-off SQL to provision the dev Postgres (roles, db, grants)
 ├── scanner/scanner.py      # recursive dir walk + MD5 hashing, media_type assignment
 ├── ffmpeg/ffmpeg.py        # FFprobe (full stream info → VideoProbeResult) + clip preview
-├── photos/exif.py          # Pillow EXIF extraction → PhotoProbeResult + GPS DMS parsing + thumbnail generation
+├── photos/exif.py          # exiftool EXIF extraction → PhotoProbeResult (all photo formats); full-tag dump_all_exif(); Pillow/rawpy thumbnail generation
 ├── davinci/davinciresolve.py  # DaVinci Resolve CSV metadata parser
 ├── shot_classifier/classifier.py  # ML shot-type classifier (backs POST /ai/classify-shot)
 ├── tasks/taskmanager.py    # in-memory singleton background task queue
@@ -162,9 +168,9 @@ footage-archive/
 | Table | PK | Purpose |
 |---|---|---|
 | `Files` | `md5_hash` | Core catalog: name, extension, media_type, directory, last_indexed_at |
-| `FileDetails` | `md5_hash` | Universal metadata: description, recorded_at, last_modified_at, location_id, lat/lon, json |
+| `FileDetails` | `md5_hash` | Universal metadata: description, recorded_at, last_modified_at, location_id, lat/lon, altitude, json |
 | `VideoDetails` | `md5_hash` | Video-specific: codec, resolution, fps, audio info, duration_tc, shot/scene/take/angle/move/shot_type |
-| `PhotoDetails` | `md5_hash` | Photo-specific: EXIF (make, model, ISO, aperture, shutter, focal length, color space) |
+| `PhotoDetails` | `md5_hash` | Photo-specific: EXIF (make, model, ISO, aperture, shutter, focal length, color space, lens, 35mm-equiv focal length, scale/crop factor, field of view) |
 | `Locations` | `id` (autoincrement) | Reusable named places with hierarchy: country, region, city, name, lat/lon |
 | `Keywords` | `id` (autoincrement) | Distinct keyword strings (`keyword` is UNIQUE) |
 | `FileKeywords` | `md5_hash + keyword_id` | Join table linking `Files` ↔ `Keywords` (FKs to both) |
@@ -192,10 +198,12 @@ footage-archive/
 - **PostgreSQL as the default DB** — migrated from SQLite. Two roles: an *owner* role for DDL (Alembic) and a least-privilege *app* role for DML (the running app). The engine uses `pool_pre_ping` to survive idle/dropped connections over the network.
 - **Alembic for schema evolution** — `db/models.py` is the source of truth; migrations are generated from it and applied automatically on startup (`alembic upgrade head` in `app.py`). No more hand-maintained `setup.sql`.
 - **Background tasks** — long-running scans run as background tasks with queryable status, progress reporting, and FAILED state. In-memory only (lost on restart).
-- **Scan populates details automatically** — FFprobe fills `VideoDetails` + `FileDetails.recorded_at` for video files; Pillow EXIF fills `PhotoDetails` + `FileDetails.recorded_at` for photos. DaVinci Resolve CSV import can later overwrite with richer editorial metadata via upsert (`ON CONFLICT DO UPDATE`).
-- **File-centric tracking, no shot grouping** — RAW+JPEG pairs from the same shot are tracked independently. No "shot" entity for now. Location hierarchy lives in `Locations`; precise GPS per file lives in `FileDetails.latitude/longitude`.
-- **GPS auto-extraction** — EXIF GPS (DMS format) is parsed from JPEGs at scan time and stored in `FileDetails.latitude/longitude`. The detail panel map uses named Location coords first, falling back to raw GPS if no location is assigned. RAW formats (RW2, DNG) don't carry extractable GPS via Pillow.
-- **Photo thumbnails reuse ClipPreviews** — `generate_photo_thumbnail()` in `photos/exif.py` produces a 600px-wide JPEG via Pillow (EXIF-rotation-corrected). Stored in the same `ClipPreviews` table, served by the same `/files/clip-preview/{md5_hash}` endpoint. RAW files silently skip (Pillow can't decode them).
+- **Scan populates details automatically** — FFprobe fills `VideoDetails` + `FileDetails.recorded_at` for video files; exiftool fills `PhotoDetails` + `FileDetails.recorded_at` for photos. DaVinci Resolve CSV import can later overwrite with richer editorial metadata via upsert (`ON CONFLICT DO UPDATE`).
+- **exiftool for all photo probing** — `photos/exif.py::probe_photo` shells out to `exiftool -json` for every photo format (JPEG, RW2, …), replacing the old split where only RW2 used exiftool and JPEGs used Pillow. One code path, richer/consistent tags (lens, 35mm-equiv focal length, scale/crop factor, FOV), timezone-aware timestamps, and maker-note GPS Pillow couldn't read. Numeric tags use the `#` suffix (`-FNumber#`) for raw values; the "Field Of View" composite is keyed `FOV` in JSON. Pillow/rawpy are retained **only** for thumbnail pixel decoding. exiftool is already a hard dependency (in the Dockerfile).
+- **Full EXIF dump on demand** — `GET /files/exif?path=` runs `exiftool -json -G1` and returns every tag as an ordered `[{group, tag, value}]` (read-only, not persisted). The detail panel's "Show all metadata" button opens a modal table grouped by EXIF group. Works for any file type (videos too), not just photos.
+- **File-centric tracking, no shot grouping** — RAW+JPEG pairs from the same shot are tracked independently. No "shot" entity for now. Location hierarchy lives in `Locations`; precise GPS per file lives in `FileDetails.latitude/longitude/altitude`.
+- **GPS auto-extraction** — EXIF GPS is parsed via exiftool at scan time (signed decimal degrees + altitude) and stored in `FileDetails.latitude/longitude/altitude`. The detail panel map uses named Location coords first, falling back to raw GPS if no location is assigned; altitude shows in the Location column. Lumix RW2 files carry no GPS; phone JPEGs do (incl. altitude).
+- **Photo thumbnails reuse ClipPreviews** — `generate_photo_thumbnail()` in `photos/exif.py` produces a 600px-wide JPEG (Pillow for JPEG, EXIF-rotation-corrected; rawpy for RW2). Stored in the same `ClipPreviews` table, served by the same `/files/clip-preview/{md5_hash}` endpoint.
 - **DaVinci Resolve CSV** as the primary editorial metadata enrichment path — imports shot/scene/take/angle/move/shot_type directly from Resolve's export.
 - **Task poll interval** — configurable via `TASK_POLL_INTERVAL_MS` env var, exposed through `/config` so the frontend picks it up dynamically.
 
@@ -209,9 +217,10 @@ footage-archive/
 - [x] Directory scanning with MD5 hashing + media_type assignment → `Files`
 - [x] Single file tracking → `Files`
 - [x] Auto-population of `VideoDetails` from FFprobe on scan
-- [x] Auto-population of `PhotoDetails` from Pillow EXIF on scan
+- [x] Auto-population of `PhotoDetails` from exiftool on scan (all photo formats; incl. lens, 35mm-equiv focal length, scale/crop factor, FOV)
 - [x] Auto-population of `FileDetails.last_modified_at` + `recorded_at` on scan
-- [x] GPS coordinate extraction from JPEG EXIF → `FileDetails.latitude/longitude` (auto-shown on map in detail panel)
+- [x] GPS extraction (lat/lon + altitude) from photo EXIF via exiftool → `FileDetails.latitude/longitude/altitude` (auto-shown on map; altitude in Location column)
+- [x] `GET /files/exif` — full exiftool tag dump; "Show all metadata" modal in detail panel (grouped table, sticky section headers)
 - [x] DaVinci Resolve CSV metadata ingestion → `FileDetails` + `VideoDetails` + `Keywords`
 - [x] Clip preview generation (5-frame JPEG strip for videos, single thumbnail for photos) → `ClipPreviews`
 - [x] Missing preview detection + repair endpoint

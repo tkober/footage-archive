@@ -33,6 +33,7 @@ file_details_table = Table(
     Column('location_id', Integer, ForeignKey('Locations.id')),
     Column('latitude', Float),
     Column('longitude', Float),
+    Column('altitude', Float),
     Column('description', Text),
     Column('recorded_at', Text),
     Column('last_modified_at', Text),
@@ -74,6 +75,10 @@ photo_details_table = Table(
     Column('focal_length', Float),
     Column('color_space', Text),
     Column('bit_depth', Integer),
+    Column('lens', Text),
+    Column('focal_length_35mm', Float),
+    Column('scale_factor_35mm', Float),
+    Column('field_of_view', Float),
 )
 
 keywords_table = Table(

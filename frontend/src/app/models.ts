@@ -76,6 +76,10 @@ export interface PhotoDetails {
   focal_length: number | null;
   color_space: string | null;
   bit_depth: number | null;
+  lens: string | null;
+  focal_length_35mm: number | null;
+  scale_factor_35mm: number | null;
+  field_of_view: number | null;
 }
 
 export interface Location {
@@ -145,6 +149,7 @@ export interface FileInfo {
   location?: Location | null;
   latitude?: number | null;
   longitude?: number | null;
+  altitude?: number | null;
 }
 
 export interface ShotMovement {
@@ -153,6 +158,12 @@ export interface ShotMovement {
   movement_intensity: string;
   zoom: string;
   zoom_intensity: string;
+}
+
+export interface ExifTag {
+  group: string;
+  tag: string;
+  value: string;
 }
 
 export interface ShotFraming {

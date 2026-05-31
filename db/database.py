@@ -152,6 +152,8 @@ class Database:
                 photo_details_table.c.iso, photo_details_table.c.aperture,
                 photo_details_table.c.shutter_speed, photo_details_table.c.focal_length,
                 photo_details_table.c.color_space, photo_details_table.c.bit_depth,
+                photo_details_table.c.lens, photo_details_table.c.focal_length_35mm,
+                photo_details_table.c.scale_factor_35mm, photo_details_table.c.field_of_view,
             )
             .where(photo_details_table.c.md5_hash == md5_hash)
         )
@@ -207,15 +209,16 @@ class Database:
         with get_engine().begin() as conn:
             conn.execute(stmt)
 
-    def get_file_gps(self, md5_hash: str) -> tuple[float, float] | None:
+    def get_file_gps(self, md5_hash: str) -> tuple[float, float, float | None] | None:
         stmt = (
-            select(file_details_table.c.latitude, file_details_table.c.longitude)
+            select(file_details_table.c.latitude, file_details_table.c.longitude,
+                   file_details_table.c.altitude)
             .where(file_details_table.c.md5_hash == md5_hash)
         )
         with get_engine().connect() as conn:
             row = conn.execute(stmt).fetchone()
         if row and row[0] is not None and row[1] is not None:
-            return (row[0], row[1])
+            return (row[0], row[1], row[2])
         return None
 
     _CLUSTER_CELL_SIZES = [20.0, 20.0, 20.0, 20.0, 8.0, 8.0, 3.0, 3.0, 1.0, 1.0, 0.3, 0.3, 0.05, 0.05]

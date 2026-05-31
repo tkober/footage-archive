@@ -4,9 +4,10 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
-from api.dtos import DirectoryQuery, DirectoryResponse, FileInfo, FileQuery, PathChild, PathType, FileDescriptor, SortField, SortOrder, VideoDetails, PhotoDetails, RenameRequest, AssignLocationRequest, LocationDto
+from api.dtos import DirectoryQuery, DirectoryResponse, FileInfo, FileQuery, PathChild, PathType, FileDescriptor, SortField, SortOrder, VideoDetails, PhotoDetails, RenameRequest, AssignLocationRequest, LocationDto, ExifTag
 from db.database import Database
 from env.environment import Environment
+from photos.exif import dump_all_exif
 from scanner.scanner import Scanner
 
 FilesApi = APIRouter(prefix='/files')
@@ -102,6 +103,7 @@ def _build_file_info(p: Path, db: Database) -> FileInfo:
         location=location,
         latitude=gps[0] if gps else None,
         longitude=gps[1] if gps else None,
+        altitude=gps[2] if gps else None,
     )
 
 
@@ -118,6 +120,21 @@ async def get_file_details(path: str) -> FileInfo:
         raise HTTPException(status_code=400, detail='Path is a directory')
 
     return _build_file_info(p, Database())
+
+
+@FilesApi.get('/exif')
+async def get_file_exif(path: str) -> list[ExifTag]:
+    root = Path(_env.get_root_dir())
+    p = Path(path).resolve()
+
+    if not p.is_relative_to(root):
+        raise HTTPException(status_code=403, detail='Access outside root directory is not allowed')
+    if not p.exists():
+        raise HTTPException(status_code=404, detail='File does not exist')
+    if p.is_dir():
+        raise HTTPException(status_code=400, detail='Path is a directory')
+
+    return [ExifTag(**t) for t in dump_all_exif(str(p))]
 
 
 @FilesApi.patch('/rename')

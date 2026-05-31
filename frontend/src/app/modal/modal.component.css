@@ -15,6 +15,10 @@
   min-width: 360px;
   max-width: 480px;
   width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
@@ -24,6 +28,7 @@
   justify-content: space-between;
   padding: 14px 16px 12px;
   border-bottom: 1px solid #333;
+  flex-shrink: 0;
 }
 
 .modal-title {
@@ -53,5 +58,5 @@
 }
 
 .modal-body {
-  padding: 16px;
+  overflow-y: auto;
 }

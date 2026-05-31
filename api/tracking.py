@@ -132,7 +132,8 @@ def _probe_and_save(sc: ScanResult, db: Database, generate_clip_preview: bool):
             _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=None)
         else:
             _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=probe.recorded_at,
-                               latitude=probe.latitude, longitude=probe.longitude)
+                               latitude=probe.latitude, longitude=probe.longitude,
+                               altitude=probe.altitude)
             db.insert_photo_details(pd.DataFrame([probe.model_dump()]))
 
         if generate_clip_preview:
@@ -145,13 +146,15 @@ def _probe_and_save(sc: ScanResult, db: Database, generate_clip_preview: bool):
 
 
 def _save_file_details(db: Database, md5_hash: str, last_modified_at: str, recorded_at: str | None,
-                       latitude: float | None = None, longitude: float | None = None):
+                       latitude: float | None = None, longitude: float | None = None,
+                       altitude: float | None = None):
     df = pd.DataFrame([{
         'md5_hash': md5_hash,
         'last_modified_at': last_modified_at,
         'recorded_at': recorded_at,
         'latitude': latitude,
         'longitude': longitude,
+        'altitude': altitude,
     }])
     db.insert_file_details(df)
 

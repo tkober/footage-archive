@@ -2,13 +2,11 @@ import io
 import json
 import logging
 import subprocess
-from fractions import Fraction
 from pathlib import Path
 
 import numpy as np
 import rawpy
 from PIL import Image, ImageOps
-from PIL.ExifTags import TAGS
 from pydantic import BaseModel
 
 
@@ -25,88 +23,70 @@ class PhotoProbeResult(BaseModel):
     focal_length: float | None = None
     color_space: str | None = None
     bit_depth: int | None = None
+    lens: str | None = None
+    focal_length_35mm: float | None = None
+    scale_factor_35mm: float | None = None
+    field_of_view: float | None = None
     recorded_at: str | None = None
     latitude: float | None = None
     longitude: float | None = None
+    altitude: float | None = None
 
 
-def probe_photo(md5_hash: str, file_path: str) -> PhotoProbeResult | None:
-    ext = Path(file_path).suffix.lower()
-    if ext == '.rw2':
-        return _probe_rw2(md5_hash, file_path)
-    try:
-        img = Image.open(file_path)
-        width, height = img.size
-
-        result = PhotoProbeResult(
-            md5_hash=md5_hash,
-            file_path=file_path,
-            width=width,
-            height=height,
-        )
-
-        raw_exif = img._getexif() if hasattr(img, '_getexif') else None
-        if not raw_exif:
-            return result
-
-        exif = {TAGS.get(k, k): v for k, v in raw_exif.items()}
-
-        result.camera_make = _str(exif.get('Make'))
-        result.camera_model = _str(exif.get('Model'))
-        result.iso = _int(exif.get('ISOSpeedRatings') or exif.get('PhotographicSensitivity'))
-        result.recorded_at = _str(exif.get('DateTimeOriginal') or exif.get('DateTime'))
-
-        f_number = exif.get('FNumber')
-        if f_number is not None:
-            result.aperture = round(float(Fraction(f_number)), 1)
-
-        exp_time = exif.get('ExposureTime')
-        if exp_time is not None:
-            raw = Fraction(exp_time)
-            f = Fraction(raw.numerator, raw.denominator).limit_denominator(10000)
-            result.shutter_speed = f'1/{f.denominator}' if f.numerator == 1 else str(f)
-
-        focal = exif.get('FocalLength')
-        if focal is not None:
-            result.focal_length = round(float(Fraction(focal)), 1)
-
-        cs = exif.get('ColorSpace')
-        if cs == 1:
-            result.color_space = 'sRGB'
-        elif cs == 65535:
-            result.color_space = 'Uncalibrated'
-        elif cs is not None:
-            result.color_space = str(cs)
-
-        bps = exif.get('BitsPerSample')
-        if bps is not None:
-            result.bit_depth = _int(bps[0] if isinstance(bps, tuple) else bps)
-
-        gps = exif.get('GPSInfo')
-        if gps and isinstance(gps, dict):
-            result.latitude = _parse_gps_dms(gps.get(2), gps.get(1))
-            result.longitude = _parse_gps_dms(gps.get(4), gps.get(3))
-
-        return result
-
-    except Exception as e:
-        logging.debug(f'Photo probe failed for {file_path}: {e}')
-        return None
+# exiftool tags requested for every photo (JPEG, RW2, …). A trailing '#' forces the
+# raw numeric value (e.g. FocalLength 5.4 instead of "5.4 mm"). Tags without '#' keep
+# exiftool's human-readable form, which is what we want for ColorSpace ("sRGB"),
+# ExposureTime ("1/50") and the friendly LensType name. Note: the "Field Of View"
+# composite is named 'FOV' in exiftool's JSON output, not 'FieldOfView'.
+_EXIFTOOL_TAGS = [
+    '-Make', '-Model', '-ISO#', '-FNumber#', '-ExposureTime', '-FocalLength#',
+    '-ColorSpace', '-BitsPerSample', '-DateTimeOriginal', '-ImageWidth', '-ImageHeight',
+    '-LensType', '-LensID', '-LensModel',
+    '-FocalLengthIn35mmFormat#', '-ScaleFactor35efl#', '-FOV#',
+    '-GPSLatitude#', '-GPSLatitudeRef#', '-GPSLongitude#', '-GPSLongitudeRef#',
+    '-GPSAltitude#', '-GPSAltitudeRef#',
+]
 
 
-def _probe_rw2(md5_hash: str, file_path: str) -> PhotoProbeResult | None:
+def dump_all_exif(file_path: str) -> list[dict]:
+    """Return every tag exiftool can read for a file as an ordered list of
+    {group, tag, value} dicts. Used by the read-on-demand 'all metadata' endpoint.
+
+    Uses -G1 so each key is prefixed with its group (e.g. 'EXIF:Make', 'GPS:GPSLatitude',
+    'Composite:FOV'), keeping same-named tags from different groups distinct. Binary tags
+    come back as a human placeholder string ('(Binary data N bytes, ...)'), which we keep.
+    """
     try:
         result = subprocess.run(
-            ['exiftool', '-json', '-Make', '-Model', '-ISO', '-FNumber',
-             '-ExposureTime', '-FocalLength', '-ColorSpace', '-BitsPerSample',
-             '-DateTimeOriginal', '-ImageWidth', '-ImageHeight',
-             '-GPSLatitude', '-GPSLatitudeRef', '-GPSLongitude', '-GPSLongitudeRef',
-             file_path],
+            ['exiftool', '-json', '-G1', file_path],
             capture_output=True, text=True,
         )
         data = json.loads(result.stdout)[0]
     except Exception as e:
-        logging.debug(f'RW2 exiftool probe failed for {file_path}: {e}')
+        logging.debug(f'exiftool full dump failed for {file_path}: {e}')
+        return []
+
+    tags = []
+    for key, val in data.items():
+        if key == 'SourceFile':  # absolute server path, redundant with the requested file
+            continue
+        group, sep, tag = key.partition(':')
+        if not sep:  # ungrouped key has no 'Group:' prefix
+            group, tag = '', group
+        tags.append({'group': group, 'tag': tag, 'value': _stringify(val)})
+    return tags
+
+
+def probe_photo(md5_hash: str, file_path: str) -> PhotoProbeResult | None:
+    """Extract photo metadata via exiftool. Used for all photo formats (JPEG, RW2, …)."""
+    try:
+        result = subprocess.run(
+            ['exiftool', '-json', *_EXIFTOOL_TAGS, file_path],
+            capture_output=True, text=True,
+        )
+        data = json.loads(result.stdout)[0]
+    except Exception as e:
+        logging.debug(f'exiftool probe failed for {file_path}: {e}')
         return None
 
     probe = PhotoProbeResult(md5_hash=md5_hash, file_path=file_path)
@@ -118,20 +98,17 @@ def _probe_rw2(md5_hash: str, file_path: str) -> PhotoProbeResult | None:
     probe.recorded_at = _str(data.get('DateTimeOriginal'))
     probe.color_space = _str(data.get('ColorSpace'))
     probe.bit_depth = _int(data.get('BitsPerSample'))
+    probe.lens = _str(data.get('LensType') or data.get('LensID') or data.get('LensModel'))
 
-    f_number = data.get('FNumber')
-    if f_number is not None:
-        probe.aperture = round(float(f_number), 1)
-
+    probe.aperture = _round(data.get('FNumber'), 1)
     # exiftool returns ExposureTime already formatted as "1/6400"
     probe.shutter_speed = _str(data.get('ExposureTime'))
+    probe.focal_length = _round(data.get('FocalLength'), 1)
+    probe.focal_length_35mm = _round(data.get('FocalLengthIn35mmFormat'), 1)
+    probe.scale_factor_35mm = _round(data.get('ScaleFactor35efl'), 2)
+    probe.field_of_view = _round(data.get('FOV'), 1)
 
-    focal = data.get('FocalLength')
-    if focal is not None:
-        # exiftool returns "14.0 mm" — strip the unit
-        probe.focal_length = round(float(str(focal).split()[0]), 1)
-
-    # GPS: exiftool returns decimal degrees + ref as separate fields
+    # GPS: exiftool returns unsigned decimal degrees + a separate N/S/E/W ref
     lat = data.get('GPSLatitude')
     lat_ref = data.get('GPSLatitudeRef')
     lon = data.get('GPSLongitude')
@@ -140,6 +117,11 @@ def _probe_rw2(md5_hash: str, file_path: str) -> PhotoProbeResult | None:
         probe.latitude = round(float(lat) * (-1 if lat_ref == 'S' else 1), 6)
     if lon is not None and lon_ref is not None:
         probe.longitude = round(float(lon) * (-1 if lon_ref == 'W' else 1), 6)
+
+    # GPSAltitude is unsigned metres; GPSAltitudeRef 0 = above sea level, 1 = below
+    alt = data.get('GPSAltitude')
+    if alt is not None:
+        probe.altitude = round(float(alt) * (-1 if data.get('GPSAltitudeRef') == 1 else 1), 1)
 
     return probe
 
@@ -177,28 +159,26 @@ def _open_rw2(file_path: str) -> Image.Image | None:
     return Image.fromarray(np.asarray(rgb, dtype=np.uint8))
 
 
-def _parse_gps_dms(dms, ref) -> float | None:
-    """Convert GPS degrees/minutes/seconds tuple + N/S/E/W ref to decimal degrees."""
-    if not dms or not ref:
-        return None
-    try:
-        degrees = float(Fraction(dms[0]))
-        minutes = float(Fraction(dms[1]))
-        seconds = float(Fraction(dms[2]))
-        decimal = degrees + minutes / 60 + seconds / 3600
-        if ref in ('S', 'W'):
-            decimal = -decimal
-        return round(decimal, 6)
-    except Exception:
-        return None
-
-
 def _str(val) -> str | None:
     return str(val).strip() if val is not None else None
+
+
+def _stringify(val) -> str:
+    """Flatten any exiftool JSON value (number, list, XMP struct) to a display string."""
+    if isinstance(val, list):
+        return ', '.join(_stringify(v) for v in val)
+    return str(val)
 
 
 def _int(val) -> int | None:
     try:
         return int(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def _round(val, ndigits: int) -> float | None:
+    try:
+        return round(float(val), ndigits)
     except (TypeError, ValueError):
         return None

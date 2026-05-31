@@ -4,7 +4,7 @@ import { Observable, Subject } from 'rxjs';
 import * as L from 'leaflet';
 
 import { environment } from '../../environments/environment';
-import { Config, DirectoryQuery, DirectoryResponse, FileInfo, FileSearchQuery, Location, MapPoint, SearchResponse, ShotClassification, Task } from '../models';
+import { Config, DirectoryQuery, DirectoryResponse, ExifTag, FileInfo, FileSearchQuery, Location, MapPoint, SearchResponse, ShotClassification, Task } from '../models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -23,6 +23,10 @@ export class ApiService {
 
   getFileDetails(path: string): Observable<FileInfo> {
     return this.http.get<FileInfo>(`${this.base}/files/details`, { params: { path } });
+  }
+
+  getFileExif(path: string): Observable<ExifTag[]> {
+    return this.http.get<ExifTag[]>(`${this.base}/files/exif`, { params: { path } });
   }
 
   scanDirectory(path: string): Observable<string> {

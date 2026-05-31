@@ -4,7 +4,7 @@ import * as L from 'leaflet';
 
 import { ModalComponent } from '../../modal/modal.component';
 import { ApiService } from '../../services/api.service';
-import { FileInfo, Location, ShotClassification, VIDEO_TYPES, PHOTO_TYPES } from '../../models';
+import { ExifTag, FileInfo, Location, ShotClassification, VIDEO_TYPES, PHOTO_TYPES } from '../../models';
 
 @Component({
   selector: 'app-file-detail-panel',
@@ -57,6 +57,24 @@ export class FileDetailPanelComponent implements OnDestroy {
   classificationResult = signal<ShotClassification | null>(null);
   classificationError  = signal<string | null>(null);
   classifying          = signal(false);
+
+  // ── All-metadata (exiftool dump) ──
+  showExif    = signal(false);
+  exifTags    = signal<ExifTag[]>([]);
+  exifLoading = signal(false);
+  exifError   = signal<string | null>(null);
+  exifGroups  = computed(() => {
+    const groups: { group: string; items: ExifTag[] }[] = [];
+    let current: { group: string; items: ExifTag[] } | null = null;
+    for (const t of this.exifTags()) {
+      if (!current || current.group !== t.group) {
+        current = { group: t.group, items: [] };
+        groups.push(current);
+      }
+      current.items.push(t);
+    }
+    return groups;
+  });
 
   // ── Preview ──
   previewUrl = computed(() => {
@@ -178,6 +196,19 @@ export class FileDetailPanelComponent implements OnDestroy {
     this.api.classifyShot(file.path).subscribe({
       next: r  => { this.classificationResult.set(r); this.classifying.set(false); },
       error: e => { this.classificationError.set(e.error?.detail ?? 'Classification failed'); this.classifying.set(false); },
+    });
+  }
+
+  openExif() {
+    const file = this.selectedFile();
+    if (!file?.path) return;
+    this.showExif.set(true);
+    this.exifLoading.set(true);
+    this.exifTags.set([]);
+    this.exifError.set(null);
+    this.api.getFileExif(file.path).subscribe({
+      next: tags => { this.exifTags.set(tags); this.exifLoading.set(false); },
+      error: e    => { this.exifError.set(e.error?.detail ?? 'Failed to load metadata'); this.exifLoading.set(false); },
     });
   }
 

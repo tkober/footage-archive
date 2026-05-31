@@ -117,6 +117,7 @@
               </div>
             }
           </div>
+          <button class="exif-open-btn" (click)="openExif()">Show all metadata</button>
         </div>
 
         @if (file.video_details; as vd) {
@@ -208,6 +209,12 @@
                   <span class="detail-value">{{ pd.camera_make }} {{ pd.camera_model }}</span>
                 </div>
               }
+              @if (pd.lens) {
+                <div class="detail-meta-item">
+                  <span class="detail-label">Lens</span>
+                  <span class="detail-value">{{ pd.lens }}</span>
+                </div>
+              }
               @if (pd.iso) {
                 <div class="detail-meta-item">
                   <span class="detail-label">ISO</span>
@@ -230,6 +237,24 @@
                 <div class="detail-meta-item">
                   <span class="detail-label">Focal length</span>
                   <span class="detail-value">{{ pd.focal_length }} mm</span>
+                </div>
+              }
+              @if (pd.focal_length_35mm) {
+                <div class="detail-meta-item">
+                  <span class="detail-label">Focal length (35mm)</span>
+                  <span class="detail-value">{{ pd.focal_length_35mm }} mm</span>
+                </div>
+              }
+              @if (pd.scale_factor_35mm) {
+                <div class="detail-meta-item">
+                  <span class="detail-label">Crop factor</span>
+                  <span class="detail-value">{{ pd.scale_factor_35mm }}×</span>
+                </div>
+              }
+              @if (pd.field_of_view) {
+                <div class="detail-meta-item">
+                  <span class="detail-label">Field of view</span>
+                  <span class="detail-value">{{ pd.field_of_view }}°</span>
                 </div>
               }
               @if (pd.bit_depth) {
@@ -267,6 +292,12 @@
             }
             @if ((file.location?.latitude ?? file.latitude) != null && (file.location?.longitude ?? file.longitude) != null) {
               <div #detailMapContainer class="detail-loc-map"></div>
+            }
+            @if (file.altitude != null) {
+              <div class="detail-meta-item">
+                <span class="detail-label">Altitude</span>
+                <span class="detail-value">{{ file.altitude }} m</span>
+              </div>
             }
             <div class="location-assign-row">
               <select class="location-select"
@@ -330,5 +361,31 @@
         <button class="loc-cancel-btn" (click)="cancelCreateLocation()">Cancel</button>
       </div>
     </div>
+  </app-modal>
+}
+
+@if (showExif()) {
+  <app-modal title="All metadata" [wide]="true" (close)="showExif.set(false)">
+    @if (exifLoading()) {
+      <div class="exif-state">Loading…</div>
+    } @else if (exifError()) {
+      <div class="exif-state exif-error">{{ exifError() }}</div>
+    } @else if (exifTags().length === 0) {
+      <div class="exif-state">No metadata found.</div>
+    } @else {
+      <div class="exif-list">
+        @for (g of exifGroups(); track g.group) {
+          <div class="exif-group">
+            <div class="exif-group-head">{{ g.group || 'Other' }}</div>
+            @for (t of g.items; track $index) {
+              <div class="exif-row">
+                <span class="exif-tag">{{ t.tag }}</span>
+                <span class="exif-value detail-mono">{{ t.value }}</span>
+              </div>
+            }
+          </div>
+        }
+      </div>
+    }
   </app-modal>
 }
