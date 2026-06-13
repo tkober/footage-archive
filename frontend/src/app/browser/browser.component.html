@@ -59,6 +59,10 @@
             <button class="bulk-action-btn"
                     (click)="bulkAssignLocation()"
                     [disabled]="bulkApplying() || !bulkLocationId() || !bulkSelected().size">Assign</button>
+            <button class="bulk-compare-btn"
+                    (click)="openComparison()"
+                    [disabled]="comparablePhotos().length < 2"
+                    title="Compare selected photos side by side">Compare</button>
             <button class="bulk-done-btn" (click)="exitBulkMode()">Done</button>
           </div>
         </div>
@@ -242,4 +246,8 @@
     [y]="contextMenuY()"
     (action)="onContextMenuAction($event)"
     (close)="closeContextMenu()" />
+}
+
+@if (showComparison()) {
+  <app-comparison-view [items]="comparablePhotos()" (closed)="closeComparison()" />
 }
