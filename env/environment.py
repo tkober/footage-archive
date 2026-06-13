@@ -44,6 +44,9 @@ class Environment:
     def get_task_poll_interval_ms(self) -> int:
         return int(self.loadEnvironmentVariable("TASK_POLL_INTERVAL_MS", "5000"))
 
+    def get_worker_pool_size(self) -> int:
+        return int(self.loadEnvironmentVariable("WORKER_POOL_SIZE", "4"))
+
     def get_scanning_file_extensions(self) -> [str]:
         return list(self.get_media_type_map().keys())
 

@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 from pathlib import Path
+from threading import Lock
 from typing import Callable
 
 import pandas as pd
@@ -13,6 +14,7 @@ from ffmpeg.ffmpeg import FFmpegInput, FFmpeg, FFprobe
 from photos.exif import probe_photo, generate_photo_thumbnail
 from scanner.scanner import Scanner, ScanResult
 from tasks.taskmanager import TaskManager, TaskRequest
+from tasks.workerpool import parallel_map
 
 TrackingApi = APIRouter(prefix='/tracking')
 
@@ -82,6 +84,30 @@ async def import_metadata(query: FileQuery, background_tasks: BackgroundTasks):
     return task.id
 
 
+class _ProbeProgress:
+    """Thread-safe completion counter — workers finish out of order, so the
+    running tally is guarded by a lock and reported as 'done / total'."""
+
+    def __init__(self, total: int, report: Callable[[str], None]):
+        self._total = total
+        self._report = report
+        self._lock = Lock()
+        self._done = 0
+        self._failed = 0
+
+    def record(self, file_name: str, ok: bool):
+        # Report inside the lock so both the count and the displayed message are
+        # strictly monotonic — workers finish out of order, but the lock serialises
+        # each increment with the report it produces. report() is a trivial in-memory
+        # assignment, so holding the lock across it is cheap.
+        with self._lock:
+            self._done += 1
+            if not ok:
+                self._failed += 1
+            suffix = f' ({self._failed} failed)' if self._failed else ''
+            self._report(f'Probed {self._done} / {self._total}{suffix}: {file_name}')
+
+
 def index_files_in_directory(query: FileQuery, report: Callable[[str], None]):
     directory = Path(query.path)
     report('Scanning files…')
@@ -91,9 +117,20 @@ def index_files_in_directory(query: FileQuery, report: Callable[[str], None]):
     db = Database()
     db.insert_scan_results(scan_results)
 
-    for i, sc in enumerate(scan_results, 1):
-        report(f'Probing {i} / {total}: {sc.file_name}')
-        _probe_and_save(sc, db, generate_clip_preview=query.generate_clip_preview)
+    progress = _ProbeProgress(total, report)
+
+    def probe(sc: ScanResult):
+        ok = True
+        try:
+            _probe_and_save(sc, db, generate_clip_preview=query.generate_clip_preview)
+        except Exception:
+            # Isolate per-file failures so one bad file doesn't abort the whole scan.
+            logging.exception(f'Failed to probe {sc.directory}/{sc.file_name}')
+            ok = False
+        finally:
+            progress.record(sc.file_name, ok)
+
+    parallel_map(scan_results, probe)
 
 
 def index_single_file(query: FileQuery, report: Callable[[str], None]):
