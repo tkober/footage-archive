@@ -7,7 +7,7 @@
 } @else if (selectedFile(); as file) {
 
   @if (previewUrl()) {
-    <div class="detail-strip-wrap">
+    <div class="detail-strip-wrap" [class.is-photo]="isPhotoMediaType(file.media_type)">
       <img class="detail-strip-img"
            [class.is-photo]="isPhotoMediaType(file.media_type)"
            [src]="previewUrl()!" alt="Clip preview" />

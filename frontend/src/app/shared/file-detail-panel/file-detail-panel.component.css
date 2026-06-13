@@ -45,9 +45,22 @@
   object-fit: cover;
 }
 
+/* Photo: darker gray side fill, centered, height follows the image */
+.detail-strip-wrap.is-photo {
+  background: #1c1c1f;
+  text-align: center;   /* centers the inline-block image */
+  /* inset shadow at top + bottom edges so the dark strip reads as recessed
+     below the white detail page */
+  box-shadow: inset 0 9px 12px -6px rgba(0, 0, 0, 0.75),
+              inset 0 -9px 12px -6px rgba(0, 0, 0, 0.75);
+}
+
 .detail-strip-img.is-photo {
-  object-fit: contain;
-  background: #f4f4f5;
+  display: inline-block;
+  width: auto;          /* natural size instead of forced full width */
+  max-width: 100%;      /* but never overflow the panel */
+  height: auto;
+  max-height: none;     /* drop the 280px cap so height follows the image */
 }
 
 /* Detail content area */
