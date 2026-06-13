@@ -32,6 +32,8 @@ class Scanner:
         media_type_map = env.get_media_type_map()
         for f in files:
             f_path = Path(f)
+            if f_path.name.startswith('._'):  # macOS AppleDouble sidecars, hidden in the browser too
+                continue
             if not f_path.is_dir() and f_path.exists() and f_path.suffix.lower() in considered_file_extensions:
                 md5_hash = self.md5_hash(str(f_path))
                 result.append(ScanResult(

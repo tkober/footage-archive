@@ -30,7 +30,10 @@ def _df_to_records(df: pd.DataFrame, table) -> list[dict] | None:
     available = [c for c in df.columns if c in table_cols]
     if not available or 'md5_hash' not in available:
         return None
-    subset = df[available].where(pd.notna(df[available]), None)
+    # Byte-identical files (e.g. macOS '._*' AppleDouble sidecars) share an MD5;
+    # Postgres rejects ON CONFLICT DO UPDATE when one statement hits a row twice.
+    subset = df[available].drop_duplicates(subset='md5_hash', keep='last')
+    subset = subset.where(pd.notna(subset), None)
     return subset.to_dict(orient='records')
 
 
