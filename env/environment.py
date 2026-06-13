@@ -20,8 +20,20 @@ class Environment:
     def get_server_port(self) -> int:
         return int(self.loadEnvironmentVariable("SERVER_PORT", "8051"))
 
-    def get_release_name(self) -> str:
-        return self.loadEnvironmentVariable("RELEASE_NAME", "local")
+    def get_version(self) -> str:
+        # APP_VERSION is baked into the Docker image at build time from the CI
+        # git tag (see .github/workflows). For local dev it falls back to the
+        # version declared in pyproject.toml, then to "dev".
+        env_version = self.loadEnvironmentVariable("APP_VERSION")
+        if env_version:
+            return env_version
+        try:
+            import tomllib
+            pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+            with pyproject.open("rb") as f:
+                return tomllib.load(f)["project"]["version"]
+        except Exception:
+            return "dev"
 
     def get_database_url(self) -> str:
         url = make_url(self.loadEnvironmentVariable("DB_URL")).set(

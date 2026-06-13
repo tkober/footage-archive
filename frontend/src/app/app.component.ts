@@ -4,6 +4,7 @@ import { filter } from 'rxjs';
 
 import { ApiService } from './services/api.service';
 import { TasksWidgetComponent } from './tasks-widget/tasks-widget.component';
+import { APP_VERSION } from '../version';
 
 @Component({
   selector: 'app-root',
@@ -18,6 +19,8 @@ export class AppComponent implements OnInit {
   sidebarOpen = true;
   pageTitle = signal('Footage Archive');
   taskPollIntervalMs = signal(5000);
+  frontendVersion = APP_VERSION;
+  backendVersion = signal('…');
 
   constructor(private router: Router) {}
 
@@ -32,6 +35,11 @@ export class AppComponent implements OnInit {
 
     this.api.getConfig().subscribe({
       next: config => this.taskPollIntervalMs.set(config.task_poll_interval_ms),
+    });
+
+    this.api.getBackendVersion().subscribe({
+      next: res => this.backendVersion.set(res.version),
+      error: () => this.backendVersion.set('unknown'),
     });
   }
 

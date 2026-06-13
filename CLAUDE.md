@@ -114,6 +114,26 @@ browser ──▶ frontend (nginx :8080) ──┬─▶ static Angular bundle
 
 ---
 
+## Versioning
+
+Both images carry a version that is visible at runtime in the bottom of the frontend sidebar (**Frontend** = the bundle's own version, **Backend** = fetched live from `GET /version`).
+
+**Single source of truth = the git tag.** CI (`docker/metadata-action`) already derives a semver from `v*.*.*` tags and stamps it onto each image (tag + OCI labels). On top of that, both workflows pass the version into the build as the `APP_VERSION` build-arg:
+- **Backend** — `APP_VERSION` is set as an `ENV` in the `Dockerfile`; `Environment.get_version()` reads it. Local-dev fallback: the `version` in `pyproject.toml`. `GET /version` returns `{"version": ...}`.
+- **Frontend** — the `prebuild` npm hook (`scripts/generate-version.mjs`) reads `APP_VERSION` and writes `src/version.ts`, which `app.component.ts` imports. Local-dev fallback: the `version` in `package.json`.
+
+A tag push (`v1.2.3`) reports that semver; a plain `main` push reports the short commit SHA.
+
+**To cut a release — bump all three in lockstep, then tag:**
+1. `pyproject.toml` → `version`
+2. `frontend/package.json` → `version`
+3. `frontend/src/version.ts` → `APP_VERSION` (keep it equal to `package.json`, so local builds produce no git churn)
+4. Commit, then `git tag vX.Y.Z && git push --tags` (this is what makes the published image report `vX.Y.Z`).
+
+Keep these in sync with the git tag. The committed `version.ts` value is only the local-dev display; CI overwrites it from the tag at build time.
+
+---
+
 ## Deploying to Unraid
 
 > Legacy single-image flow (backend only). The Compose stack above is the current full-stack path.

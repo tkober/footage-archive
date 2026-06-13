@@ -14,4 +14,4 @@ async def get_root():
 
 @BaseApi.get('/version')
 async def get_version():
-    return Environment().get_release_name()
+    return {'version': Environment().get_version()}

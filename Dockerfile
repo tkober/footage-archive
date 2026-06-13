@@ -22,6 +22,10 @@ RUN useradd -m appuser
 RUN chown -R appuser:appuser /footage-archive
 USER appuser
 
+# Version baked in at build time (CI passes the git tag); read back via /version.
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
+
 ENV TZ="Europe/Berlin"
 ENV PATH="/footage-archive/.venv/bin:$PATH"
 

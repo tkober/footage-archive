@@ -124,6 +124,37 @@
   opacity: 1;
 }
 
+/* Version footer pinned to the bottom of the sidebar */
+.version-footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 10px 4px;
+  font-size: 0.7rem;
+  color: #71717a;
+  white-space: nowrap;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 150ms ease;
+  pointer-events: none;
+}
+
+.shell.sidebar-open .version-footer {
+  opacity: 1;
+}
+
+.version-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.version-value {
+  color: #a1a1aa;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Main content */
 .content {
   flex: 1;

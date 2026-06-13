@@ -17,6 +17,10 @@ export class ApiService {
     return this.http.get<Config>(`${this.base}/config`);
   }
 
+  getBackendVersion(): Observable<{ version: string }> {
+    return this.http.get<{ version: string }>(`${this.base}/version`);
+  }
+
   listDirectory(query: DirectoryQuery): Observable<DirectoryResponse> {
     return this.http.post<DirectoryResponse>(`${this.base}/files/directory`, query);
   }

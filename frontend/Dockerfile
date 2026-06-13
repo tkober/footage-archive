@@ -9,6 +9,11 @@ RUN npm ci
 
 COPY . .
 
+# Version baked into the bundle at build time (CI passes the git tag). The
+# `prebuild` npm hook reads APP_VERSION and writes src/version.ts.
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
+
 # Production config applies fileReplacements -> environment.production.ts (apiUrl: /api)
 RUN npm run build -- --configuration production
 
