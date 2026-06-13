@@ -139,6 +139,7 @@ Docker env vars to set on Unraid:
 - `BROWSER_HIDDEN_EXTENSIONS=.xmp,.acr,.psd,.lrv,.identifier`
 - `TASK_POLL_INTERVAL_MS=5000` (default, optional)
 - `WORKER_POOL_SIZE=4` (default, optional) — shared worker-pool size for in-job parallel hashing/probing
+- `DB_POOL_SIZE=5` / `DB_MAX_OVERFLOW=10` (defaults, optional) — SQLAlchemy connection pool; max concurrent connections = sum of the two
 
 ---
 

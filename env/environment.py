@@ -47,6 +47,12 @@ class Environment:
     def get_worker_pool_size(self) -> int:
         return int(self.loadEnvironmentVariable("WORKER_POOL_SIZE", "4"))
 
+    def get_db_pool_size(self) -> int:
+        return int(self.loadEnvironmentVariable("DB_POOL_SIZE", "5"))
+
+    def get_db_max_overflow(self) -> int:
+        return int(self.loadEnvironmentVariable("DB_MAX_OVERFLOW", "10"))
+
     def get_scanning_file_extensions(self) -> [str]:
         return list(self.get_media_type_map().keys())
 

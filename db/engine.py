@@ -8,11 +8,12 @@ _engine = None
 def get_engine():
     global _engine
     if _engine is None:
+        env = Environment()
         _engine = create_engine(
-            Environment().get_database_url(),
+            env.get_database_url(),
             pool_pre_ping=True,
-            pool_size=5,
-            max_overflow=10,
+            pool_size=env.get_db_pool_size(),
+            max_overflow=env.get_db_max_overflow(),
         )
     return _engine
 
