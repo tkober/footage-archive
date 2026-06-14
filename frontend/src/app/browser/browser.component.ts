@@ -4,6 +4,7 @@ import { forkJoin, switchMap, map, tap } from 'rxjs';
 
 import { ContextMenuComponent } from './context-menu/context-menu.component';
 import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
+import { ComparisonComponent } from '../comparison/comparison.component';
 import { ApiService } from '../services/api.service';
 import { FileInfo, Location, PathChild, VIDEO_TYPES, PHOTO_TYPES } from '../models';
 
@@ -12,7 +13,7 @@ const PAGE_SIZE = 50;
 @Component({
   selector: 'app-browser',
   standalone: true,
-  imports: [ContextMenuComponent, FileDetailPanelComponent],
+  imports: [ContextMenuComponent, FileDetailPanelComponent, ComparisonComponent],
   templateUrl: './browser.component.html',
   styleUrl: './browser.component.css'
 })
@@ -43,6 +44,9 @@ export class BrowserComponent implements OnInit {
   bulkApplying   = signal(false);
   allKeywords    = signal<string[]>([]);
   allLocations   = signal<Location[]>([]);
+
+  // Comparison view
+  showComparison = signal(false);
 
   dirs           = computed(() => this.entries().filter(e => e.type === 'directory'));
   videoFiles     = computed(() => this.entries().filter(e => e.type === 'file' && VIDEO_TYPES.includes(e.media_type as any)));
@@ -151,7 +155,8 @@ export class BrowserComponent implements OnInit {
 
   @HostListener('document:keydown.escape')
   onEscapeKey() {
-    if (this.showDetail()) this.closeDetails();
+    if (this.showComparison()) this.closeComparison();
+    else if (this.showDetail()) this.closeDetails();
     else if (this.bulkMode()) this.exitBulkMode();
   }
 
@@ -243,6 +248,20 @@ export class BrowserComponent implements OnInit {
     const sel = this.bulkSelected();
     return [...this.videoFiles(), ...this.photoFiles(), ...this.untrackedFiles()]
       .filter(e => sel.has(e.path) && !!e.md5_hash);
+  }
+
+  // Selected, tracked photos eligible for the comparison view.
+  comparablePhotos(): PathChild[] {
+    const sel = this.bulkSelected();
+    return this.photoFiles().filter(e => sel.has(e.path) && !!e.md5_hash);
+  }
+
+  openComparison() {
+    if (this.comparablePhotos().length >= 2) this.showComparison.set(true);
+  }
+
+  closeComparison() {
+    this.showComparison.set(false);
   }
 
   bulkAddKeyword() {

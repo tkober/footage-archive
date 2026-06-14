@@ -148,6 +148,28 @@ def generate_photo_thumbnail(md5_hash: str, file_path: str, max_width: int = 600
         return None
 
 
+def render_full_raw(file_path: str) -> bytes | None:
+    """Native-resolution JPEG from a RAW file (.rw2/.dng) by demosaicing the sensor.
+
+    The camera's *embedded* preview is only a reduced-size JPEG (e.g. 1920×1440 on
+    Lumix), so we run the full libraw postprocess instead to get the original
+    resolution. Slower than reading the embedded thumb, but this backs the
+    detailed comparison view where resolution is the whole point.
+    """
+    try:
+        img = _open_rw2(file_path)  # full rawpy postprocess (works for any libraw RAW)
+        if img is None:
+            return None
+        if img.mode not in ('RGB', 'L'):
+            img = img.convert('RGB')
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG', quality=92)
+        return buf.getvalue()
+    except Exception as e:
+        logging.debug(f'Full RAW render failed for {file_path}: {e}')
+        return None
+
+
 def _open_rw2(file_path: str) -> Image.Image | None:
     with rawpy.imread(file_path) as raw:
         rgb = raw.postprocess(

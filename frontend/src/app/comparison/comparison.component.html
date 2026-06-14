@@ -1,0 +1,130 @@
+<div class="cmp-backdrop" (click)="closed.emit()">
+  <div class="cmp-shell" (click)="$event.stopPropagation()">
+
+    <!-- Top bar: mode switcher + high-quality + close -->
+    <header class="cmp-bar">
+      <div class="cmp-modes">
+        <button [class.active]="mode() === 'step'" (click)="setMode('step')">Step through</button>
+        <button [class.active]="mode() === 'side'" (click)="setMode('side')"
+                [disabled]="count() < 2">Side by side</button>
+        <button [class.active]="mode() === 'overlay'" (click)="setMode('overlay')"
+                [disabled]="count() < 2">Overlay</button>
+      </div>
+
+      <div class="hq-cluster">
+        <button class="hq-btn" [class.active]="hqMode()" [disabled]="hqFetching()"
+                (click)="fetchHighQuality()">
+          @if (hqFetching()) { Loading… }
+          @else if (hqMode()) { High quality ✓ }
+          @else { Fetch high quality }
+        </button>
+        @if (hqFetching()) {
+          <div class="hq-progress">
+            <div class="hq-progress-fill"
+                 [style.width.%]="hqProgress().total ? (hqProgress().loaded / hqProgress().total) * 100 : 0"></div>
+          </div>
+          <span class="hq-count">{{ hqProgress().loaded }} / {{ hqProgress().total }}</span>
+        }
+      </div>
+
+      <span class="cmp-title">{{ count() }} photos</span>
+      <button class="cmp-close" (click)="closed.emit()" title="Close (Esc)">✕</button>
+    </header>
+
+    <!-- Stage -->
+    <main class="cmp-stage-wrap">
+
+      @if (mode() === 'step') {
+        <div class="stage" #stage [class.zoomed]="zoom() > 1"
+             (wheel)="onWheel($event)" (pointerdown)="startPan($event)">
+          @if (focusUrl(); as u) { <img class="zoomable" [src]="u" [style.transform]="imgTransform()" alt="" /> }
+          <button class="nav prev" (click)="moveFocus(-1)" [disabled]="focusIdx() === 0"
+                  title="Previous">‹</button>
+          <button class="nav next" (click)="moveFocus(1)" [disabled]="focusIdx() >= count() - 1"
+                  title="Next">›</button>
+          <div class="counter">{{ focusIdx() + 1 }} / {{ count() }}</div>
+        </div>
+      }
+
+      @if (mode() === 'side') {
+        <div class="stage" #stage [class.zoomed]="zoom() > 1"
+             (wheel)="onWheel($event)" (pointerdown)="startPan($event)">
+          <div class="layer-clip">
+            @if (bUrl(); as ub) { <img class="zoomable" [src]="ub" [style.transform]="imgTransform()" alt="" /> }
+          </div>
+          <div class="layer-clip" [style.clip-path]="clipA()">
+            @if (aUrl(); as ua) { <img class="zoomable" [src]="ua" [style.transform]="imgTransform()" alt="" /> }
+          </div>
+          <div class="divider" [style.left.%]="sliderPct()" (pointerdown)="startDrag($event)">
+            <span class="grip">⇄</span>
+          </div>
+          <div class="ab-tag left">A</div>
+          <div class="ab-tag right">B</div>
+        </div>
+      }
+
+      @if (mode() === 'overlay') {
+        <div class="stage" #stage [class.zoomed]="zoom() > 1"
+             (wheel)="onWheel($event)" (pointerdown)="startPan($event)">
+          @if (bUrl(); as ub) { <img class="zoomable" [src]="ub" [style.transform]="imgTransform()" alt="" /> }
+          @if (aUrl(); as ua) {
+            <img class="zoomable" [src]="ua" alt=""
+                 [style.transform]="imgTransform()"
+                 [style.opacity]="diffMode() ? 1 : blendPct() / 100"
+                 [style.mix-blend-mode]="diffMode() ? 'difference' : 'normal'" />
+          }
+          <div class="overlay-controls">
+            <div class="seg">
+              <button [class.active]="!diffMode()" (click)="diffMode.set(false)">Blend</button>
+              <button [class.active]="diffMode()" (click)="diffMode.set(true)">Difference</button>
+            </div>
+            @if (!diffMode()) {
+              <input type="range" min="0" max="100" [value]="blendPct()"
+                     (input)="blendPct.set(+$any($event.target).value)" />
+              <span class="seg-label">A {{ blendPct() }}%</span>
+            }
+          </div>
+        </div>
+      }
+
+      <!-- Zoom controls (all modes) -->
+      <div class="zoom-cluster">
+        <button (click)="zoomOut()" [disabled]="zoom() <= 1" title="Zoom out (−)">−</button>
+        <span class="zoom-level">{{ zoomPct() }}%</span>
+        <button (click)="zoomIn()" [disabled]="zoom() >= 8" title="Zoom in (+)">+</button>
+        <button class="zoom-reset" (click)="resetZoom()" [disabled]="zoom() === 1" title="Reset zoom (0)">⤢</button>
+      </div>
+    </main>
+
+    <!-- Filmstrip -->
+    <aside class="cmp-strip">
+      @for (it of entries(); track it.path; let i = $index) {
+        <button class="strip-item"
+                [class.focused]="i === focusIdx()"
+                [class.is-a]="needsTwo() && i === aIdx()"
+                [class.is-b]="needsTwo() && i === bIdx()"
+                (click)="focusIdx.set(i)"
+                (contextmenu)="openCtx($event, i)">
+          <div class="strip-thumb">
+            @if (thumbUrl(it); as u) { <img [src]="u" alt="" /> }
+          </div>
+          <span class="strip-name">{{ it.name }}</span>
+          @if (hasHq(it)) { <span class="badge-hq">HQ</span> }
+          @if (needsTwo() && i === aIdx()) { <span class="badge a">A</span> }
+          @if (needsTwo() && i === bIdx()) { <span class="badge b">B</span> }
+        </button>
+      }
+    </aside>
+
+  </div>
+</div>
+
+<!-- Right-click context menu (fixed to viewport) -->
+@if (ctxMenu(); as m) {
+  <div class="ctx-backdrop" (click)="ctxMenu.set(null)"></div>
+  <ul class="ctx-menu" [style.left.px]="m.x" [style.top.px]="m.y">
+    <li class="ctx-item" (click)="assignA(m.idx); ctxMenu.set(null)">Set as A</li>
+    <li class="ctx-item" (click)="assignB(m.idx); ctxMenu.set(null)">Set as B</li>
+    <li class="ctx-item danger" (click)="removeAt(m.idx); ctxMenu.set(null)">Remove from comparison</li>
+  </ul>
+}

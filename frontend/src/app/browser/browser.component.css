@@ -321,6 +321,27 @@
   background: #dcfce7;
 }
 
+.bulk-compare-btn {
+  font-size: 0.75rem;
+  padding: 3px 10px;
+  background: none;
+  color: #7c3aed;
+  border: 1px solid #ddd6fe;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease;
+}
+
+.bulk-compare-btn:hover:not(:disabled) {
+  background: #ede9fe;
+}
+
+.bulk-compare-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .bulk-done-btn {
   font-size: 0.75rem;
   padding: 3px 10px;

@@ -45,6 +45,10 @@ export class ApiService {
     return `${this.base}/files/clip-preview/${md5Hash}`;
   }
 
+  fetchFullImage(md5Hash: string): Observable<Blob> {
+    return this.http.get(`${this.base}/files/full-image/${md5Hash}`, { responseType: 'blob' });
+  }
+
   renameFile(path: string, newName: string): Observable<FileInfo> {
     return this.http.patch<FileInfo>(`${this.base}/files/rename`, { path, new_name: newName });
   }
