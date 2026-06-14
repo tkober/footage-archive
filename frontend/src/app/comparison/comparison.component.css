@@ -95,9 +95,65 @@
   color: #fff;
 }
 
+/* ---- High-quality control ---- */
+.hq-cluster {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hq-btn {
+  font-size: 0.8rem;
+  padding: 5px 12px;
+  background: #222;
+  border: 1px solid #383838;
+  border-radius: 6px;
+  color: #c8c8c8;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.hq-btn:hover:not(:disabled):not(.active) {
+  background: #2c2c2c;
+}
+
+.hq-btn.active {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
+}
+
+.hq-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.hq-progress {
+  width: 120px;
+  height: 6px;
+  background: #2a2a2a;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.hq-progress-fill {
+  height: 100%;
+  background: #3b82f6;
+  border-radius: 999px;
+  transition: width 120ms ease;
+}
+
+.hq-count {
+  font-size: 0.72rem;
+  color: #9ca3af;
+  min-width: 44px;
+}
+
 /* ---- Stage ---- */
 .cmp-stage-wrap {
   grid-area: stage;
+  position: relative;
   min-width: 0;
   min-height: 0;
 }
@@ -113,12 +169,24 @@
   touch-action: none;
 }
 
-.layer {
+.stage.zoomed { cursor: grab; }
+.stage.zoomed:active { cursor: grabbing; }
+
+/* Clip container stays in stage space (untransformed) so the side-by-side
+   divider keeps lining up while the inner image is zoomed/panned. */
+.layer-clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.zoomable {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
+  transform-origin: center center;
   user-select: none;
   -webkit-user-drag: none;
 }
@@ -256,6 +324,52 @@
   min-width: 48px;
 }
 
+/* ---- Zoom controls (bottom-right of the stage, all modes) ---- */
+.zoom-cluster {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.62);
+  padding: 5px 8px;
+  border-radius: 10px;
+}
+
+.zoom-cluster button {
+  width: 26px;
+  height: 26px;
+  font-size: 1rem;
+  line-height: 1;
+  background: #2a2a2a;
+  border: none;
+  border-radius: 6px;
+  color: #e5e7eb;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.zoom-cluster button:hover:not(:disabled) {
+  background: #3a3a3a;
+}
+
+.zoom-cluster button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.zoom-cluster .zoom-reset {
+  font-size: 0.85rem;
+}
+
+.zoom-level {
+  font-size: 0.72rem;
+  color: #e5e7eb;
+  min-width: 40px;
+  text-align: center;
+}
+
 /* ---- Filmstrip ---- */
 .cmp-strip {
   grid-area: strip;
@@ -316,6 +430,8 @@
 }
 
 .strip-name {
+  flex: 1;
+  min-width: 0;
   font-size: 0.74rem;
   line-height: 1.25;
   word-break: break-all;
@@ -323,6 +439,18 @@
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+}
+
+/* Full-resolution-cached indicator (right side, vertically centred) */
+.badge-hq {
+  flex-shrink: 0;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #d3d3d3;
+  background: #3a414a;
+  padding: 3px 7px;
+  border-radius: 4px;
 }
 
 .badge {

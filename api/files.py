@@ -2,17 +2,22 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 
 from api.dtos import DirectoryQuery, DirectoryResponse, FileInfo, FileQuery, PathChild, PathType, FileDescriptor, SortField, SortOrder, VideoDetails, PhotoDetails, RenameRequest, AssignLocationRequest, LocationDto, ExifTag
 from db.database import Database
 from env.environment import Environment
-from photos.exif import dump_all_exif
+from photos.exif import dump_all_exif, render_full_raw
 from scanner.scanner import Scanner
 
 FilesApi = APIRouter(prefix='/files')
 
 _env = Environment()
+
+# Full-image endpoint: JPEG-family stills are served as-is; RAW stills return
+# their largest embedded preview JPEG. (.insp is JPEG-based → passthrough.)
+_FULL_IMAGE_JPEG_EXTS = {'.jpg', '.jpeg', '.insp'}
+_FULL_IMAGE_RAW_EXTS = {'.rw2', '.dng'}
 
 
 @FilesApi.post('/directory')
@@ -174,6 +179,33 @@ async def get_clip_preview(md5_hash: str):
     if data is None:
         raise HTTPException(status_code=404, detail='No clip preview found')
     return Response(content=data, media_type='image/jpeg')
+
+
+@FilesApi.get('/full-image/{md5_hash}')
+async def get_full_image(md5_hash: str):
+    """Full-resolution still: JPEG files as-is, RAW files as their embedded preview JPEG."""
+    rec = Database().get_file_by_hash(md5_hash)
+    if rec is None:
+        raise HTTPException(status_code=404, detail='File not found')
+    if rec['media_type'] not in ('photo', '360_photo'):
+        raise HTTPException(status_code=400, detail='Full image is only available for still photos')
+
+    root = Path(_env.get_root_dir())
+    p = (Path(rec['directory']) / rec['file_name']).resolve()
+    if not p.is_relative_to(root):
+        raise HTTPException(status_code=403, detail='Access outside root directory is not allowed')
+    if not p.exists():
+        raise HTTPException(status_code=404, detail='File does not exist on disk')
+
+    ext = (rec['file_extension'] or p.suffix).lower()
+    if ext in _FULL_IMAGE_JPEG_EXTS:
+        return FileResponse(p, media_type='image/jpeg')
+    if ext in _FULL_IMAGE_RAW_EXTS:
+        data = render_full_raw(str(p))
+        if data is None:
+            raise HTTPException(status_code=422, detail='Could not render RAW file')
+        return Response(content=data, media_type='image/jpeg')
+    raise HTTPException(status_code=400, detail=f'Unsupported still format: {ext}')
 
 
 @FilesApi.patch('/location')

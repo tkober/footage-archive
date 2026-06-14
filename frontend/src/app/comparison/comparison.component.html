@@ -1,7 +1,7 @@
 <div class="cmp-backdrop" (click)="closed.emit()">
   <div class="cmp-shell" (click)="$event.stopPropagation()">
 
-    <!-- Top bar: mode switcher + close -->
+    <!-- Top bar: mode switcher + high-quality + close -->
     <header class="cmp-bar">
       <div class="cmp-modes">
         <button [class.active]="mode() === 'step'" (click)="setMode('step')">Step through</button>
@@ -10,6 +10,23 @@
         <button [class.active]="mode() === 'overlay'" (click)="setMode('overlay')"
                 [disabled]="count() < 2">Overlay</button>
       </div>
+
+      <div class="hq-cluster">
+        <button class="hq-btn" [class.active]="hqMode()" [disabled]="hqFetching()"
+                (click)="fetchHighQuality()">
+          @if (hqFetching()) { Loading… }
+          @else if (hqMode()) { High quality ✓ }
+          @else { Fetch high quality }
+        </button>
+        @if (hqFetching()) {
+          <div class="hq-progress">
+            <div class="hq-progress-fill"
+                 [style.width.%]="hqProgress().total ? (hqProgress().loaded / hqProgress().total) * 100 : 0"></div>
+          </div>
+          <span class="hq-count">{{ hqProgress().loaded }} / {{ hqProgress().total }}</span>
+        }
+      </div>
+
       <span class="cmp-title">{{ count() }} photos</span>
       <button class="cmp-close" (click)="closed.emit()" title="Close (Esc)">✕</button>
     </header>
@@ -18,8 +35,9 @@
     <main class="cmp-stage-wrap">
 
       @if (mode() === 'step') {
-        <div class="stage">
-          @if (focusUrl(); as u) { <img class="layer" [src]="u" alt="" /> }
+        <div class="stage" #stage [class.zoomed]="zoom() > 1"
+             (wheel)="onWheel($event)" (pointerdown)="startPan($event)">
+          @if (focusUrl(); as u) { <img class="zoomable" [src]="u" [style.transform]="imgTransform()" alt="" /> }
           <button class="nav prev" (click)="moveFocus(-1)" [disabled]="focusIdx() === 0"
                   title="Previous">‹</button>
           <button class="nav next" (click)="moveFocus(1)" [disabled]="focusIdx() >= count() - 1"
@@ -29,9 +47,14 @@
       }
 
       @if (mode() === 'side') {
-        <div class="stage" #stage>
-          @if (bUrl(); as ub) { <img class="layer" [src]="ub" alt="" /> }
-          @if (aUrl(); as ua) { <img class="layer" [src]="ua" [style.clip-path]="clipA()" alt="" /> }
+        <div class="stage" #stage [class.zoomed]="zoom() > 1"
+             (wheel)="onWheel($event)" (pointerdown)="startPan($event)">
+          <div class="layer-clip">
+            @if (bUrl(); as ub) { <img class="zoomable" [src]="ub" [style.transform]="imgTransform()" alt="" /> }
+          </div>
+          <div class="layer-clip" [style.clip-path]="clipA()">
+            @if (aUrl(); as ua) { <img class="zoomable" [src]="ua" [style.transform]="imgTransform()" alt="" /> }
+          </div>
           <div class="divider" [style.left.%]="sliderPct()" (pointerdown)="startDrag($event)">
             <span class="grip">⇄</span>
           </div>
@@ -41,10 +64,12 @@
       }
 
       @if (mode() === 'overlay') {
-        <div class="stage">
-          @if (bUrl(); as ub) { <img class="layer" [src]="ub" alt="" /> }
+        <div class="stage" #stage [class.zoomed]="zoom() > 1"
+             (wheel)="onWheel($event)" (pointerdown)="startPan($event)">
+          @if (bUrl(); as ub) { <img class="zoomable" [src]="ub" [style.transform]="imgTransform()" alt="" /> }
           @if (aUrl(); as ua) {
-            <img class="layer" [src]="ua" alt=""
+            <img class="zoomable" [src]="ua" alt=""
+                 [style.transform]="imgTransform()"
                  [style.opacity]="diffMode() ? 1 : blendPct() / 100"
                  [style.mix-blend-mode]="diffMode() ? 'difference' : 'normal'" />
           }
@@ -61,6 +86,14 @@
           </div>
         </div>
       }
+
+      <!-- Zoom controls (all modes) -->
+      <div class="zoom-cluster">
+        <button (click)="zoomOut()" [disabled]="zoom() <= 1" title="Zoom out (−)">−</button>
+        <span class="zoom-level">{{ zoomPct() }}%</span>
+        <button (click)="zoomIn()" [disabled]="zoom() >= 8" title="Zoom in (+)">+</button>
+        <button class="zoom-reset" (click)="resetZoom()" [disabled]="zoom() === 1" title="Reset zoom (0)">⤢</button>
+      </div>
     </main>
 
     <!-- Filmstrip -->
@@ -76,6 +109,7 @@
             @if (thumbUrl(it); as u) { <img [src]="u" alt="" /> }
           </div>
           <span class="strip-name">{{ it.name }}</span>
+          @if (hasHq(it)) { <span class="badge-hq">HQ</span> }
           @if (needsTwo() && i === aIdx()) { <span class="badge a">A</span> }
           @if (needsTwo() && i === bIdx()) { <span class="badge b">B</span> }
         </button>
