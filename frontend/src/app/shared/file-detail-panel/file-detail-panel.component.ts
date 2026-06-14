@@ -88,6 +88,13 @@ export class FileDetailPanelComponent implements OnDestroy {
     return this.api.clipPreviewUrl(file.md5_hash);
   });
 
+  // ── High quality (full-resolution still) ──
+  hqUrl      = signal<string | null>(null);   // object URL of the fetched full-res image
+  hqFetching = signal(false);
+  hqError    = signal(false);
+  /** Viewer source: full-res once fetched, otherwise the ~600px preview. */
+  viewerUrl  = computed(() => this.hqUrl() ?? this.previewUrl());
+
   // ── DOM refs ──
   @ViewChild('nameInput') nameInputRef?: ElementRef<HTMLInputElement>;
   @ViewChild('locMapContainer') locMapContainerRef?: ElementRef<HTMLDivElement>;
@@ -108,6 +115,7 @@ export class FileDetailPanelComponent implements OnDestroy {
       this.classificationResult.set(null);
       this.classificationError.set(null);
       this.classifying.set(false);
+      this.resetHq();   // drop any full-res image from the previous file
       if (f) {
         this.api.getAllKeywords().subscribe(kws => this.allKeywords.set(kws));
         this.api.getLocations().subscribe(locs => this.allLocations.set(locs));
@@ -139,11 +147,38 @@ export class FileDetailPanelComponent implements OnDestroy {
   ngOnDestroy() {
     this.destroyDetailMap();
     this.destroyLocMap();
+    this.resetHq();
   }
 
   // ── Actions ──
 
   close() { this.closed.emit(); }
+
+  // ── High quality ──
+
+  /** Fetch the full-resolution still on demand; the viewer then swaps to it. */
+  fetchHighQuality() {
+    const file = this.selectedFile();
+    if (!file?.md5_hash || this.hqFetching() || this.hqUrl()) return;
+    this.hqFetching.set(true);
+    this.hqError.set(false);
+    this.api.fetchFullImage(file.md5_hash).subscribe({
+      next: blob => {
+        this.hqUrl.set(URL.createObjectURL(blob));
+        this.hqFetching.set(false);
+      },
+      error: () => { this.hqError.set(true); this.hqFetching.set(false); },
+    });
+  }
+
+  /** Revoke any cached full-res object URL and clear HQ state. */
+  private resetHq() {
+    const url = this.hqUrl();
+    if (url) URL.revokeObjectURL(url);
+    this.hqUrl.set(null);
+    this.hqFetching.set(false);
+    this.hqError.set(false);
+  }
 
   startEditName() {
     const file = this.selectedFile();
