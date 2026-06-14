@@ -25,6 +25,7 @@
         class="detail-viewer"
         [style.aspect-ratio]="viewerAspect() ?? 1.5"
         [src]="viewerUrl()"
+        [modifierZoom]="true"
         [showNav]="navCount() > 1"
         [index]="navIndex()"
         [count]="navCount()"

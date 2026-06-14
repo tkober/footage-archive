@@ -24,6 +24,10 @@ export class ImageViewerComponent {
   index   = input<number>(0);   // 0-based position in the navigable set
   count   = input<number>(0);   // total navigable items
 
+  /** Require Ctrl/⌘ for wheel-zoom; plain wheel then scrolls the page. Use when
+      the viewer sits above scrollable content (e.g. the detail panel). */
+  modifierZoom = input<boolean>(false);
+
   prev = output<void>();
   next = output<void>();
   /** Natural aspect ratio (width / height) of the currently loaded image. */
@@ -70,6 +74,8 @@ export class ImageViewerComponent {
   }
 
   onWheel(e: WheelEvent) {
+    // When gated, let an unmodified wheel scroll the surrounding page.
+    if (this.modifierZoom() && !e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
     if (e.deltaY < 0) this.zoomIn(); else this.zoomOut();
   }
