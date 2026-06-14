@@ -231,6 +231,9 @@
       <app-file-detail-panel
         [file]="selectedFile()"
         [loading]="loadingDetails()"
+        [navIndex]="photoNavIndex()"
+        [navCount]="photoNavCount()"
+        (navigate)="navigatePhoto($event)"
         (closed)="closeDetails()"
         (renamed)="onFileRenamed($event)" />
     </div>

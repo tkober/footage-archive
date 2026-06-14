@@ -1,15 +1,16 @@
-import { Component, computed, effect, ElementRef, inject, OnDestroy, signal, ViewChild, input, output } from '@angular/core';
+import { Component, computed, effect, ElementRef, inject, OnDestroy, signal, untracked, ViewChild, input, output } from '@angular/core';
 import { DatePipe, JsonPipe } from '@angular/common';
 import * as L from 'leaflet';
 
 import { ModalComponent } from '../../modal/modal.component';
+import { ImageViewerComponent } from '../image-viewer/image-viewer.component';
 import { ApiService } from '../../services/api.service';
 import { ExifTag, FileInfo, Location, ShotClassification, VIDEO_TYPES, PHOTO_TYPES } from '../../models';
 
 @Component({
   selector: 'app-file-detail-panel',
   standalone: true,
-  imports: [DatePipe, JsonPipe, ModalComponent],
+  imports: [DatePipe, JsonPipe, ModalComponent, ImageViewerComponent],
   templateUrl: './file-detail-panel.component.html',
   styleUrl: './file-detail-panel.component.css',
 })
@@ -19,8 +20,11 @@ export class FileDetailPanelComponent implements OnDestroy {
   // ── Inputs / Outputs ──
   file    = input<FileInfo | null>(null);
   loading = input<boolean>(false);
+  navIndex = input<number>(-1);   // position of this file within its navigable siblings
+  navCount = input<number>(0);    // total navigable siblings (photos in the directory)
   closed  = output<void>();
   renamed = output<FileInfo>();
+  navigate = output<number>();    // emits -1 / +1 to step to the prev / next sibling
 
   // ── Internal file state (owns its own copy, updated by API calls) ──
   selectedFile = signal<FileInfo | null>(null);
@@ -84,6 +88,16 @@ export class FileDetailPanelComponent implements OnDestroy {
     return this.api.clipPreviewUrl(file.md5_hash);
   });
 
+  // ── High quality (full-resolution still) ──
+  hqUrl      = signal<string | null>(null);   // object URL of the fetched full-res image
+  hqFetching = signal(false);
+  hqError    = signal(false);
+  /** Viewer source: full-res once fetched, otherwise the ~600px preview. */
+  viewerUrl  = computed(() => this.hqUrl() ?? this.previewUrl());
+  /** Aspect ratio (w/h) of the loaded image, so the frame hugs it (no narrow
+      pillarbox). Re-measured on each load, so it adjusts when HQ swaps in. */
+  viewerAspect = signal<number | null>(null);
+
   // ── DOM refs ──
   @ViewChild('nameInput') nameInputRef?: ElementRef<HTMLInputElement>;
   @ViewChild('locMapContainer') locMapContainerRef?: ElementRef<HTMLDivElement>;
@@ -104,6 +118,9 @@ export class FileDetailPanelComponent implements OnDestroy {
       this.classificationResult.set(null);
       this.classificationError.set(null);
       this.classifying.set(false);
+      // untracked: resetHq reads hqUrl(), and we must not make this effect
+      // depend on it — otherwise fetching HQ would re-trigger the reset.
+      untracked(() => this.resetHq());   // drop any full-res image from the previous file
       if (f) {
         this.api.getAllKeywords().subscribe(kws => this.allKeywords.set(kws));
         this.api.getLocations().subscribe(locs => this.allLocations.set(locs));
@@ -135,11 +152,38 @@ export class FileDetailPanelComponent implements OnDestroy {
   ngOnDestroy() {
     this.destroyDetailMap();
     this.destroyLocMap();
+    this.resetHq();
   }
 
   // ── Actions ──
 
   close() { this.closed.emit(); }
+
+  // ── High quality ──
+
+  /** Fetch the full-resolution still on demand; the viewer then swaps to it. */
+  fetchHighQuality() {
+    const file = this.selectedFile();
+    if (!file?.md5_hash || this.hqFetching() || this.hqUrl()) return;
+    this.hqFetching.set(true);
+    this.hqError.set(false);
+    this.api.fetchFullImage(file.md5_hash).subscribe({
+      next: blob => {
+        this.hqUrl.set(URL.createObjectURL(blob));
+        this.hqFetching.set(false);
+      },
+      error: () => { this.hqError.set(true); this.hqFetching.set(false); },
+    });
+  }
+
+  /** Revoke any cached full-res object URL and clear HQ state. */
+  private resetHq() {
+    const url = this.hqUrl();
+    if (url) URL.revokeObjectURL(url);
+    this.hqUrl.set(null);
+    this.hqFetching.set(false);
+    this.hqError.set(false);
+  }
 
   startEditName() {
     const file = this.selectedFile();

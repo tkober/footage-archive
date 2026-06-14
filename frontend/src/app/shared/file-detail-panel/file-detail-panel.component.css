@@ -2,8 +2,12 @@
   display: block;
 }
 
-/* Back navigation */
+/* Back navigation + HQ control */
 .detail-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 12px 20px;
   border-bottom: 1px solid #e4e4e7;
 }
@@ -21,6 +25,35 @@
 
 .back-btn:hover {
   background: #dbeafe;
+}
+
+/* High-quality fetch button (upper-right of the nav bar) */
+.hq-btn {
+  font-size: 0.8rem;
+  padding: 5px 12px;
+  background: #fff;
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+  color: #3f3f46;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.hq-btn:hover:not(:disabled):not(.active) {
+  background: #f4f4f5;
+}
+
+.hq-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.hq-btn.active {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
+  opacity: 1;
 }
 
 /* Loading state */
@@ -45,22 +78,14 @@
   object-fit: cover;
 }
 
-/* Photo: darker gray side fill, centered, height follows the image */
-.detail-strip-wrap.is-photo {
-  background: #1c1c1f;
-  text-align: center;   /* centers the inline-block image */
-  /* inset shadow at top + bottom edges so the dark strip reads as recessed
-     below the white detail page */
-  box-shadow: inset 0 9px 12px -6px rgba(0, 0, 0, 0.75),
-              inset 0 -9px 12px -6px rgba(0, 0, 0, 0.75);
-}
-
-.detail-strip-img.is-photo {
-  display: inline-block;
-  width: auto;          /* natural size instead of forced full width */
-  max-width: 100%;      /* but never overflow the panel */
-  height: auto;
-  max-height: none;     /* drop the 280px cap so height follows the image */
+/* Photo: capable zoom/pan viewer. Height follows the image's aspect ratio
+   (set inline from the loaded image) so the frame hugs the photo at any
+   orientation, capped so a tall portrait can't dominate the panel. */
+.detail-viewer {
+  display: block;
+  width: 100%;
+  min-height: 220px;
+  max-height: 65vh;
 }
 
 /* Detail content area */
@@ -97,6 +122,19 @@
   color: #18181b;
   margin: 0;
   word-break: break-all;
+}
+
+/* Full-resolution-loaded badge beside the filename */
+.badge-hq {
+  flex-shrink: 0;
+  margin-top: 4px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #d3d3d3;
+  background: #3a414a;
+  padding: 3px 7px;
+  border-radius: 4px;
 }
 
 .edit-pen {

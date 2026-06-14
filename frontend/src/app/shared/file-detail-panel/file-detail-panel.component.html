@@ -1,5 +1,18 @@
 <div class="detail-nav">
   <button class="back-btn" (click)="close()">← Back</button>
+  @if (selectedFile(); as f) {
+    @if (f.md5_hash && isPhotoMediaType(f.media_type)) {
+      <button class="hq-btn" [class.active]="!!hqUrl()"
+              [disabled]="hqFetching() || !!hqUrl()"
+              [title]="hqError() ? 'Fetch failed — click to retry' : 'Load the full-resolution image'"
+              (click)="fetchHighQuality()">
+        @if (hqFetching()) { Loading… }
+        @else if (hqUrl()) { High quality ✓ }
+        @else if (hqError()) { Retry HQ }
+        @else { Fetch high quality }
+      </button>
+    }
+  }
 </div>
 
 @if (loading()) {
@@ -7,11 +20,23 @@
 } @else if (selectedFile(); as file) {
 
   @if (previewUrl()) {
-    <div class="detail-strip-wrap" [class.is-photo]="isPhotoMediaType(file.media_type)">
-      <img class="detail-strip-img"
-           [class.is-photo]="isPhotoMediaType(file.media_type)"
-           [src]="previewUrl()!" alt="Clip preview" />
-    </div>
+    @if (isPhotoMediaType(file.media_type)) {
+      <app-image-viewer
+        class="detail-viewer"
+        [style.aspect-ratio]="viewerAspect() ?? 1.5"
+        [src]="viewerUrl()"
+        [modifierZoom]="true"
+        [showNav]="navCount() > 1"
+        [index]="navIndex()"
+        [count]="navCount()"
+        (aspectChange)="viewerAspect.set($event)"
+        (prev)="navigate.emit(-1)"
+        (next)="navigate.emit(1)" />
+    } @else {
+      <div class="detail-strip-wrap">
+        <img class="detail-strip-img" [src]="previewUrl()!" alt="Clip preview" />
+      </div>
+    }
   }
 
   <div class="detail-content">
@@ -21,6 +46,7 @@
       <span class="detail-track-dot" [class.is-tracked]="file.tracked"></span>
       @if (!editingName()) {
         <h1 class="detail-filename">{{ file.name }}</h1>
+        @if (hqUrl()) { <span class="badge-hq" title="Full-resolution image loaded">HQ</span> }
         <button class="edit-pen" (click)="startEditName()" title="Rename">
           <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
             <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>

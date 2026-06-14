@@ -57,6 +57,14 @@ export class BrowserComponent implements OnInit {
   hasMore    = computed(() => this.entries().length < this.total());
   showDetail = computed(() => this.loadingDetails() || !!this.selectedFile());
 
+  // Detail-panel sibling navigation (photos only — matches the photo viewer).
+  photoNavCount = computed(() => this.photoFiles().length);
+  photoNavIndex = computed(() => {
+    const cur = this.selectedFile();
+    if (!cur) return -1;
+    return this.photoFiles().findIndex(e => e.path === cur.path);
+  });
+
   breadcrumbs = computed(() => {
     const root = this.rootDir();
     const current = this.currentPath();
@@ -163,6 +171,18 @@ export class BrowserComponent implements OnInit {
   closeDetails() {
     this.selectedFile.set(null);
     this.loadingDetails.set(false);
+  }
+
+  // Step to the prev/next photo in the directory. Keeps the current panel
+  // visible until the new details arrive (avoids a flash); the panel's own
+  // file-sync effect resets its HQ/zoom state when the input file changes.
+  navigatePhoto(dir: number) {
+    const list = this.photoFiles();
+    const target = list[this.photoNavIndex() + dir];
+    if (!target) return;
+    this.api.getFileDetails(target.path).subscribe({
+      next: info => this.selectedFile.set(info),
+    });
   }
 
   onFileRenamed(updated: FileInfo) {

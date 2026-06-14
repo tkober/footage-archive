@@ -1,0 +1,23 @@
+<div class="stage" #stage [class.zoomed]="zoom() > 1"
+     (wheel)="onWheel($event)" (pointerdown)="startPan($event)">
+
+  @if (src(); as u) {
+    <img class="zoomable" [src]="u" [style.transform]="imgTransform()" (load)="onImgLoad($event)" alt="" />
+  }
+
+  @if (showNav()) {
+    <button class="nav prev" (click)="emitPrev()" [disabled]="!hasPrev()" title="Previous">‹</button>
+    <button class="nav next" (click)="emitNext()" [disabled]="!hasNext()" title="Next">›</button>
+    @if (count() > 0) {
+      <div class="counter">{{ index() + 1 }} / {{ count() }}</div>
+    }
+  }
+
+  <!-- Zoom controls -->
+  <div class="zoom-cluster">
+    <button (click)="zoomOut()" [disabled]="zoom() <= 1" title="Zoom out (−)">−</button>
+    <span class="zoom-level">{{ zoomPct() }}%</span>
+    <button (click)="zoomIn()" [disabled]="zoom() >= 8" title="Zoom in (+)">+</button>
+    <button class="zoom-reset" (click)="resetZoom()" [disabled]="zoom() === 1" title="Reset zoom (0)">⤢</button>
+  </div>
+</div>
