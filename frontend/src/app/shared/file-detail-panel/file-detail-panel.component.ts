@@ -94,6 +94,9 @@ export class FileDetailPanelComponent implements OnDestroy {
   hqError    = signal(false);
   /** Viewer source: full-res once fetched, otherwise the ~600px preview. */
   viewerUrl  = computed(() => this.hqUrl() ?? this.previewUrl());
+  /** Aspect ratio (w/h) of the loaded image, so the frame hugs it (no narrow
+      pillarbox). Re-measured on each load, so it adjusts when HQ swaps in. */
+  viewerAspect = signal<number | null>(null);
 
   // ── DOM refs ──
   @ViewChild('nameInput') nameInputRef?: ElementRef<HTMLInputElement>;

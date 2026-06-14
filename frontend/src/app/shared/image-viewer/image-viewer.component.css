@@ -1,13 +1,14 @@
 :host {
   display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.stage {
   position: relative;
   width: 100%;
-  height: 100%;
+}
+
+/* Fill the host box. The consumer sizes the host (a fixed height, or an
+   image-driven aspect-ratio); inset:0 fills it however the height is set. */
+.stage {
+  position: absolute;
+  inset: 0;
   overflow: hidden;
   background:
     repeating-conic-gradient(#1c1c1c 0% 25%, #232323 0% 50%) 0 / 24px 24px;

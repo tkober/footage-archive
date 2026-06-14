@@ -23,10 +23,12 @@
     @if (isPhotoMediaType(file.media_type)) {
       <app-image-viewer
         class="detail-viewer"
+        [style.aspect-ratio]="viewerAspect() ?? 1.5"
         [src]="viewerUrl()"
         [showNav]="navCount() > 1"
         [index]="navIndex()"
         [count]="navCount()"
+        (aspectChange)="viewerAspect.set($event)"
         (prev)="navigate.emit(-1)"
         (next)="navigate.emit(1)" />
     } @else {

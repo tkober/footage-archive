@@ -2,7 +2,7 @@
      (wheel)="onWheel($event)" (pointerdown)="startPan($event)">
 
   @if (src(); as u) {
-    <img class="zoomable" [src]="u" [style.transform]="imgTransform()" alt="" />
+    <img class="zoomable" [src]="u" [style.transform]="imgTransform()" (load)="onImgLoad($event)" alt="" />
   }
 
   @if (showNav()) {

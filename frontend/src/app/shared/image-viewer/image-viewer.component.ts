@@ -26,6 +26,8 @@ export class ImageViewerComponent {
 
   prev = output<void>();
   next = output<void>();
+  /** Natural aspect ratio (width / height) of the currently loaded image. */
+  aspectChange = output<number>();
 
   private stage = viewChild<ElementRef<HTMLElement>>('stage');
 
@@ -42,6 +44,14 @@ export class ImageViewerComponent {
   constructor() {
     // A freshly loaded image (sibling navigation or HQ swap) starts at 100%.
     effect(() => { this.src(); this.resetZoom(); });
+  }
+
+  /** Report the loaded image's aspect ratio so the host can size its frame to it. */
+  onImgLoad(e: Event) {
+    const img = e.target as HTMLImageElement;
+    if (img.naturalWidth && img.naturalHeight) {
+      this.aspectChange.emit(img.naturalWidth / img.naturalHeight);
+    }
   }
 
   // --- Navigation ----------------------------------------------------------

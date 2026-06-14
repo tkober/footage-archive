@@ -78,15 +78,14 @@
   object-fit: cover;
 }
 
-/* Photo: capable zoom/pan viewer in a bounded, recessed dark frame */
+/* Photo: capable zoom/pan viewer. Height follows the image's aspect ratio
+   (set inline from the loaded image) so the frame hugs the photo at any
+   orientation, capped so a tall portrait can't dominate the panel. */
 .detail-viewer {
   display: block;
   width: 100%;
-  height: 360px;
-  /* inset shadow at top + bottom edges so the dark frame reads as recessed
-     below the white detail page */
-  box-shadow: inset 0 9px 12px -6px rgba(0, 0, 0, 0.75),
-              inset 0 -9px 12px -6px rgba(0, 0, 0, 0.75);
+  min-height: 220px;
+  max-height: 65vh;
 }
 
 /* Detail content area */
