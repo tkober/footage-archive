@@ -7,11 +7,20 @@
 } @else if (selectedFile(); as file) {
 
   @if (previewUrl()) {
-    <div class="detail-strip-wrap" [class.is-photo]="isPhotoMediaType(file.media_type)">
-      <img class="detail-strip-img"
-           [class.is-photo]="isPhotoMediaType(file.media_type)"
-           [src]="previewUrl()!" alt="Clip preview" />
-    </div>
+    @if (isPhotoMediaType(file.media_type)) {
+      <app-image-viewer
+        class="detail-viewer"
+        [src]="previewUrl()"
+        [showNav]="navCount() > 1"
+        [index]="navIndex()"
+        [count]="navCount()"
+        (prev)="navigate.emit(-1)"
+        (next)="navigate.emit(1)" />
+    } @else {
+      <div class="detail-strip-wrap">
+        <img class="detail-strip-img" [src]="previewUrl()!" alt="Clip preview" />
+      </div>
+    }
   }
 
   <div class="detail-content">

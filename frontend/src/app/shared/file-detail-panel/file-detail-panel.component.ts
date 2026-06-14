@@ -3,13 +3,14 @@ import { DatePipe, JsonPipe } from '@angular/common';
 import * as L from 'leaflet';
 
 import { ModalComponent } from '../../modal/modal.component';
+import { ImageViewerComponent } from '../image-viewer/image-viewer.component';
 import { ApiService } from '../../services/api.service';
 import { ExifTag, FileInfo, Location, ShotClassification, VIDEO_TYPES, PHOTO_TYPES } from '../../models';
 
 @Component({
   selector: 'app-file-detail-panel',
   standalone: true,
-  imports: [DatePipe, JsonPipe, ModalComponent],
+  imports: [DatePipe, JsonPipe, ModalComponent, ImageViewerComponent],
   templateUrl: './file-detail-panel.component.html',
   styleUrl: './file-detail-panel.component.css',
 })
@@ -19,8 +20,11 @@ export class FileDetailPanelComponent implements OnDestroy {
   // ── Inputs / Outputs ──
   file    = input<FileInfo | null>(null);
   loading = input<boolean>(false);
+  navIndex = input<number>(-1);   // position of this file within its navigable siblings
+  navCount = input<number>(0);    // total navigable siblings (photos in the directory)
   closed  = output<void>();
   renamed = output<FileInfo>();
+  navigate = output<number>();    // emits -1 / +1 to step to the prev / next sibling
 
   // ── Internal file state (owns its own copy, updated by API calls) ──
   selectedFile = signal<FileInfo | null>(null);
