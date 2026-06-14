@@ -1,4 +1,4 @@
-import { Component, computed, effect, ElementRef, inject, OnDestroy, signal, ViewChild, input, output } from '@angular/core';
+import { Component, computed, effect, ElementRef, inject, OnDestroy, signal, untracked, ViewChild, input, output } from '@angular/core';
 import { DatePipe, JsonPipe } from '@angular/common';
 import * as L from 'leaflet';
 
@@ -115,7 +115,9 @@ export class FileDetailPanelComponent implements OnDestroy {
       this.classificationResult.set(null);
       this.classificationError.set(null);
       this.classifying.set(false);
-      this.resetHq();   // drop any full-res image from the previous file
+      // untracked: resetHq reads hqUrl(), and we must not make this effect
+      // depend on it — otherwise fetching HQ would re-trigger the reset.
+      untracked(() => this.resetHq());   // drop any full-res image from the previous file
       if (f) {
         this.api.getAllKeywords().subscribe(kws => this.allKeywords.set(kws));
         this.api.getLocations().subscribe(locs => this.allLocations.set(locs));
