@@ -62,6 +62,8 @@ class ConfigResponse(BaseModel):
     root_dir: str
     task_poll_interval_ms: int
     browser_hidden_extensions: list[str]
+    google_maps_api_key: str
+    google_maps_map_id: str
 
 
 class VideoDetails(BaseModel):

@@ -56,6 +56,16 @@ class Environment:
     def get_task_poll_interval_ms(self) -> int:
         return int(self.loadEnvironmentVariable("TASK_POLL_INTERVAL_MS", "5000"))
 
+    def get_google_maps_api_key(self) -> str:
+        # Browser-side Maps JavaScript API key. Served to the frontend via /config
+        # (it is always visible in the browser; protection is HTTP-referrer + API
+        # restriction on the key, not secrecy). Empty string disables the maps.
+        return self.loadEnvironmentVariable("GOOGLE_MAPS_API_KEY", "")
+
+    def get_google_maps_map_id(self) -> str:
+        # Cloud Map ID required for Advanced Markers (custom HTML pins/badges).
+        return self.loadEnvironmentVariable("GOOGLE_MAPS_MAP_ID", "")
+
     def get_worker_pool_size(self) -> int:
         return int(self.loadEnvironmentVariable("WORKER_POOL_SIZE", "4"))
 
