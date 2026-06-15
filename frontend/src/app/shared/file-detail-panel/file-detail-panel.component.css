@@ -448,6 +448,7 @@
 }
 
 .detail-loc-map {
+  display: block;
   height: 200px;
   border-radius: 6px;
   overflow: hidden;
@@ -572,12 +573,14 @@
 }
 
 .loc-map-container {
+  display: block;
   height: 320px;
   border-radius: 6px;
   overflow: hidden;
   border: 1px solid #444;
 }
 
+/* translateY(50%) re-centres the dot over the advanced marker's anchor point. */
 :host ::ng-deep .loc-map-pin {
   width: 16px;
   height: 16px;
@@ -585,6 +588,7 @@
   border: 2px solid #fff;
   border-radius: 50%;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  transform: translateY(50%);
 }
 
 /* AI Classification */

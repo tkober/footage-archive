@@ -2,6 +2,8 @@ export interface Config {
   root_dir: string;
   task_poll_interval_ms: number;
   browser_hidden_extensions: string[];
+  google_maps_api_key: string;
+  google_maps_map_id: string;
 }
 
 export type TaskStatus = 'PENDING' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';

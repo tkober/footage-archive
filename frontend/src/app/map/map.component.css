@@ -6,13 +6,36 @@
 
 .map-container {
   flex: 1;
+  display: block;
 }
+
+/* Maps-disabled placeholder (no API key configured) */
+.map-disabled {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  color: #6b7280;
+  text-align: center;
+}
+
+.map-disabled-hint {
+  font-size: 0.85rem;
+}
+
+/* Advanced-marker content is anchored bottom-centre by Google Maps; translateY(50%)
+   re-centres the dot/badge over the exact coordinate. */
 
 /* ── Individual pins ── */
 :host ::ng-deep .map-pin {
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   border: 2px solid #fff;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  transform: translateY(50%);
 }
 
 :host ::ng-deep .map-pin-photo {
@@ -37,11 +60,12 @@
   font-weight: 600;
   color: #fff;
   cursor: pointer;
+  transform: translateY(50%);
   transition: transform 0.1s ease;
 }
 
 :host ::ng-deep .mc-badge:hover {
-  transform: scale(1.15);
+  transform: translateY(50%) scale(1.15);
 }
 
 :host ::ng-deep .mc-badge--photo {
@@ -56,7 +80,11 @@
   background: #7c3aed;
 }
 
-/* ── Individual marker popups ── */
+/* ── Individual marker info windows ── */
+:host ::ng-deep .map-info {
+  font-size: 0.85rem;
+}
+
 :host ::ng-deep .map-popup-type {
   font-size: 0.75rem;
   color: #6b7280;

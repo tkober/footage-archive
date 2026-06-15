@@ -1,3 +1,37 @@
 <div class="map-page">
-  <div #mapContainer class="map-container"></div>
+  @if (mapsReady()) {
+    <google-map
+      class="map-container"
+      width="100%"
+      height="100%"
+      [center]="center"
+      [zoom]="zoom"
+      [mapId]="mapId()"
+      [options]="mapOptions"
+      (mapInitialized)="onBoundsChanged()"
+      (boundsChanged)="onBoundsChanged()">
+      @for (m of markers(); track m.key) {
+        <map-advanced-marker
+          #adv="mapAdvancedMarker"
+          [position]="m.position"
+          [content]="m.content"
+          [title]="m.title"
+          (mapClick)="onMarkerClick(m, adv)" />
+      }
+      <map-info-window>
+        <div class="map-info">
+          <strong>{{ infoFileName() }}</strong>
+          <div class="map-popup-type">{{ infoType() }}</div>
+        </div>
+      </map-info-window>
+    </google-map>
+  } @else if (mapsDisabled()) {
+    <div class="map-disabled">
+      <p>Map unavailable.</p>
+      <p class="map-disabled-hint">
+        Set <code>GOOGLE_MAPS_API_KEY</code> and <code>GOOGLE_MAPS_MAP_ID</code> —
+        see <code>GOOGLE_SETUP.md</code>.
+      </p>
+    </div>
+  }
 </div>
