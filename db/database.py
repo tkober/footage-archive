@@ -224,16 +224,15 @@ class Database:
             return (row[0], row[1], row[2])
         return None
 
-    # Grid cell size (degrees) per zoom level — smaller as you zoom in. Index by
-    # zoom, clamped to the last entry. Clustering runs at *every* zoom (no special
-    # high-zoom path) so that co-located files — e.g. many photos sharing one named
-    # location's coordinates — collapse into a single selectable cluster instead of
-    # stacking invisibly on top of each other. The tail values keep shrinking so
-    # that, when zoomed all the way in, only files within a few metres still group.
-    _CLUSTER_CELL_SIZES = [
-        20.0, 20.0, 20.0, 20.0, 8.0, 8.0, 3.0, 3.0, 1.0, 1.0, 0.3, 0.3, 0.05, 0.05,
-        0.02, 0.01, 0.005, 0.002, 0.001, 0.0005, 0.0002, 0.0001, 0.00005,
-    ]
+    @staticmethod
+    def _cluster_cell_for_zoom(zoom: int) -> float:
+        # Grid cell size (degrees), halving every zoom level so each zoom-in step
+        # refines the clusters (≈1/10th of the visible span at that zoom). Clustering
+        # runs at *every* zoom — no special high-zoom path — so co-located files
+        # (e.g. many photos sharing one named location's coordinates) collapse into a
+        # single selectable cluster instead of stacking invisibly. At max zoom (~22)
+        # the cell is a few metres, so only truly co-located files still group.
+        return 200.0 / (2 ** max(zoom, 0))
 
     def get_map_points(self, west: float, south: float, east: float, north: float,
                        zoom: int) -> list[dict]:
@@ -262,7 +261,7 @@ class Database:
             )
         )
 
-        cell = self._CLUSTER_CELL_SIZES[min(zoom, len(self._CLUSTER_CELL_SIZES) - 1)]
+        cell = self._cluster_cell_for_zoom(zoom)
         subq = base_stmt.subquery()
         # Bucket points into a grid cell for grouping, but position each cluster
         # marker at the *centroid* (avg) of its members rather than the rounded
