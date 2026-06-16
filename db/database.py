@@ -289,6 +289,17 @@ class Database:
                 func.max(subq.c.lat).label('bbox_north'),
                 func.min(subq.c.lon).label('bbox_west'),
                 func.max(subq.c.lon).label('bbox_east'),
+                # Per-member details so a small all-stills leaf can show each photo
+                # inline (kept only for those clusters — see trim below — so the
+                # payload stays small for large clusters).
+                func.json_agg(
+                    func.json_build_object(
+                        'md5_hash', subq.c.md5_hash,
+                        'file_name', subq.c.file_name,
+                        'directory', subq.c.directory,
+                        'media_type', subq.c.media_type,
+                    )
+                ).label('members'),
             )
             .select_from(subq)
             .group_by(lat_cell, lon_cell)
@@ -296,7 +307,15 @@ class Database:
 
         with get_engine().connect() as conn:
             rows = conn.execute(cluster_stmt).fetchall()
-        return [row._asdict() for row in rows]
+        result = []
+        for row in rows:
+            r = row._asdict()
+            # Only expose member lists for small, all-stills clusters (the map
+            # renders their thumbnails); drop otherwise to keep responses lean.
+            if not (1 < r['count'] < 5 and r['video_count'] == 0):
+                r['members'] = None
+            result.append(r)
+        return result
 
     _FACET_COLS = {
         'camera_make':  photo_details_table.c.camera_make,

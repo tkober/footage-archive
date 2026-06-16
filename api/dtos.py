@@ -137,6 +137,13 @@ class AssignLocationRequest(BaseModel):
     location_id: Optional[int] = None
 
 
+class MapMember(BaseModel):
+    md5_hash: str
+    file_name: str
+    directory: str
+    media_type: Optional[str] = None
+
+
 class MapPoint(BaseModel):
     latitude: float
     longitude: float
@@ -153,6 +160,8 @@ class MapPoint(BaseModel):
     bbox_south: Optional[float] = None
     bbox_east: Optional[float] = None
     bbox_north: Optional[float] = None
+    # Per-member details for small all-stills clusters (inline thumbnails).
+    members: Optional[list[MapMember]] = None
 
 
 class FileSearchQuery(BaseModel):
