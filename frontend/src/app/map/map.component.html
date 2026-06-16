@@ -3,6 +3,9 @@
 
     <div class="map-view">
       @if (mapsReady()) {
+        <button type="button" class="search-area-btn" (click)="searchThisArea()">
+          Search this area
+        </button>
         <google-map
           class="map-container"
           width="100%"
@@ -22,26 +25,42 @@
           }
           <map-info-window>
             @if (infoPoint(); as p) {
-              @if (p.count > 1) {
-                <div class="map-info">
-                  <div class="map-info-counts">
-                    {{ p.photo_count }} photo{{ p.photo_count === 1 ? '' : 's' }},
-                    {{ p.video_count }} video{{ p.video_count === 1 ? '' : 's' }}
+              @switch (infoKind()) {
+                @case ('strip') {
+                  <div class="map-info">
+                    <div class="map-info-counts">{{ p.count }} photos</div>
+                    <div class="map-info-strip">
+                      @for (m of p.members ?? []; track m.md5_hash) {
+                        <button type="button" class="map-info-thumb"
+                                [title]="m.file_name" (click)="openDetailsMember(m)">
+                          <img [src]="memberPreview(m)" alt="" />
+                        </button>
+                      }
+                    </div>
                   </div>
-                  <div class="map-info-actions">
-                    <button type="button" class="map-info-link" (click)="zoomIn(p)">Zoom in</button>
-                    <button type="button" class="map-info-link" (click)="openInSearch(p)">Open in search →</button>
+                }
+                @case ('cluster') {
+                  <div class="map-info">
+                    <div class="map-info-counts">
+                      {{ p.photo_count }} photo{{ p.photo_count === 1 ? '' : 's' }},
+                      {{ p.video_count }} video{{ p.video_count === 1 ? '' : 's' }}
+                    </div>
+                    <div class="map-info-actions">
+                      <button type="button" class="map-info-link" (click)="zoomIn(p)">Zoom in</button>
+                      <button type="button" class="map-info-link" (click)="openInSearch(p)">Open in search →</button>
+                    </div>
                   </div>
-                </div>
-              } @else {
-                <div class="map-info">
-                  @if (previewUrlFor(p); as src) {
-                    <img class="map-info-preview" [src]="src" alt="" />
-                  }
-                  <strong class="map-info-name">{{ p.file_name }}</strong>
-                  <div class="map-popup-type">{{ mediaLabel(p) }}</div>
-                  <button type="button" class="map-info-link" (click)="openDetails(p)">Open details →</button>
-                </div>
+                }
+                @default {
+                  <div class="map-info">
+                    @if (previewUrlFor(p); as src) {
+                      <img class="map-info-preview" [src]="src" alt="" />
+                    }
+                    <strong class="map-info-name">{{ p.file_name }}</strong>
+                    <div class="map-popup-type">{{ mediaLabel(p) }}</div>
+                    <button type="button" class="map-info-link" (click)="openDetails(p)">Open details →</button>
+                  </div>
+                }
               }
             }
           </map-info-window>

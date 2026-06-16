@@ -128,6 +128,13 @@ export interface SearchResponse {
   items: SearchResult[];
 }
 
+export interface MapMember {
+  md5_hash: string;
+  file_name: string;
+  directory: string;
+  media_type: string | null;
+}
+
 export interface MapPoint {
   latitude: number;
   longitude: number;
@@ -144,6 +151,8 @@ export interface MapPoint {
   bbox_south: number | null;
   bbox_east: number | null;
   bbox_north: number | null;
+  // Per-member details for small all-stills clusters (inline thumbnails)
+  members: MapMember[] | null;
 }
 
 export interface FileInfo {
