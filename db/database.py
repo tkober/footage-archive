@@ -272,20 +272,24 @@ class Database:
 
         cell = self._CLUSTER_CELL_SIZES[min(zoom, len(self._CLUSTER_CELL_SIZES) - 1)]
         subq = base_stmt.subquery()
-        lat_cluster = (func.round(subq.c.lat / cell) * cell).label('latitude')
-        lon_cluster = (func.round(subq.c.lon / cell) * cell).label('longitude')
+        # Bucket points into a grid cell for grouping, but position each cluster
+        # marker at the *centroid* (avg) of its members rather than the rounded
+        # grid node — otherwise a cluster snaps to a grid coordinate that can sit
+        # far from the actual data (e.g. out in the ocean).
+        lat_cell = func.round(subq.c.lat / cell) * cell
+        lon_cell = func.round(subq.c.lon / cell) * cell
         is_video_expr = subq.c.media_type.in_(['video', '360_video'])
 
         cluster_stmt = (
             select(
-                lat_cluster,
-                lon_cluster,
+                func.avg(subq.c.lat).label('latitude'),
+                func.avg(subq.c.lon).label('longitude'),
                 func.count().label('count'),
                 func.sum(case((is_video_expr, 1), else_=0)).label('video_count'),
                 func.sum(case((~is_video_expr, 1), else_=0)).label('photo_count'),
             )
             .select_from(subq)
-            .group_by(lat_cluster, lon_cluster)
+            .group_by(lat_cell, lon_cell)
         )
 
         with get_engine().connect() as conn:
