@@ -1,37 +1,68 @@
 <div class="map-page">
-  @if (mapsReady()) {
-    <google-map
-      class="map-container"
-      width="100%"
-      height="100%"
-      [center]="center"
-      [zoom]="zoom"
-      [mapId]="mapId()"
-      [options]="mapOptions"
-      (mapInitialized)="onBoundsChanged()"
-      (boundsChanged)="onBoundsChanged()">
-      @for (m of markers(); track m.key) {
-        <map-advanced-marker
-          #adv="mapAdvancedMarker"
-          [position]="m.position"
-          [content]="m.content"
-          [title]="m.title"
-          (mapClick)="onMarkerClick(m, adv)" />
-      }
-      <map-info-window>
-        <div class="map-info">
-          <strong>{{ infoFileName() }}</strong>
-          <div class="map-popup-type">{{ infoType() }}</div>
+  <div class="view-container" [class.detail-open]="selectedFile() || loadingDetails()">
+
+    <div class="map-view">
+      @if (mapsReady()) {
+        <google-map
+          class="map-container"
+          width="100%"
+          height="100%"
+          [center]="center"
+          [zoom]="zoom"
+          [mapId]="mapId()"
+          [options]="mapOptions"
+          (mapInitialized)="refresh()"
+          (idle)="refresh()">
+          @for (m of markers(); track m.key) {
+            <map-advanced-marker
+              #adv="mapAdvancedMarker"
+              [position]="m.position"
+              [content]="m.content"
+              (mapClick)="onMarkerClick(m, adv)" />
+          }
+          <map-info-window>
+            @if (infoPoint(); as p) {
+              @if (p.count > 1) {
+                <div class="map-info">
+                  <div class="map-info-counts">
+                    {{ p.photo_count }} photo{{ p.photo_count === 1 ? '' : 's' }},
+                    {{ p.video_count }} video{{ p.video_count === 1 ? '' : 's' }}
+                  </div>
+                  <div class="map-info-actions">
+                    <button type="button" class="map-info-link" (click)="zoomIn(p)">Zoom in</button>
+                    <button type="button" class="map-info-link" (click)="openInSearch(p)">Open in search →</button>
+                  </div>
+                </div>
+              } @else {
+                <div class="map-info">
+                  @if (previewUrlFor(p); as src) {
+                    <img class="map-info-preview" [src]="src" alt="" />
+                  }
+                  <strong class="map-info-name">{{ p.file_name }}</strong>
+                  <div class="map-popup-type">{{ mediaLabel(p) }}</div>
+                  <button type="button" class="map-info-link" (click)="openDetails(p)">Open details →</button>
+                </div>
+              }
+            }
+          </map-info-window>
+        </google-map>
+      } @else if (mapsDisabled()) {
+        <div class="map-disabled">
+          <p>Map unavailable.</p>
+          <p class="map-disabled-hint">
+            Set <code>GOOGLE_MAPS_API_KEY</code> and <code>GOOGLE_MAPS_MAP_ID</code> —
+            see <code>GOOGLE_SETUP.md</code>.
+          </p>
         </div>
-      </map-info-window>
-    </google-map>
-  } @else if (mapsDisabled()) {
-    <div class="map-disabled">
-      <p>Map unavailable.</p>
-      <p class="map-disabled-hint">
-        Set <code>GOOGLE_MAPS_API_KEY</code> and <code>GOOGLE_MAPS_MAP_ID</code> —
-        see <code>GOOGLE_SETUP.md</code>.
-      </p>
+      }
     </div>
-  }
+
+    <div class="detail-view">
+      <app-file-detail-panel
+        [file]="selectedFile()"
+        [loading]="loadingDetails()"
+        (closed)="closeDetail()" />
+    </div>
+
+  </div>
 </div>

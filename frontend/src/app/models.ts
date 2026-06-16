@@ -103,6 +103,10 @@ export interface FileSearchQuery {
   camera_make?: string | null;
   camera_model?: string | null;
   video_codec?: string | null;
+  bbox_west?: number | null;
+  bbox_south?: number | null;
+  bbox_east?: number | null;
+  bbox_north?: number | null;
   page?: number;
   page_size?: number;
 }
@@ -130,9 +134,16 @@ export interface MapPoint {
   count: number;
   video_count: number;
   photo_count: number;
+  // Single-file fields (meaningful only when count === 1)
   md5_hash: string | null;
   file_name: string | null;
+  directory: string | null;
   media_type: string | null;
+  // Member bounding box — feeds the cluster's "open in search" link
+  bbox_west: number | null;
+  bbox_south: number | null;
+  bbox_east: number | null;
+  bbox_north: number | null;
 }
 
 export interface FileInfo {

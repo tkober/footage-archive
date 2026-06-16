@@ -4,14 +4,48 @@
   flex-direction: column;
 }
 
-.map-container {
+/* Map + sliding detail overlay (same pattern as the Browser/Search views) */
+.view-container {
+  position: relative;
   flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.map-view {
+  position: absolute;
+  inset: 0;
+  transition: opacity 280ms ease;
+}
+
+.view-container.detail-open .map-view {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.map-container {
+  position: absolute;
+  inset: 0;
   display: block;
+}
+
+.detail-view {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  background: #ffffff;
+  transform: translateX(100%);
+  transition: transform 280ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.view-container.detail-open .detail-view {
+  transform: translateX(0);
 }
 
 /* Maps-disabled placeholder (no API key configured) */
 .map-disabled {
-  flex: 1;
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -80,13 +114,57 @@
   background: #7c3aed;
 }
 
-/* ── Individual marker info windows ── */
+/* ── Info-window flyout ── */
 :host ::ng-deep .map-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+  max-width: 220px;
   font-size: 0.85rem;
+}
+
+:host ::ng-deep .map-info-preview {
+  width: 100%;
+  max-height: 140px;
+  object-fit: cover;
+  border-radius: 4px;
+  display: block;
+  background: #f4f4f5;
+}
+
+:host ::ng-deep .map-info-name {
+  word-break: break-all;
+}
+
+:host ::ng-deep .map-info-counts {
+  font-weight: 600;
 }
 
 :host ::ng-deep .map-popup-type {
   font-size: 0.75rem;
   color: #6b7280;
   text-transform: capitalize;
+}
+
+:host ::ng-deep .map-info-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+:host ::ng-deep .map-info-link {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #2563eb;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+:host ::ng-deep .map-info-link:hover {
+  text-decoration: underline;
 }
