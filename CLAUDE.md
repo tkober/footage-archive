@@ -14,6 +14,7 @@ Runs on an Unraid NAS server, edited over a 5Gbit network.
 | DB migrations | Alembic |
 | Package manager | uv (pyproject.toml + uv.lock) |
 | Frontend | Angular 21.2, TypeScript 5.9 |
+| Maps | Google Maps (`@angular/google-maps`): map view, detail/location maps, geocoding — see `GOOGLE_SETUP.md` |
 | Metadata extraction | exiftool (all photo EXIF + full-dump endpoint) |
 | Preview generation | FFmpeg + FFprobe + Pillow + rawpy |
 | Containerisation | Docker + Docker Compose (backend + frontend; linux/amd64 for Unraid) |
@@ -74,6 +75,10 @@ MEDIA_TYPE_PHOTO=.jpg,.jpeg,.rw2
 MEDIA_TYPE_360_VIDEO=.insv
 MEDIA_TYPE_360_PHOTO=.insp,.dng
 BROWSER_HIDDEN_EXTENSIONS=.xmp,.acr,.psd,.lrv,.identifier
+# Google Maps (served to the frontend via /config). Blank = maps disabled.
+# How to obtain these: see GOOGLE_SETUP.md.
+GOOGLE_MAPS_API_KEY=...
+GOOGLE_MAPS_MAP_ID=...
 ```
 
 The app connects as `DB_USER` (DML only); Alembic connects as `DB_OWNER_USER` (DDL). See `alembic/env.py`.
@@ -157,6 +162,7 @@ Docker env vars to set on Unraid:
 - `MEDIA_TYPE_360_VIDEO=.insv`
 - `MEDIA_TYPE_360_PHOTO=.insp,.dng`
 - `BROWSER_HIDDEN_EXTENSIONS=.xmp,.acr,.psd,.lrv,.identifier`
+- `GOOGLE_MAPS_API_KEY=...` / `GOOGLE_MAPS_MAP_ID=...` (optional; enable the maps — see `GOOGLE_SETUP.md`)
 - `TASK_POLL_INTERVAL_MS=5000` (default, optional)
 - `WORKER_POOL_SIZE=4` (default, optional) — shared worker-pool size for in-job parallel hashing/probing
 - `DB_POOL_SIZE=5` / `DB_MAX_OVERFLOW=10` (defaults, optional) — SQLAlchemy connection pool; max concurrent connections = sum of the two
@@ -173,7 +179,7 @@ footage-archive/
 ├── app.py                  # FastAPI entry point, lifespan, CORS, DB init
 ├── api/
 │   ├── base.py             # GET / (redirect to /docs), GET /version
-│   ├── config.py           # GET /config  ← root_dir, task_poll_interval_ms
+│   ├── config.py           # GET /config  ← root_dir, task_poll_interval_ms, google_maps_api_key, google_maps_map_id
 │   ├── files.py            # POST /files/directory, GET /files/details, GET /files/exif (full exiftool dump), PATCH /files/rename, GET /files/clip-preview/{md5_hash}, PATCH /files/location, POST /files/checksum
 │   ├── search.py           # GET /files/search-facets (facet autocomplete), POST /files/search (filtered, paginated search)
 │   ├── keywords.py         # GET /keywords (all), POST /keywords (add to file), DELETE /keywords (remove from file)
@@ -263,6 +269,7 @@ footage-archive/
 - **Photo thumbnails reuse ClipPreviews** — `generate_photo_thumbnail()` in `photos/exif.py` produces a 600px-wide JPEG (Pillow for JPEG, EXIF-rotation-corrected; rawpy for RW2). Stored in the same `ClipPreviews` table, served by the same `/files/clip-preview/{md5_hash}` endpoint.
 - **DaVinci Resolve CSV** as the primary editorial metadata enrichment path — imports shot/scene/take/angle/move/shot_type directly from Resolve's export.
 - **Task poll interval** — configurable via `TASK_POLL_INTERVAL_MS` env var, exposed through `/config` so the frontend picks it up dynamically.
+- **Google Maps (runtime-keyed)** — maps use `@angular/google-maps` (Maps JS API + Advanced Markers; geocoding via `google.maps.Geocoder`). The browser API key + Map ID come from `GOOGLE_MAPS_API_KEY`/`GOOGLE_MAPS_MAP_ID`, served to the frontend via `/config` (key stays in `.env`, never in git) and loaded once by `GoogleMapsLoaderService`. Blank key → maps gracefully disabled. Server-side clustering (`/locations/map-points`) is map-library-agnostic and unchanged. Setup: `GOOGLE_SETUP.md`.
 - **Single-origin Compose stack** — the frontend's nginx serves the static Angular bundle *and* reverse-proxies `/api` to the backend on the internal network. The browser only talks to one origin, so there's no hardcoded backend host (prod `apiUrl` is the relative `/api`) and CORS is unnecessary. PostgreSQL stays external (NAS); Compose runs only `backend` + `frontend`.
 
 ---
@@ -283,7 +290,7 @@ footage-archive/
 - [x] DaVinci Resolve CSV metadata ingestion → `FileDetails` + `VideoDetails` + `Keywords`
 - [x] Clip preview generation (5-frame JPEG strip for videos, single thumbnail for photos) → `ClipPreviews`
 - [x] Missing preview detection + repair endpoint
-- [x] `GET /config` endpoint (root_dir, task_poll_interval_ms)
+- [x] `GET /config` endpoint (root_dir, task_poll_interval_ms, google_maps_api_key, google_maps_map_id)
 - [x] `POST /files/directory` with sorting, pagination, ROOT_DIR hardening, hidden extension filtering
 - [x] `GET /files/details` — filesystem info + DB tracking status + VideoDetails/PhotoDetails per file
 - [x] `PATCH /files/rename` — rename file on disk + update Files record
@@ -301,8 +308,8 @@ footage-archive/
 - [x] Faceted search API: `POST /files/search` (filter by media_type, keywords, country, date range, camera make/model, video codec; paginated) + `GET /files/search-facets` (autocomplete for facet values)
 - [x] Map data API: `GET /locations/map-points` — server-side clustering by zoom level (grid rounding), video/photo counts per cluster
 - [x] AI shot classification: `POST /ai/classify-shot` — ML shot-type prediction for a tracked video (`shot_classifier/`)
-- [x] Interactive map in "New location" modal: Leaflet + OSM tiles, click-to-pin, draggable marker, geocoding via Nominatim with progressive retry (drops region/name on failure, max 3 attempts)
-- [x] Read-only location map in file detail panel (zoom/pan enabled) — shows named location coords or raw GPS fallback
+- [x] Interactive map in "New location" modal: Google Maps, click-to-pin, draggable Advanced Marker, geocoding via `google.maps.Geocoder` with progressive retry (drops region/name on failure, max 3 attempts)
+- [x] Read-only location map in file detail panel (Google Maps, zoom/pan enabled) — shows named location coords or raw GPS fallback
 - [x] Bulk edit mode in grid: "Select" button → checkbox selection → assign location or add keyword to all selected tracked files in parallel; sticky action bar; ESC to cancel
 - [x] Photo thumbnails in browser grid and detail panel (600px JPEG, EXIF-rotation-corrected, `object-fit: contain` in detail view to avoid cropping)
 - [x] Tracked status badge on files in browser grid listing

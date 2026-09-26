@@ -1,5 +1,6 @@
 import { Component, OnInit, OnDestroy, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
 import { Subject, Subscription } from 'rxjs';
 import { debounceTime, distinctUntilChanged, map, switchMap } from 'rxjs/operators';
 
@@ -23,6 +24,8 @@ const MEDIA_TYPE_OPTIONS = [
 })
 export class SearchComponent implements OnInit, OnDestroy {
   readonly api = inject(ApiService);
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
   private subs: Subscription[] = [];
   private filterChange$ = new Subject<void>();
   private facetInput$ = new Subject<{ field: string; q: string }>();
@@ -39,6 +42,8 @@ export class SearchComponent implements OnInit, OnDestroy {
   cameraModel        = signal('');
   videoCodec         = signal('');
   keywordInput       = signal('');
+  // Geographic filter set by deep-linking from the map's "open in search" link
+  bbox = signal<{ west: number; south: number; east: number; north: number } | null>(null);
 
   // ── Facet suggestion lists ──
   countrySuggestions     = signal<string[]>([]);
@@ -113,6 +118,21 @@ export class SearchComponent implements OnInit, OnDestroy {
         if (field === 'video_codec')  this.videoCodecSuggestions.set(values);
       })
     );
+
+    // Apply a geographic filter passed via query params (map → "open in search").
+    const qp = this.route.snapshot.queryParamMap;
+    const w = qp.get('bbox_west'), s = qp.get('bbox_south');
+    const e = qp.get('bbox_east'), n = qp.get('bbox_north');
+    if (w != null && s != null && e != null && n != null) {
+      this.bbox.set({ west: +w, south: +s, east: +e, north: +n });
+      this.onFilterChange();
+    }
+  }
+
+  clearBbox(): void {
+    this.bbox.set(null);
+    this.router.navigate([], { relativeTo: this.route, queryParams: {} });
+    this.onFilterChange();
   }
 
   ngOnDestroy(): void {
@@ -154,7 +174,8 @@ export class SearchComponent implements OnInit, OnDestroy {
       !!this.dateTo() ||
       !!this.cameraMake() ||
       !!this.cameraModel() ||
-      !!this.videoCodec();
+      !!this.videoCodec() ||
+      !!this.bbox();
     this.hasFilters.set(hasAny);
     if (hasAny) this.filterChange$.next();
     else { this.results.set([]); this.total.set(0); }
@@ -183,6 +204,10 @@ export class SearchComponent implements OnInit, OnDestroy {
       camera_make:  this.cameraMake() || null,
       camera_model: this.cameraModel() || null,
       video_codec:  this.videoCodec() || null,
+      bbox_west:   this.bbox()?.west  ?? null,
+      bbox_south:  this.bbox()?.south ?? null,
+      bbox_east:   this.bbox()?.east  ?? null,
+      bbox_north:  this.bbox()?.north ?? null,
       page,
       page_size:   this.PAGE_SIZE,
     };

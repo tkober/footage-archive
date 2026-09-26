@@ -143,6 +143,14 @@
 
   <div class="list-view">
 
+    <!-- Geographic filter (from the map's "open in search" link) -->
+    @if (bbox()) {
+      <div class="bbox-chip">
+        <span>📍 Filtered to a map location</span>
+        <button type="button" (click)="clearBbox()" title="Clear location filter">✕</button>
+      </div>
+    }
+
     <!-- Status bar -->
     @if (hasFilters()) {
       <div class="results-status">

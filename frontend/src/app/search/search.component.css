@@ -146,6 +146,28 @@
   color: #6b7280;
 }
 
+.bbox-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  padding: 4px 8px 4px 12px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 0.8rem;
+}
+
+.bbox-chip button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 2px;
+}
+
 .empty-state {
   flex: 1;
   display: flex;

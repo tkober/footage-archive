@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, Subject } from 'rxjs';
-import * as L from 'leaflet';
+import { shareReplay } from 'rxjs/operators';
 
 import { environment } from '../../environments/environment';
 import { Config, DirectoryQuery, DirectoryResponse, ExifTag, FileInfo, FileSearchQuery, Location, MapPoint, SearchResponse, ShotClassification, Task } from '../models';
@@ -10,11 +10,17 @@ import { Config, DirectoryQuery, DirectoryResponse, ExifTag, FileInfo, FileSearc
 export class ApiService {
   private readonly base = environment.apiUrl;
   readonly taskRefresh$ = new Subject<void>();
+  private config$?: Observable<Config>;
 
   constructor(private http: HttpClient) {}
 
+  /** Cached: /config is immutable per session and read by several consumers
+      (app shell, Google Maps loader), so share a single request. */
   getConfig(): Observable<Config> {
-    return this.http.get<Config>(`${this.base}/config`);
+    if (!this.config$) {
+      this.config$ = this.http.get<Config>(`${this.base}/config`).pipe(shareReplay(1));
+    }
+    return this.config$;
   }
 
   getBackendVersion(): Observable<{ version: string }> {
@@ -81,13 +87,13 @@ export class ApiService {
     return this.http.post<SearchResponse>(`${this.base}/files/search`, query);
   }
 
-  getMapPoints(bounds: L.LatLngBounds, zoom: number): Observable<MapPoint[]> {
+  getMapPoints(bounds: { west: number; south: number; east: number; north: number }, zoom: number): Observable<MapPoint[]> {
     return this.http.get<MapPoint[]>(`${this.base}/locations/map-points`, {
       params: {
-        bbox_west:  bounds.getWest(),
-        bbox_south: bounds.getSouth(),
-        bbox_east:  bounds.getEast(),
-        bbox_north: bounds.getNorth(),
+        bbox_west:  bounds.west,
+        bbox_south: bounds.south,
+        bbox_east:  bounds.east,
+        bbox_north: bounds.north,
         zoom,
       }
     });
@@ -107,12 +113,5 @@ export class ApiService {
 
   classifyShot(path: string): Observable<ShotClassification> {
     return this.http.post<ShotClassification>(`${this.base}/ai/classify-shot`, { path });
-  }
-
-  geocode(query: string): Observable<{ lat: string; lon: string }[]> {
-    return this.http.get<{ lat: string; lon: string }[]>(
-      'https://nominatim.openstreetmap.org/search',
-      { params: { q: query, format: 'json', limit: '1' } }
-    );
   }
 }

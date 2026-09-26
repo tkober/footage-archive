@@ -2,6 +2,8 @@ export interface Config {
   root_dir: string;
   task_poll_interval_ms: number;
   browser_hidden_extensions: string[];
+  google_maps_api_key: string;
+  google_maps_map_id: string;
 }
 
 export type TaskStatus = 'PENDING' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
@@ -101,6 +103,10 @@ export interface FileSearchQuery {
   camera_make?: string | null;
   camera_model?: string | null;
   video_codec?: string | null;
+  bbox_west?: number | null;
+  bbox_south?: number | null;
+  bbox_east?: number | null;
+  bbox_north?: number | null;
   page?: number;
   page_size?: number;
 }
@@ -122,15 +128,31 @@ export interface SearchResponse {
   items: SearchResult[];
 }
 
+export interface MapMember {
+  md5_hash: string;
+  file_name: string;
+  directory: string;
+  media_type: string | null;
+}
+
 export interface MapPoint {
   latitude: number;
   longitude: number;
   count: number;
   video_count: number;
   photo_count: number;
+  // Single-file fields (meaningful only when count === 1)
   md5_hash: string | null;
   file_name: string | null;
+  directory: string | null;
   media_type: string | null;
+  // Member bounding box — feeds the cluster's "open in search" link
+  bbox_west: number | null;
+  bbox_south: number | null;
+  bbox_east: number | null;
+  bbox_north: number | null;
+  // Per-member details for small all-stills clusters (inline thumbnails)
+  members: MapMember[] | null;
 }
 
 export interface FileInfo {

@@ -224,7 +224,15 @@ class Database:
             return (row[0], row[1], row[2])
         return None
 
-    _CLUSTER_CELL_SIZES = [20.0, 20.0, 20.0, 20.0, 8.0, 8.0, 3.0, 3.0, 1.0, 1.0, 0.3, 0.3, 0.05, 0.05]
+    @staticmethod
+    def _cluster_cell_for_zoom(zoom: int) -> float:
+        # Grid cell size (degrees), halving every zoom level so each zoom-in step
+        # refines the clusters (≈1/10th of the visible span at that zoom). Clustering
+        # runs at *every* zoom — no special high-zoom path — so co-located files
+        # (e.g. many photos sharing one named location's coordinates) collapse into a
+        # single selectable cluster instead of stacking invisibly. At max zoom (~22)
+        # the cell is a few metres, so only truly co-located files still group.
+        return 200.0 / (2 ** max(zoom, 0))
 
     def get_map_points(self, west: float, south: float, east: float, north: float,
                        zoom: int) -> list[dict]:
@@ -235,6 +243,7 @@ class Database:
             select(
                 files_table.c.md5_hash,
                 files_table.c.file_name,
+                files_table.c.directory,
                 files_table.c.media_type,
                 coalesce_lat.label('lat'),
                 coalesce_lon.label('lon'),
@@ -252,48 +261,61 @@ class Database:
             )
         )
 
-        if zoom >= 14:
-            with get_engine().connect() as conn:
-                rows = conn.execute(base_stmt).fetchall()
-            result = []
-            for row in rows:
-                r = row._asdict()
-                is_video = r['media_type'] in ('video', '360_video')
-                result.append({
-                    'latitude': r['lat'], 'longitude': r['lon'],
-                    'count': 1,
-                    'video_count': 1 if is_video else 0,
-                    'photo_count': 0 if is_video else 1,
-                    'md5_hash': r['md5_hash'],
-                    'file_name': r['file_name'],
-                    'media_type': r['media_type'],
-                })
-            return result
-
-        cell = self._CLUSTER_CELL_SIZES[min(zoom, len(self._CLUSTER_CELL_SIZES) - 1)]
+        cell = self._cluster_cell_for_zoom(zoom)
         subq = base_stmt.subquery()
-        lat_cluster = (func.round(subq.c.lat / cell) * cell).label('latitude')
-        lon_cluster = (func.round(subq.c.lon / cell) * cell).label('longitude')
+        # Bucket points into a grid cell for grouping, but position each cluster
+        # marker at the *centroid* (avg) of its members rather than the rounded
+        # grid node — otherwise a cluster snaps to a grid coordinate that can sit
+        # far from the actual data (e.g. out in the ocean).
+        lat_cell = func.round(subq.c.lat / cell) * cell
+        lon_cell = func.round(subq.c.lon / cell) * cell
         is_video_expr = subq.c.media_type.in_(['video', '360_video'])
 
         cluster_stmt = (
             select(
-                lat_cluster,
-                lon_cluster,
+                func.avg(subq.c.lat).label('latitude'),
+                func.avg(subq.c.lon).label('longitude'),
                 func.count().label('count'),
                 func.sum(case((is_video_expr, 1), else_=0)).label('video_count'),
                 func.sum(case((~is_video_expr, 1), else_=0)).label('photo_count'),
+                # For a single-file cluster these min()s are that file's values
+                # (used for the preview + "open details" link); ignored otherwise.
+                func.min(subq.c.md5_hash).label('md5_hash'),
+                func.min(subq.c.file_name).label('file_name'),
+                func.min(subq.c.directory).label('directory'),
+                func.min(subq.c.media_type).label('media_type'),
+                # Member bounding box — the "open in search" link filters to it.
+                func.min(subq.c.lat).label('bbox_south'),
+                func.max(subq.c.lat).label('bbox_north'),
+                func.min(subq.c.lon).label('bbox_west'),
+                func.max(subq.c.lon).label('bbox_east'),
+                # Per-member details so a small all-stills leaf can show each photo
+                # inline (kept only for those clusters — see trim below — so the
+                # payload stays small for large clusters).
+                func.json_agg(
+                    func.json_build_object(
+                        'md5_hash', subq.c.md5_hash,
+                        'file_name', subq.c.file_name,
+                        'directory', subq.c.directory,
+                        'media_type', subq.c.media_type,
+                    )
+                ).label('members'),
             )
             .select_from(subq)
-            .group_by(lat_cluster, lon_cluster)
+            .group_by(lat_cell, lon_cell)
         )
 
         with get_engine().connect() as conn:
             rows = conn.execute(cluster_stmt).fetchall()
-        return [
-            {**row._asdict(), 'md5_hash': None, 'file_name': None, 'media_type': None}
-            for row in rows
-        ]
+        result = []
+        for row in rows:
+            r = row._asdict()
+            # Only expose member lists for small, all-stills clusters (the map
+            # renders their thumbnails); drop otherwise to keep responses lean.
+            if not (1 < r['count'] < 5 and r['video_count'] == 0):
+                r['members'] = None
+            result.append(r)
+        return result
 
     _FACET_COLS = {
         'camera_make':  photo_details_table.c.camera_make,
@@ -352,6 +374,18 @@ class Database:
             conditions.append(photo_details_table.c.camera_model == query['camera_model'])
         if query.get('video_codec'):
             conditions.append(video_details_table.c.video_codec == query['video_codec'])
+
+        # Geographic bounding box (used by the map's "open in search" cluster link).
+        # Matches the map's coordinate logic: named-location coords first, raw GPS
+        # fallback. All four bounds must be present to apply.
+        bbox = (query.get('bbox_west'), query.get('bbox_south'),
+                query.get('bbox_east'), query.get('bbox_north'))
+        if all(b is not None for b in bbox):
+            w, s, e, n = bbox
+            geo_lat = func.coalesce(locations_table.c.latitude, file_details_table.c.latitude)
+            geo_lon = func.coalesce(locations_table.c.longitude, file_details_table.c.longitude)
+            conditions.append(geo_lat.between(s, n))
+            conditions.append(geo_lon.between(w, e))
 
         base_from = (
             files_table

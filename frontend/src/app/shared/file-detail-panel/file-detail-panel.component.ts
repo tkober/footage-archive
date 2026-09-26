@@ -1,21 +1,24 @@
-import { Component, computed, effect, ElementRef, inject, OnDestroy, signal, untracked, ViewChild, input, output } from '@angular/core';
+import { Component, computed, effect, ElementRef, inject, OnDestroy, signal, untracked, ViewChild, viewChild, input, output } from '@angular/core';
 import { DatePipe, JsonPipe } from '@angular/common';
-import * as L from 'leaflet';
+import { GoogleMap, MapAdvancedMarker, MapGeocoder } from '@angular/google-maps';
 
 import { ModalComponent } from '../../modal/modal.component';
 import { ImageViewerComponent } from '../image-viewer/image-viewer.component';
 import { ApiService } from '../../services/api.service';
+import { GoogleMapsLoaderService } from '../../services/google-maps-loader.service';
 import { ExifTag, FileInfo, Location, ShotClassification, VIDEO_TYPES, PHOTO_TYPES } from '../../models';
 
 @Component({
   selector: 'app-file-detail-panel',
   standalone: true,
-  imports: [DatePipe, JsonPipe, ModalComponent, ImageViewerComponent],
+  imports: [DatePipe, JsonPipe, ModalComponent, ImageViewerComponent, GoogleMap, MapAdvancedMarker],
   templateUrl: './file-detail-panel.component.html',
   styleUrl: './file-detail-panel.component.css',
 })
 export class FileDetailPanelComponent implements OnDestroy {
   private api = inject(ApiService);
+  private loader = inject(GoogleMapsLoaderService);
+  private geocoder = inject(MapGeocoder);
 
   // ── Inputs / Outputs ──
   file    = input<FileInfo | null>(null);
@@ -100,12 +103,31 @@ export class FileDetailPanelComponent implements OnDestroy {
 
   // ── DOM refs ──
   @ViewChild('nameInput') nameInputRef?: ElementRef<HTMLInputElement>;
-  @ViewChild('locMapContainer') locMapContainerRef?: ElementRef<HTMLDivElement>;
-  @ViewChild('detailMapContainer') detailMapContainerRef?: ElementRef<HTMLDivElement>;
+  private locMapRef = viewChild<GoogleMap>('locMapRef');
 
-  private detailMap: L.Map | null = null;
-  private locMap: L.Map | null = null;
-  private locMarker: L.Marker | null = null;
+  // ── Maps (Google) ──
+  mapsReady = signal(false);
+  mapId = signal('');
+  readonly detailMapOptions: google.maps.MapOptions = {
+    streetViewControl: false, fullscreenControl: false, mapTypeControl: false, clickableIcons: false,
+  };
+  readonly locMapOptions: google.maps.MapOptions = {
+    streetViewControl: false, fullscreenControl: false, mapTypeControl: true, clickableIcons: false,
+  };
+  /** Read-only detail-map coords: assigned-location coords first, raw GPS fallback. */
+  detailCoords = computed<google.maps.LatLngLiteral | null>(() => {
+    const f = this.selectedFile();
+    const lat = f?.location?.latitude ?? f?.latitude;
+    const lon = f?.location?.longitude ?? f?.longitude;
+    if (lat == null || lon == null) return null;
+    return { lat, lng: lon };
+  });
+  // Interactive new-location map state
+  locCenter = signal<google.maps.LatLngLiteral>({ lat: 20, lng: 0 });
+  locZoom = signal(2);
+  locMarkerPos = signal<google.maps.LatLngLiteral | null>(null);
+  private _detailPin?: HTMLElement;
+  private _locPin?: HTMLElement;
 
   constructor() {
     // Sync input → local state; reset UI when a different file is opened
@@ -127,31 +149,19 @@ export class FileDetailPanelComponent implements OnDestroy {
       }
     });
 
-    // Detail map: re-init whenever location/GPS coords change
-    effect(() => {
-      const file = this.selectedFile();
-      const lat = file?.location?.latitude ?? file?.latitude;
-      const lon = file?.location?.longitude ?? file?.longitude;
-      if (lat != null && lon != null) {
-        setTimeout(() => this.initDetailMap(lat, lon), 0);
-      } else {
-        this.destroyDetailMap();
-      }
-    });
-
-    // Location creation map
-    effect(() => {
-      if (this.showCreateLocation()) {
-        setTimeout(() => this.initLocMap(), 0);
-      } else {
-        this.destroyLocMap();
+    // Load the Google Maps JS API once (key + Map ID come from /config). The
+    // <google-map> elements stay hidden behind mapsReady() until it resolves.
+    // The detail map is declarative (detailCoords); the new-location map is
+    // declarative (showCreateLocation + locMarkerPos) — no imperative init.
+    this.loader.load().then(ok => {
+      if (ok) {
+        this.mapsReady.set(true);
+        this.mapId.set(this.loader.mapId);
       }
     });
   }
 
   ngOnDestroy() {
-    this.destroyDetailMap();
-    this.destroyLocMap();
     this.resetHq();
   }
 
@@ -314,6 +324,9 @@ export class FileDetailPanelComponent implements OnDestroy {
     this.newLocLon.set('');
     this.geocoding.set(false);
     this.geocodeError.set(false);
+    this.locMarkerPos.set(null);
+    this.locCenter.set({ lat: 20, lng: 0 });
+    this.locZoom.set(2);
   }
 
   geocodeLocation() {
@@ -322,6 +335,7 @@ export class FileDetailPanelComponent implements OnDestroy {
     const region  = this.newLocRegion().trim();
     const country = this.newLocCountry().trim();
     if (!name && !city && !country) return;
+    if (!this.mapsReady()) { this.geocodeError.set(true); return; }
     const q1 = [name, city, region, country].filter(Boolean).join(', ');
     const q2 = [name, city, country].filter(Boolean).join(', ');
     const q3 = [city, country].filter(Boolean).join(', ');
@@ -337,11 +351,12 @@ export class FileDetailPanelComponent implements OnDestroy {
       this.geocodeError.set(true);
       return;
     }
-    this.api.geocode(queries[index]).subscribe({
-      next: (results) => {
-        if (results?.length) {
+    this.geocoder.geocode({ address: queries[index] }).subscribe({
+      next: ({ results, status }) => {
+        if (status === google.maps.GeocoderStatus.OK && results.length) {
           this.geocoding.set(false);
-          this.setLocPin(parseFloat(results[0].lat), parseFloat(results[0].lon));
+          const loc = results[0].geometry.location;
+          this.setLocPin(loc.lat(), loc.lng());
         } else {
           this.tryGeocode(queries, index + 1);
         }
@@ -350,61 +365,49 @@ export class FileDetailPanelComponent implements OnDestroy {
     });
   }
 
-  // ── Maps ──
+  // ── Maps (Google) ──
 
-  private initDetailMap(lat: number, lon: number) {
-    const el = this.detailMapContainerRef?.nativeElement;
-    if (!el) return;
-    this.destroyDetailMap();
-    this.detailMap = L.map(el).setView([lat, lon], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      maxZoom: 19
-    }).addTo(this.detailMap);
-    const icon = L.divIcon({ className: 'loc-map-pin', iconSize: [16, 16], iconAnchor: [8, 8] });
-    L.marker([lat, lon], { icon }).addTo(this.detailMap);
+  /** Marker DOM for the read-only detail map (a coloured dot). */
+  get detailPinContent(): HTMLElement {
+    return (this._detailPin ??= this.makeLocPin());
   }
 
-  private destroyDetailMap() {
-    this.detailMap?.remove();
-    this.detailMap = null;
+  /** Marker DOM for the draggable new-location pin. */
+  get locPinContent(): HTMLElement {
+    return (this._locPin ??= this.makeLocPin());
   }
 
-  private initLocMap() {
-    const el = this.locMapContainerRef?.nativeElement;
-    if (!el || this.locMap) return;
-    this.locMap = L.map(el).setView([20, 0], 2);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      maxZoom: 19
-    }).addTo(this.locMap);
-    this.locMap.on('click', (e: L.LeafletMouseEvent) => this.setLocPin(e.latlng.lat, e.latlng.lng));
-    const lat = parseFloat(this.newLocLat());
-    const lon = parseFloat(this.newLocLon());
-    if (!isNaN(lat) && !isNaN(lon)) this.setLocPin(lat, lon);
+  private makeLocPin(): HTMLElement {
+    const el = document.createElement('div');
+    el.className = 'loc-map-pin';
+    return el;
   }
 
-  private destroyLocMap() {
-    this.locMap?.remove();
-    this.locMap = null;
-    this.locMarker = null;
+  /** Click on the new-location map → drop / move the pin there (and recentre). */
+  onLocMapClick(event: google.maps.MapMouseEvent | google.maps.IconMouseEvent): void {
+    const ll = (event as google.maps.MapMouseEvent).latLng;
+    if (ll) this.setLocPin(ll.lat(), ll.lng());
+  }
+
+  /** Drag end → update the coordinate fields only (no recentre, matching the old UX). */
+  onLocMarkerDragend(marker: MapAdvancedMarker): void {
+    const pos = marker.advancedMarker.position;
+    if (!pos) return;
+    const lat = typeof pos.lat === 'function' ? pos.lat() : pos.lat;
+    const lng = typeof pos.lng === 'function' ? pos.lng() : pos.lng;
+    if (lat == null || lng == null) return;
+    this.newLocLat.set(lat.toFixed(6));
+    this.newLocLon.set(lng.toFixed(6));
+    this.locMarkerPos.set({ lat, lng });
   }
 
   private setLocPin(lat: number, lon: number) {
     this.newLocLat.set(lat.toFixed(6));
     this.newLocLon.set(lon.toFixed(6));
-    if (this.locMarker) {
-      this.locMarker.setLatLng([lat, lon]);
-    } else {
-      const icon = L.divIcon({ className: 'loc-map-pin', iconSize: [16, 16], iconAnchor: [8, 8] });
-      this.locMarker = L.marker([lat, lon], { draggable: true, icon }).addTo(this.locMap!);
-      this.locMarker.on('dragend', () => {
-        const pos = this.locMarker!.getLatLng();
-        this.newLocLat.set(pos.lat.toFixed(6));
-        this.newLocLon.set(pos.lng.toFixed(6));
-      });
-    }
-    this.locMap!.setView([lat, lon], Math.max(this.locMap!.getZoom(), 10));
+    this.locMarkerPos.set({ lat, lng: lon });
+    this.locCenter.set({ lat, lng: lon });
+    const currentZoom = this.locMapRef()?.getZoom() ?? this.locZoom();
+    this.locZoom.set(Math.max(currentZoom, 10));
   }
 
   // ── Display helpers ──

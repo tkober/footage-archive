@@ -62,6 +62,8 @@ class ConfigResponse(BaseModel):
     root_dir: str
     task_poll_interval_ms: int
     browser_hidden_extensions: list[str]
+    google_maps_api_key: str
+    google_maps_map_id: str
 
 
 class VideoDetails(BaseModel):
@@ -135,15 +137,31 @@ class AssignLocationRequest(BaseModel):
     location_id: Optional[int] = None
 
 
+class MapMember(BaseModel):
+    md5_hash: str
+    file_name: str
+    directory: str
+    media_type: Optional[str] = None
+
+
 class MapPoint(BaseModel):
     latitude: float
     longitude: float
     count: int
     video_count: int
     photo_count: int
+    # Single-file fields (meaningful only when count == 1): preview + details link.
     md5_hash: Optional[str] = None
     file_name: Optional[str] = None
+    directory: Optional[str] = None
     media_type: Optional[str] = None
+    # Member bounding box — feeds the cluster's "open in search" link.
+    bbox_west: Optional[float] = None
+    bbox_south: Optional[float] = None
+    bbox_east: Optional[float] = None
+    bbox_north: Optional[float] = None
+    # Per-member details for small all-stills clusters (inline thumbnails).
+    members: Optional[list[MapMember]] = None
 
 
 class FileSearchQuery(BaseModel):
@@ -155,6 +173,10 @@ class FileSearchQuery(BaseModel):
     camera_make: Optional[str] = None
     camera_model: Optional[str] = None
     video_codec: Optional[str] = None
+    bbox_west: Optional[float] = None
+    bbox_south: Optional[float] = None
+    bbox_east: Optional[float] = None
+    bbox_north: Optional[float] = None
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=50, ge=1, le=200)
 
