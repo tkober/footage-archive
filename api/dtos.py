@@ -198,6 +198,53 @@ class SearchResponse(BaseModel):
     items: list[SearchResult]
 
 
+class ListDto(BaseModel):
+    id: int
+    name: str
+    created_at: Optional[datetime] = None
+    item_count: int = 0
+
+
+class CreateListRequest(BaseModel):
+    name: StrictStr
+
+
+class RenameListRequest(BaseModel):
+    name: StrictStr
+
+
+class ListItemDto(BaseModel):
+    item_code: str
+    md5_hash: str
+    file_name: str
+    directory: str
+    media_type: Optional[str] = None
+    added_at: Optional[datetime] = None
+
+
+class ListItemsResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: list[ListItemDto]
+
+
+class AddFilesToListRequest(BaseModel):
+    md5_hashes: list[StrictStr]
+
+
+class AddFilesToListResponse(BaseModel):
+    added: list[ListItemDto]
+    existing: list[ListItemDto]
+    unknown: list[str]
+
+
+class FileListMembership(BaseModel):
+    list_id: int
+    name: str
+    item_code: str
+
+
 class FileInfo(BaseModel):
     name: str
     path: str
@@ -215,3 +262,4 @@ class FileInfo(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     altitude: Optional[float] = None
+    lists: list[FileListMembership] = []

@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, Response
 
-from api.dtos import DirectoryQuery, DirectoryResponse, FileInfo, FileQuery, PathChild, PathType, FileDescriptor, SortField, SortOrder, VideoDetails, PhotoDetails, RenameRequest, AssignLocationRequest, LocationDto, ExifTag
+from api.dtos import DirectoryQuery, DirectoryResponse, FileInfo, FileListMembership, FileQuery, PathChild, PathType, FileDescriptor, SortField, SortOrder, VideoDetails, PhotoDetails, RenameRequest, AssignLocationRequest, LocationDto, ExifTag
 from db.database import Database
 from env.environment import Environment
 from photos.exif import dump_all_exif, render_full_raw
@@ -76,10 +76,12 @@ def _build_file_info(p: Path, db: Database) -> FileInfo:
     photo_details = None
     keywords = []
     location = None
+    lists = []
     if db_record:
         md5 = db_record['md5_hash']
         media_type = db_record['media_type']
         keywords = db.get_keywords(md5)
+        lists = [FileListMembership(**row) for row in db.get_lists_for_file(md5)]
         loc_row = db.get_location_for_file(md5)
         if loc_row:
             location = LocationDto(**loc_row)
@@ -109,6 +111,7 @@ def _build_file_info(p: Path, db: Database) -> FileInfo:
         latitude=gps[0] if gps else None,
         longitude=gps[1] if gps else None,
         altitude=gps[2] if gps else None,
+        lists=lists,
     )
 
 
