@@ -4,20 +4,28 @@ from typing import Optional
 
 import pandas as pd
 from sqlalchemy import case, delete, func, select, update
+from sqlalchemy.exc import IntegrityError
 
 from db.engine import get_engine, upsert, upsert_ignore
+from db.list_codes import generate_item_code, normalize_item_code
 from db.models import (
     clip_previews_table,
     file_details_table,
     file_keywords_table,
     files_table,
     keywords_table,
+    list_items_table,
+    lists_table,
     locations_table,
     photo_details_table,
     video_details_table,
 )
 from ffmpeg.ffmpeg import ClipPreview
 from scanner.scanner import ScanResult
+
+
+class DuplicateListNameError(Exception):
+    """Raised when creating/renaming a list to a name that already exists."""
 
 
 def generate_identifier():
@@ -491,3 +499,212 @@ class Database:
         )
         with get_engine().connect() as conn:
             return pd.read_sql_query(stmt, conn)
+
+    # ------------------------------------------------------------------
+    # Lists
+    # ------------------------------------------------------------------
+
+    def get_all_lists(self) -> list[dict]:
+        item_count = (
+            select(func.count())
+            .select_from(list_items_table)
+            .where(list_items_table.c.list_id == lists_table.c.id)
+            .scalar_subquery()
+        )
+        stmt = (
+            select(lists_table.c.id, lists_table.c.name, lists_table.c.created_at,
+                   item_count.label('item_count'))
+            .order_by(func.lower(lists_table.c.name))
+        )
+        with get_engine().connect() as conn:
+            rows = conn.execute(stmt).fetchall()
+        return [row._asdict() for row in rows]
+
+    def get_list(self, list_id: int) -> Optional[dict]:
+        item_count = (
+            select(func.count())
+            .select_from(list_items_table)
+            .where(list_items_table.c.list_id == lists_table.c.id)
+            .scalar_subquery()
+        )
+        stmt = (
+            select(lists_table.c.id, lists_table.c.name, lists_table.c.created_at,
+                   item_count.label('item_count'))
+            .where(lists_table.c.id == list_id)
+        )
+        with get_engine().connect() as conn:
+            row = conn.execute(stmt).fetchone()
+        return row._asdict() if row is not None else None
+
+    def create_list(self, name: str) -> dict:
+        try:
+            with get_engine().begin() as conn:
+                row = conn.execute(
+                    lists_table.insert()
+                    .values(name=name)
+                    .returning(lists_table.c.id, lists_table.c.name, lists_table.c.created_at)
+                ).fetchone()
+        except IntegrityError:
+            raise DuplicateListNameError(name)
+        result = row._asdict()
+        result['item_count'] = 0
+        return result
+
+    def rename_list(self, list_id: int, name: str) -> Optional[dict]:
+        try:
+            with get_engine().begin() as conn:
+                row = conn.execute(
+                    update(lists_table)
+                    .where(lists_table.c.id == list_id)
+                    .values(name=name)
+                    .returning(lists_table.c.id, lists_table.c.name, lists_table.c.created_at)
+                ).fetchone()
+        except IntegrityError:
+            raise DuplicateListNameError(name)
+        if row is None:
+            return None
+        return self.get_list(list_id)
+
+    def delete_list(self, list_id: int) -> bool:
+        with get_engine().begin() as conn:
+            conn.execute(delete(list_items_table).where(list_items_table.c.list_id == list_id))
+            result = conn.execute(delete(lists_table).where(lists_table.c.id == list_id))
+        return result.rowcount > 0
+
+    def get_list_items(self, list_id: int, page: int, page_size: int) -> tuple[int, list[dict]]:
+        base_from = list_items_table.join(
+            files_table, list_items_table.c.md5_hash == files_table.c.md5_hash)
+        count_stmt = (
+            select(func.count())
+            .select_from(list_items_table)
+            .where(list_items_table.c.list_id == list_id)
+        )
+        data_stmt = (
+            select(
+                list_items_table.c.item_code, list_items_table.c.md5_hash,
+                files_table.c.file_name, files_table.c.directory,
+                files_table.c.media_type, list_items_table.c.added_at,
+            )
+            .select_from(base_from)
+            .where(list_items_table.c.list_id == list_id)
+            .order_by(list_items_table.c.added_at.desc(), list_items_table.c.item_code)
+            .limit(page_size)
+            .offset((page - 1) * page_size)
+        )
+        with get_engine().connect() as conn:
+            total = conn.execute(count_stmt).scalar()
+            rows = conn.execute(data_stmt).fetchall()
+        return total, [row._asdict() for row in rows]
+
+    def add_files_to_list(self, list_id: int, md5_hashes: list[str]) -> dict:
+        md5_hashes = list(dict.fromkeys(md5_hashes))
+        if not md5_hashes:
+            return {'added': [], 'existing': [], 'unknown': []}
+
+        with get_engine().begin() as conn:
+            existing_files = {
+                r[0] for r in conn.execute(
+                    select(files_table.c.md5_hash).where(files_table.c.md5_hash.in_(md5_hashes))
+                ).fetchall()
+            }
+            unknown = [h for h in md5_hashes if h not in existing_files]
+            valid_hashes = [h for h in md5_hashes if h in existing_files]
+
+            existing_hashes = set()
+            if valid_hashes:
+                existing_hashes = {
+                    r[0] for r in conn.execute(
+                        select(list_items_table.c.md5_hash)
+                        .where(list_items_table.c.list_id == list_id,
+                               list_items_table.c.md5_hash.in_(valid_hashes))
+                    ).fetchall()
+                }
+            to_add = [h for h in valid_hashes if h not in existing_hashes]
+
+            used_codes = {
+                r[0] for r in conn.execute(
+                    select(list_items_table.c.item_code)
+                    .where(list_items_table.c.list_id == list_id)
+                ).fetchall()
+            }
+
+            for h in to_add:
+                inserted = False
+                for _ in range(6):
+                    code = generate_item_code()
+                    while code in used_codes:
+                        code = generate_item_code()
+                    try:
+                        with conn.begin_nested():
+                            conn.execute(
+                                list_items_table.insert().values(
+                                    list_id=list_id, md5_hash=h, item_code=code)
+                            )
+                        used_codes.add(code)
+                        inserted = True
+                        break
+                    except IntegrityError:
+                        continue
+                if not inserted:
+                    raise RuntimeError(
+                        f'Could not generate a unique item code for list {list_id}')
+
+            items_by_hash = {}
+            if valid_hashes:
+                items_stmt = (
+                    select(
+                        list_items_table.c.item_code, list_items_table.c.md5_hash,
+                        files_table.c.file_name, files_table.c.directory,
+                        files_table.c.media_type, list_items_table.c.added_at,
+                    )
+                    .select_from(list_items_table.join(
+                        files_table, list_items_table.c.md5_hash == files_table.c.md5_hash))
+                    .where(list_items_table.c.list_id == list_id,
+                           list_items_table.c.md5_hash.in_(valid_hashes))
+                )
+                for row in conn.execute(items_stmt).fetchall():
+                    items_by_hash[row.md5_hash] = row._asdict()
+
+        added = [items_by_hash[h] for h in to_add if h in items_by_hash]
+        existing = [items_by_hash[h] for h in valid_hashes
+                    if h in existing_hashes and h in items_by_hash]
+        return {'added': added, 'existing': existing, 'unknown': unknown}
+
+    def remove_file_from_list(self, list_id: int, md5_hash: str) -> bool:
+        with get_engine().begin() as conn:
+            result = conn.execute(
+                delete(list_items_table)
+                .where(list_items_table.c.list_id == list_id,
+                       list_items_table.c.md5_hash == md5_hash)
+            )
+        return result.rowcount > 0
+
+    def get_list_item_by_code(self, list_id: int, code: str) -> Optional[dict]:
+        normalized = normalize_item_code(code)
+        stmt = (
+            select(
+                list_items_table.c.item_code, list_items_table.c.md5_hash,
+                files_table.c.file_name, files_table.c.directory,
+                files_table.c.media_type, list_items_table.c.added_at,
+            )
+            .select_from(list_items_table.join(
+                files_table, list_items_table.c.md5_hash == files_table.c.md5_hash))
+            .where(list_items_table.c.list_id == list_id,
+                   list_items_table.c.item_code == normalized)
+        )
+        with get_engine().connect() as conn:
+            row = conn.execute(stmt).fetchone()
+        return row._asdict() if row is not None else None
+
+    def get_lists_for_file(self, md5_hash: str) -> list[dict]:
+        stmt = (
+            select(list_items_table.c.list_id, lists_table.c.name,
+                   list_items_table.c.item_code)
+            .select_from(list_items_table.join(
+                lists_table, list_items_table.c.list_id == lists_table.c.id))
+            .where(list_items_table.c.md5_hash == md5_hash)
+            .order_by(func.lower(lists_table.c.name))
+        )
+        with get_engine().connect() as conn:
+            rows = conn.execute(stmt).fetchall()
+        return [row._asdict() for row in rows]
