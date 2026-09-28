@@ -1,0 +1,29 @@
+<div class="list-picker-wrap">
+  <input
+    class="list-picker-input"
+    [placeholder]="placeholder()"
+    [disabled]="disabled()"
+    [value]="value()"
+    (input)="onInputChange($any($event.target).value)"
+    (focus)="onFocus()"
+    (blur)="onBlur()"
+    (keydown)="onKeydown($event)" />
+  @if (dropdownOpen() && entries().length > 0) {
+    <div class="list-picker-dropdown">
+      @for (entry of entries(); track (entry.type === 'existing' ? 'l' + entry.list.id : 'c' + entry.name); let i = $index) {
+        <div class="list-picker-item"
+             [class.highlighted]="i === highlightIndex()"
+             (mousedown)="$event.preventDefault(); pickEntry(entry)">
+          @if (entry.type === 'existing') {
+            {{ entry.list.name }}
+          } @else {
+            + Create list "{{ entry.name }}"
+          }
+        </div>
+      }
+    </div>
+  }
+  @if (error()) {
+    <div class="list-picker-error">{{ error() }}</div>
+  }
+</div>

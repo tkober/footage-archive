@@ -351,51 +351,9 @@
   margin-top: 6px;
 }
 
-.list-add-wrap {
-  position: relative;
+.list-add-row app-list-picker {
   flex: 1;
   min-width: 0;
-}
-
-.list-input {
-  width: 100%;
-  box-sizing: border-box;
-  font-size: 0.8rem;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  padding: 3px 8px;
-  outline: none;
-  transition: border-color 120ms ease;
-}
-
-.list-input:focus {
-  border-color: #d97706;
-}
-
-.list-dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  background: #fff;
-  border: 1px solid #d4d4d8;
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  z-index: 10;
-  max-height: 180px;
-  overflow-y: auto;
-}
-
-.list-dropdown-item {
-  font-size: 0.8rem;
-  padding: 6px 10px;
-  cursor: pointer;
-  color: #18181b;
-}
-
-.list-dropdown-item.highlighted,
-.list-dropdown-item:hover {
-  background: #fef3c7;
 }
 
 .list-error {
