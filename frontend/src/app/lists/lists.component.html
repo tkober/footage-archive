@@ -1,0 +1,84 @@
+<div class="lists-page">
+
+  <div class="page-header">
+    <h2 class="page-heading">Lists</h2>
+  </div>
+
+  <!-- Create -->
+  <div class="create-row">
+    <input class="create-input"
+           placeholder="New list name…"
+           [value]="newListName()"
+           (input)="newListName.set($any($event.target).value); createError.set(null)"
+           (keydown.enter)="createList()" />
+    <button type="button" class="create-btn" [disabled]="!newListName().trim()" (click)="createList()">
+      Create
+    </button>
+  </div>
+  @if (createError()) {
+    <div class="form-error">{{ createError() }}</div>
+  }
+
+  <!-- Empty state -->
+  @if (!loading() && lists().length === 0) {
+    <div class="empty-state">
+      <p>No lists yet. Create one above to start collecting files.</p>
+    </div>
+  }
+
+  <!-- Lists grid -->
+  @if (lists().length > 0) {
+    <div class="list-grid">
+      @for (list of lists(); track list.id) {
+        <div class="list-card" (click)="openList(list)">
+          <div class="list-card-main">
+            @if (editingId() === list.id) {
+              <div class="rename-row" (click)="$event.stopPropagation()">
+                <input #renameInput class="rename-input"
+                       [value]="editNameValue()"
+                       (input)="editNameValue.set($any($event.target).value)"
+                       (keydown.enter)="saveRename(list)"
+                       (keydown.escape)="cancelRename()" />
+                <button type="button" class="save-btn" (click)="saveRename(list)">✓</button>
+                <button type="button" class="cancel-btn" (click)="cancelRename($event)">✕</button>
+              </div>
+              @if (renameError()) {
+                <div class="form-error">{{ renameError() }}</div>
+              }
+            } @else {
+              <div class="list-name-row">
+                <span class="list-name">{{ list.name }}</span>
+                <button type="button" class="edit-pen" title="Rename" (click)="startRename(list, $event)">
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+                    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                  </svg>
+                </button>
+              </div>
+            }
+            <span class="list-count">{{ list.item_count }} item{{ list.item_count === 1 ? '' : 's' }}</span>
+          </div>
+          <button type="button" class="delete-btn" title="Delete list" (click)="requestDelete(list, $event)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+              <path d="M10 11v6"/>
+              <path d="M14 11v6"/>
+              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+            </svg>
+          </button>
+        </div>
+      }
+    </div>
+  }
+
+</div>
+
+@if (pendingDelete(); as list) {
+  <app-confirm-dialog
+    title="Delete list"
+    [message]="'Delete list \'' + list.name + '\' with ' + list.item_count + ' item' + (list.item_count === 1 ? '' : 's') + '? Files themselves are not affected.'"
+    confirmLabel="Delete"
+    [danger]="true"
+    (confirmed)="confirmDelete()"
+    (cancelled)="cancelDelete()" />
+}

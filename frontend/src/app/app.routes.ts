@@ -13,6 +13,16 @@ export const routes: Routes = [
     loadComponent: () => import('./search/search.component').then(m => m.SearchComponent)
   },
   {
+    path: 'lists',
+    title: 'Lists',
+    loadComponent: () => import('./lists/lists.component').then(m => m.ListsComponent)
+  },
+  {
+    path: 'lists/:id',
+    title: 'Lists',
+    loadComponent: () => import('./lists/list-detail.component').then(m => m.ListDetailComponent)
+  },
+  {
     path: 'map',
     title: 'Map',
     loadComponent: () => import('./map/map.component').then(m => m.MapComponent)
