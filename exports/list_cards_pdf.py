@@ -39,12 +39,13 @@ FOOTER_COLOR = colors.HexColor('#AAAAAA')
 CODE_COLOR = colors.black
 
 MARGIN = 10 * mm
-CODE_FONT_SIZE_MAX = 28
+CODE_FONT_SIZE_MAX = 24
 CODE_FONT_SIZE_MIN = 12
 CODE_CHAR_SPACE_MAX = 2.2
 PATH_FONT_SIZE = 6
 FOOTER_FONT_SIZE = 6
-CELL_H_PADDING = 5  # horizontal padding inside a cell, in points
+CELL_H_PADDING = 8  # horizontal padding for the path caption, in points
+CODE_H_PADDING = 6 * mm  # keeps the code clear of the cutting lines
 PATH_LINE_HEIGHT = 7.0
 PATH_MAX_LINES = 2
 
@@ -174,10 +175,9 @@ def _draw_centered_text(c: canvas.Canvas, text: str, center_x: float, y: float,
 
 
 def _draw_card(c: canvas.Canvas, x: float, y: float, w: float, h: float,
-               item: dict, root_dir: str) -> None:
+               item: dict, root_dir: str, code_style: tuple[float, float]) -> None:
     code = (item.get('item_code') or '').upper()
-    available_code_width = w - 2 * CELL_H_PADDING
-    font_size, char_space = _fit_code_style(code, available_code_width)
+    font_size, char_space = code_style
     code_y = y + h * 0.58
     _draw_centered_spaced_text(c, code, x + w / 2, code_y, CODE_FONT, font_size, char_space, CODE_COLOR)
 
@@ -279,6 +279,15 @@ def render_list_cards_pdf(list_name: str, items: list[dict], root_dir: str,
         c.save()
         return buf.getvalue()
 
+    # One code size for the whole document: the widest code decides, so all
+    # cards look alike instead of wide codes (W, M) coming out smaller.
+    available_code_width = cell_w - 2 * CODE_H_PADDING
+    code_style = min(
+        (_fit_code_style((item.get('item_code') or '').upper(), available_code_width)
+         for item in items),
+        key=lambda style: style[0],
+    )
+
     page_count = max(1, math.ceil(len(items) / per_page))
     for page_idx in range(page_count):
         page_items = items[page_idx * per_page: (page_idx + 1) * per_page]
@@ -287,7 +296,7 @@ def render_list_cards_pdf(list_name: str, items: list[dict], root_dir: str,
             row, col = divmod(i, cols)
             cell_x = grid_left + col * cell_w
             cell_y = grid_top - (row + 1) * cell_h
-            _draw_card(c, cell_x, cell_y, cell_w, cell_h, item, root_dir)
+            _draw_card(c, cell_x, cell_y, cell_w, cell_h, item, root_dir, code_style)
         _draw_footer(c, page_w, MARGIN, list_name, today, page_idx + 1, page_count)
         c.showPage()
 
