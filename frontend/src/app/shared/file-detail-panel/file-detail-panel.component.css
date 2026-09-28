@@ -279,6 +279,130 @@
   background: #dbeafe;
 }
 
+/* Lists area */
+.detail-lists {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.detail-lists-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #a1a1aa;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.list-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 24px;
+}
+
+.list-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.list-pill-link {
+  color: #92400e;
+  text-decoration: none;
+}
+
+.list-pill-link:hover {
+  text-decoration: underline;
+}
+
+.list-pill-code {
+  font-family: monospace;
+  font-weight: 700;
+}
+
+.list-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #d9a441;
+  font-size: 0.875rem;
+  padding: 0 2px;
+  line-height: 1;
+  transition: color 120ms ease;
+}
+
+.list-remove:hover {
+  color: #92400e;
+}
+
+.list-add-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.list-add-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.list-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 0.8rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 3px 8px;
+  outline: none;
+  transition: border-color 120ms ease;
+}
+
+.list-input:focus {
+  border-color: #d97706;
+}
+
+.list-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.list-dropdown-item {
+  font-size: 0.8rem;
+  padding: 6px 10px;
+  cursor: pointer;
+  color: #18181b;
+}
+
+.list-dropdown-item.highlighted,
+.list-dropdown-item:hover {
+  background: #fef3c7;
+}
+
+.list-error {
+  font-size: 0.75rem;
+  color: #ef4444;
+}
+
 /* Two-column body */
 .detail-body-cols {
   display: flex;

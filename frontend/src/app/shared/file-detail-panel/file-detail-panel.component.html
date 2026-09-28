@@ -98,6 +98,60 @@
       </div>
     }
 
+    <!-- Lists — directly below keywords -->
+    @if (file.tracked && file.md5_hash) {
+      <div class="detail-lists">
+        <div class="detail-lists-label">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+            <path d="M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h16v2H4v-2z"/>
+          </svg>
+          Lists
+        </div>
+        <div class="list-pills">
+          @for (membership of (file.lists ?? []); track membership.list_id) {
+            <span class="list-pill">
+              <a class="list-pill-link"
+                 [routerLink]="['/lists', membership.list_id]"
+                 [queryParams]="{ code: membership.item_code }">
+                {{ membership.name }} <span class="list-pill-code">· {{ membership.item_code }}</span>
+              </a>
+              <button class="list-remove" (click)="requestRemoveFromList(membership)" title="Remove from list">×</button>
+            </span>
+          }
+        </div>
+        <div class="list-add-row">
+          <div class="list-add-wrap">
+            <input
+              class="list-input"
+              placeholder="Add to list…"
+              [value]="newListValue()"
+              (input)="onListInputChange($any($event.target).value)"
+              (focus)="onListFocus()"
+              (blur)="onListInputBlur()"
+              (keydown)="onListKeydown($event)" />
+            @if (listDropdownOpen() && listDropdownEntries().length > 0) {
+              <div class="list-dropdown">
+                @for (entry of listDropdownEntries(); track (entry.type === 'existing' ? 'l' + entry.list.id : 'c' + entry.name); let i = $index) {
+                  <div class="list-dropdown-item"
+                       [class.highlighted]="i === listHighlightIndex()"
+                       (mousedown)="$event.preventDefault(); pickListEntry(entry)">
+                    @if (entry.type === 'existing') {
+                      {{ entry.list.name }}
+                    } @else {
+                      + Create list "{{ entry.name }}"
+                    }
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        </div>
+        @if (listAddError()) {
+          <div class="list-error">{{ listAddError() }}</div>
+        }
+      </div>
+    }
+
     <!-- Two-column body: info left, location right -->
     <div class="detail-body-cols" [class.two-col]="file.tracked && file.md5_hash">
 
@@ -445,4 +499,14 @@
       </div>
     }
   </app-modal>
+}
+
+@if (pendingRemoveList(); as membership) {
+  <app-confirm-dialog
+    title="Remove from list"
+    [message]="'Remove \'' + (selectedFile()?.name ?? '') + '\' from list \'' + membership.name + '\'? Its code ' + membership.item_code + ' will be released.'"
+    confirmLabel="Remove"
+    [danger]="true"
+    (confirmed)="confirmRemoveFromList()"
+    (cancelled)="cancelRemoveFromList()" />
 }

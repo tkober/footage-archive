@@ -1,17 +1,25 @@
 import { Component, computed, effect, ElementRef, inject, OnDestroy, signal, untracked, ViewChild, viewChild, input, output } from '@angular/core';
 import { DatePipe, JsonPipe } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { GoogleMap, MapAdvancedMarker, MapGeocoder } from '@angular/google-maps';
 
 import { ModalComponent } from '../../modal/modal.component';
 import { ImageViewerComponent } from '../image-viewer/image-viewer.component';
+import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { ApiService } from '../../services/api.service';
 import { GoogleMapsLoaderService } from '../../services/google-maps-loader.service';
-import { ExifTag, FileInfo, Location, ShotClassification, VIDEO_TYPES, PHOTO_TYPES } from '../../models';
+import { ExifTag, FileInfo, FileList, FileListMembership, Location, ShotClassification, VIDEO_TYPES, PHOTO_TYPES } from '../../models';
+
+/** One entry in the "add to list" dropdown: an existing list to join, or the
+    trailing "create a new list" affordance shown when there's no exact match. */
+export type ListDropdownEntry =
+  | { type: 'existing'; list: FileList }
+  | { type: 'create'; name: string };
 
 @Component({
   selector: 'app-file-detail-panel',
   standalone: true,
-  imports: [DatePipe, JsonPipe, ModalComponent, ImageViewerComponent, GoogleMap, MapAdvancedMarker],
+  imports: [DatePipe, JsonPipe, RouterLink, ModalComponent, ImageViewerComponent, ConfirmDialogComponent, GoogleMap, MapAdvancedMarker],
   templateUrl: './file-detail-panel.component.html',
   styleUrl: './file-detail-panel.component.css',
 })
@@ -28,6 +36,7 @@ export class FileDetailPanelComponent implements OnDestroy {
   closed  = output<void>();
   renamed = output<FileInfo>();
   navigate = output<number>();    // emits -1 / +1 to step to the prev / next sibling
+  listsChanged = output<void>();  // emitted after any list membership add/remove, so hosts can refresh
 
   // ── Internal file state (owns its own copy, updated by API calls) ──
   selectedFile = signal<FileInfo | null>(null);
@@ -46,6 +55,28 @@ export class FileDetailPanelComponent implements OnDestroy {
     return this.allKeywords().filter(
       kw => !applied.has(kw) && (input === '' || kw.toLowerCase().includes(input))
     );
+  });
+
+  // ── Lists ──
+  newListValue        = signal('');
+  allLists            = signal<FileList[]>([]);
+  listDropdownOpen    = signal(false);
+  listHighlightIndex  = signal(0);
+  listAddError        = signal<string | null>(null);
+  pendingRemoveList   = signal<FileListMembership | null>(null);
+  listDropdownEntries = computed<ListDropdownEntry[]>(() => {
+    const input = this.newListValue().trim();
+    const inputLower = input.toLowerCase();
+    const memberIds = new Set((this.selectedFile()?.lists ?? []).map(l => l.list_id));
+    const candidates = this.allLists()
+      .filter(l => !memberIds.has(l.id))
+      .filter(l => inputLower === '' || l.name.toLowerCase().includes(inputLower));
+    const entries: ListDropdownEntry[] = candidates.map(list => ({ type: 'existing', list }));
+    const exactMatch = this.allLists().some(l => l.name.toLowerCase() === inputLower);
+    if (input && !exactMatch) {
+      entries.push({ type: 'create', name: input });
+    }
+    return entries;
   });
 
   // ── Location ──
@@ -140,12 +171,18 @@ export class FileDetailPanelComponent implements OnDestroy {
       this.classificationResult.set(null);
       this.classificationError.set(null);
       this.classifying.set(false);
+      this.newListValue.set('');
+      this.listDropdownOpen.set(false);
+      this.listHighlightIndex.set(0);
+      this.listAddError.set(null);
+      this.pendingRemoveList.set(null);
       // untracked: resetHq reads hqUrl(), and we must not make this effect
       // depend on it — otherwise fetching HQ would re-trigger the reset.
       untracked(() => this.resetHq());   // drop any full-res image from the previous file
       if (f) {
         this.api.getAllKeywords().subscribe(kws => this.allKeywords.set(kws));
         this.api.getLocations().subscribe(locs => this.allLocations.set(locs));
+        this.api.getLists().subscribe(ls => this.allLists.set(ls));
       }
     });
 
@@ -284,6 +321,114 @@ export class FileDetailPanelComponent implements OnDestroy {
     if (!file?.md5_hash) return;
     this.api.removeKeyword(file.md5_hash, keyword).subscribe({
       next: () => this.reloadFile(),
+    });
+  }
+
+  // ── Lists ──
+
+  onListInputChange(value: string) {
+    this.newListValue.set(value);
+    this.listAddError.set(null);
+    this.listHighlightIndex.set(0);
+    this.listDropdownOpen.set(true);
+  }
+
+  onListFocus() {
+    this.listDropdownOpen.set(true);
+  }
+
+  /** Delay long enough for a dropdown-item mousedown to be handled first (see
+      list-detail template: mousedown, not click, so it fires before blur). */
+  onListInputBlur() {
+    setTimeout(() => this.listDropdownOpen.set(false), 150);
+  }
+
+  onListKeydown(event: KeyboardEvent) {
+    const entries = this.listDropdownEntries();
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      this.listDropdownOpen.set(true);
+      this.listHighlightIndex.update(i => Math.min(i + 1, Math.max(entries.length - 1, 0)));
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      this.listHighlightIndex.update(i => Math.max(i - 1, 0));
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      const entry = entries[this.listHighlightIndex()];
+      if (entry) this.pickListEntry(entry);
+    } else if (event.key === 'Escape') {
+      this.closeListDropdown();
+      event.stopPropagation();
+    }
+  }
+
+  closeListDropdown() {
+    this.listDropdownOpen.set(false);
+  }
+
+  pickListEntry(entry: ListDropdownEntry) {
+    if (entry.type === 'existing') this.addExistingList(entry.list);
+    else this.createAndAddList(entry.name);
+  }
+
+  private addExistingList(list: FileList) {
+    const file = this.selectedFile();
+    if (!file?.md5_hash) return;
+    this.listAddError.set(null);
+    this.api.addFilesToList(list.id, [file.md5_hash]).subscribe({
+      next: resp => {
+        const item = resp.added[0] ?? resp.existing[0];
+        this.applyListMembership(list.id, list.name, item?.item_code ?? '');
+        this.closeListDropdown();
+        this.listsChanged.emit();
+      },
+      error: err => this.listAddError.set(err.error?.detail ?? 'Failed to add to list'),
+    });
+  }
+
+  private createAndAddList(name: string) {
+    const trimmed = name.trim();
+    const file = this.selectedFile();
+    if (!trimmed || !file?.md5_hash) return;
+    this.listAddError.set(null);
+    this.api.createList(trimmed).subscribe({
+      next: list => {
+        this.allLists.update(ls => [...ls, list]);
+        this.addExistingList(list);
+      },
+      error: err => this.listAddError.set(err.error?.detail ?? 'Failed to create list'),
+    });
+  }
+
+  private applyListMembership(listId: number, name: string, code: string) {
+    this.selectedFile.update(f => {
+      if (!f) return f;
+      const lists = (f.lists ?? []).filter(l => l.list_id !== listId);
+      lists.push({ list_id: listId, name, item_code: code });
+      return { ...f, lists };
+    });
+    this.newListValue.set('');
+  }
+
+  requestRemoveFromList(membership: FileListMembership) {
+    this.pendingRemoveList.set(membership);
+  }
+
+  cancelRemoveFromList() {
+    this.pendingRemoveList.set(null);
+  }
+
+  confirmRemoveFromList() {
+    const file = this.selectedFile();
+    const membership = this.pendingRemoveList();
+    if (!file?.md5_hash || !membership) return;
+    this.api.removeFileFromList(membership.list_id, file.md5_hash).subscribe({
+      next: () => {
+        this.selectedFile.update(f => f ? { ...f, lists: (f.lists ?? []).filter(l => l.list_id !== membership.list_id) } : f);
+        this.pendingRemoveList.set(null);
+        this.listsChanged.emit();
+      },
+      error: () => this.pendingRemoveList.set(null),
     });
   }
 
