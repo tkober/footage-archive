@@ -4,7 +4,7 @@ import { Observable, Subject } from 'rxjs';
 import { shareReplay } from 'rxjs/operators';
 
 import { environment } from '../../environments/environment';
-import { Config, DirectoryQuery, DirectoryResponse, ExifTag, FileInfo, FileSearchQuery, Location, MapPoint, SearchResponse, ShotClassification, Task } from '../models';
+import { AddFilesToListResponse, Config, DirectoryQuery, DirectoryResponse, ExifTag, FileInfo, FileList, FileSearchQuery, ListItem, ListItemsResponse, Location, MapPoint, SearchResponse, ShotClassification, Task } from '../models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -113,5 +113,41 @@ export class ApiService {
 
   classifyShot(path: string): Observable<ShotClassification> {
     return this.http.post<ShotClassification>(`${this.base}/ai/classify-shot`, { path });
+  }
+
+  // ── Lists ──
+
+  getLists(): Observable<FileList[]> {
+    return this.http.get<FileList[]>(`${this.base}/lists`);
+  }
+
+  createList(name: string): Observable<FileList> {
+    return this.http.post<FileList>(`${this.base}/lists`, { name });
+  }
+
+  renameList(id: number, name: string): Observable<FileList> {
+    return this.http.patch<FileList>(`${this.base}/lists/${id}`, { name });
+  }
+
+  deleteList(id: number): Observable<void> {
+    return this.http.delete<void>(`${this.base}/lists/${id}`);
+  }
+
+  getListItems(id: number, page: number, pageSize: number): Observable<ListItemsResponse> {
+    return this.http.get<ListItemsResponse>(`${this.base}/lists/${id}/items`, {
+      params: { page, page_size: pageSize }
+    });
+  }
+
+  addFilesToList(id: number, md5Hashes: string[]): Observable<AddFilesToListResponse> {
+    return this.http.post<AddFilesToListResponse>(`${this.base}/lists/${id}/items`, { md5_hashes: md5Hashes });
+  }
+
+  removeFileFromList(id: number, md5Hash: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/lists/${id}/items/${md5Hash}`);
+  }
+
+  getListItemByCode(id: number, code: string): Observable<ListItem> {
+    return this.http.get<ListItem>(`${this.base}/lists/${id}/items/by-code/${code}`);
   }
 }

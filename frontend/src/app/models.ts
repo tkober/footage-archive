@@ -181,6 +181,35 @@ export interface FileInfo {
   lists?: FileListMembership[];
 }
 
+export interface FileList {
+  id: number;
+  name: string;
+  created_at: string | null;
+  item_count: number;
+}
+
+export interface ListItem {
+  item_code: string;
+  md5_hash: string;
+  file_name: string;
+  directory: string;
+  media_type: string | null;
+  added_at: string | null;
+}
+
+export interface ListItemsResponse {
+  total: number;
+  page: number;
+  page_size: number;
+  items: ListItem[];
+}
+
+export interface AddFilesToListResponse {
+  added: ListItem[];
+  existing: ListItem[];
+  unknown: string[];
+}
+
 export interface ShotMovement {
   movement_type: string;
   movement_direction: string;
