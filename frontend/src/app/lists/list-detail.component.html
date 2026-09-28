@@ -78,7 +78,8 @@
       <app-file-detail-panel
         [file]="selectedFile()"
         [loading]="loadingDetails()"
-        (closed)="closeDetail()" />
+        (closed)="closeDetail()"
+        (listsChanged)="onListsChanged()" />
     </div>
 
   </div><!-- /view-container -->
