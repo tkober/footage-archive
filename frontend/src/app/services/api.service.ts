@@ -150,4 +150,8 @@ export class ApiService {
   getListItemByCode(id: number, code: string): Observable<ListItem> {
     return this.http.get<ListItem>(`${this.base}/lists/${id}/items/by-code/${code}`);
   }
+
+  listExportPdfUrl(id: number): string {
+    return `${this.base}/lists/${id}/export.pdf`;
+  }
 }

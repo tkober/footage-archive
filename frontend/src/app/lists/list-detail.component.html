@@ -11,8 +11,21 @@
   <div class="page-header">
     <div class="header-top">
       <a routerLink="/lists" class="back-link">← Back to Lists</a>
-      <!-- Reserved spot for a future "Export PDF" button; intentionally unimplemented here. -->
-      <div class="header-actions"></div>
+      <div class="header-actions">
+        @if (list() && list()!.item_count > 0) {
+          <a class="export-pdf-btn"
+             [href]="api.listExportPdfUrl(listId)"
+             download
+             title="Export this list as cut-out cards (PDF)">
+            <svg class="export-pdf-icon" viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6">
+              <path d="M5 12.5V3.5a1 1 0 0 1 1-1h6.17a1 1 0 0 1 .7.29l2.34 2.34a1 1 0 0 1 .29.7V12.5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1Z" />
+              <path d="M4 15.5h12" stroke-linecap="round" />
+              <path d="M10 8v4.5M8 10.5l2 2 2-2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            Export PDF
+          </a>
+        }
+      </div>
     </div>
     <div class="header-title-row">
       <h2 class="page-heading">{{ list()?.name ?? '…' }}</h2>
