@@ -114,6 +114,29 @@
       </section>
     }
 
+    <!-- Lists -->
+    @if (allLists().length) {
+      <section class="filter-section">
+        <h3 class="filter-label">Lists</h3>
+        <div class="chip-row">
+          @for (list of allLists(); track list.id) {
+            <button type="button"
+                    class="list-chip"
+                    [class.selected]="selectedListIds().has(list.id)"
+                    (click)="toggleList(list.id)">
+              {{ list.name }}
+            </button>
+          }
+        </div>
+        @if (showSingleListCode()) {
+          <input class="facet-input code-input"
+                 placeholder="Code…"
+                 [value]="listCode()"
+                 (input)="onListCodeInput($any($event.target).value)" />
+        }
+      </section>
+    }
+
     <!-- Video codec -->
     @if (showVideoFilters()) {
       <section class="filter-section">
@@ -192,6 +215,9 @@
                 </div>
               }
               <div class="card-footer">
+                @if (result.item_code) {
+                  <span class="card-code">{{ result.item_code }}</span>
+                }
                 <span class="card-name" [title]="result.file_name">{{ result.file_name }}</span>
                 @if (result.recorded_at) {
                   <span class="card-date">{{ result.recorded_at.slice(0, 10) }}</span>
@@ -222,6 +248,9 @@
                 </div>
               }
               <div class="card-footer">
+                @if (result.item_code) {
+                  <span class="card-code">{{ result.item_code }}</span>
+                }
                 <span class="card-name" [title]="result.file_name">{{ result.file_name }}</span>
                 @if (result.recorded_at) {
                   <span class="card-date">{{ result.recorded_at.slice(0, 10) }}</span>

@@ -182,7 +182,7 @@ footage-archive/
 │   ├── base.py             # GET / (redirect to /docs), GET /version
 │   ├── config.py           # GET /config  ← root_dir, task_poll_interval_ms, google_maps_api_key, google_maps_map_id
 │   ├── files.py            # POST /files/directory, GET /files/details, GET /files/exif (full exiftool dump), PATCH /files/rename, GET /files/clip-preview/{md5_hash}, PATCH /files/location, POST /files/checksum
-│   ├── search.py           # GET /files/search-facets (facet autocomplete), POST /files/search (filtered, paginated search)
+│   ├── search.py           # GET /files/search-facets (facet autocomplete), POST /files/search (filtered, paginated search; incl. list_ids + list_code)
 │   ├── keywords.py         # GET /keywords (all), POST /keywords (add to file), DELETE /keywords (remove from file)
 │   ├── lists.py            # GET/POST /lists, PATCH/DELETE /lists/{id}, GET/POST /lists/{id}/items, DELETE /lists/{id}/items/{md5_hash}, GET /lists/{id}/items/by-code/{code}, GET /lists/{id}/export.pdf (cut-out cards, cols/rows query params)
 │   ├── locations.py        # GET /locations, POST /locations (create), GET /locations/map-points (clustered map markers)
@@ -234,6 +234,7 @@ footage-archive/
         │   ├── file-detail-panel/       # Shared file detail panel (used by browser, search, lists)
         │   ├── image-viewer/            # Zoomable/pannable image viewer used by the detail panel
         │   ├── confirm-dialog/          # Generic confirm/cancel dialog on top of ModalComponent (reused by lists, future callers)
+        │   ├── quick-jump/              # Header box: pick a list + type an item code → /lists/:id?code= (gachapon use case)
         │   └── list-picker/             # Reusable "add to list" input (text field + keyboard-navigable dropdown + ad hoc create); used by the detail panel and the browser's bulk action bar
         ├── modal/                  # Base modal shell (backdrop, teleport-to-body, Esc-to-close)
         └── settings/               # Settings page (empty placeholder)
@@ -324,11 +325,13 @@ footage-archive/
 - [x] Keywords/tags: add + remove from detail panel, autocomplete from all existing keywords
 - [x] Location management: `GET/POST /locations`, `PATCH /files/location` — create + assign from detail panel
 - [x] Keyword API: `GET /keywords` (all), `POST /keywords` (add), `DELETE /keywords` (remove) — backed by normalized `Keywords` + `FileKeywords`
-- [x] Faceted search API: `POST /files/search` (filter by media_type, keywords, country, date range, camera make/model, video codec; paginated) + `GET /files/search-facets` (autocomplete for facet values)
+- [x] Faceted search API: `POST /files/search` (filter by media_type, keywords, country, date range, camera make/model, video codec, lists + item code; paginated; `item_code` per result when exactly one list is filtered) + `GET /files/search-facets` (autocomplete for facet values)
 - [x] Map data API: `GET /locations/map-points` — server-side clustering by zoom level (grid rounding), video/photo counts per cluster
 - [x] AI shot classification: `POST /ai/classify-shot` — ML shot-type prediction for a tracked video (`shot_classifier/`)
 - [x] Interactive map in "New location" modal: Google Maps, click-to-pin, draggable Advanced Marker, geocoding via `google.maps.Geocoder` with progressive retry (drops region/name on failure, max 3 attempts)
 - [x] Read-only location map in file detail panel (Google Maps, zoom/pan enabled) — shows named location coords or raw GPS fallback
+- [x] Search by list: "Lists" filter chips + code field (one list selected), code badges on result cards, a unique code hit opens the detail panel; deep link `/search?list=<id>&code=<code>`
+- [x] Header quick jump: list select (remembered in localStorage) + code input → opens the item in the list view; unknown codes flag the input red
 - [x] Bulk edit mode in grid: "Select" button → checkbox selection → assign location or add keyword to all selected tracked files in parallel, or add the selection to a list (existing or ad hoc via the reusable `app-list-picker`) with a single `POST /lists/{id}/items` call, untracked files skipped and called out; sticky action bar with transient result message ("12 added to 'X' · 3 already in list · 2 untracked skipped"); ESC to cancel
 - [x] Photo thumbnails in browser grid and detail panel (600px JPEG, EXIF-rotation-corrected, `object-fit: contain` in detail view to avoid cropping)
 - [x] Tracked status badge on files in browser grid listing

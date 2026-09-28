@@ -101,6 +101,49 @@
 
 .chip-remove:hover { color: #111; }
 
+/* ── List chips (toggleable, unlike the read-only facet chips above) ── */
+.list-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #fff;
+  color: #374151;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.list-chip:hover {
+  border-color: #a1a1aa;
+}
+
+.list-chip.selected {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #fff;
+}
+
+.code-input {
+  margin-top: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Item-code badge on a result card, shown when exactly one list is selected */
+.card-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #3f3f46;
+  background: #f4f4f5;
+  padding: 1px 5px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
 /* ── View container: clips both list and detail ── */
 .view-container {
   position: relative;
