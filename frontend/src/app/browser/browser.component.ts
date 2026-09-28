@@ -4,16 +4,18 @@ import { forkJoin, switchMap, map, tap } from 'rxjs';
 
 import { ContextMenuComponent } from './context-menu/context-menu.component';
 import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
+import { ListPickerComponent } from '../shared/list-picker/list-picker.component';
 import { ComparisonComponent } from '../comparison/comparison.component';
 import { ApiService } from '../services/api.service';
-import { FileInfo, Location, PathChild, VIDEO_TYPES, PHOTO_TYPES } from '../models';
+import { FileInfo, FileList, Location, PathChild, VIDEO_TYPES, PHOTO_TYPES } from '../models';
 
 const PAGE_SIZE = 50;
+const BULK_RESULT_TIMEOUT_MS = 4000;
 
 @Component({
   selector: 'app-browser',
   standalone: true,
-  imports: [ContextMenuComponent, FileDetailPanelComponent, ComparisonComponent],
+  imports: [ContextMenuComponent, FileDetailPanelComponent, ListPickerComponent, ComparisonComponent],
   templateUrl: './browser.component.html',
   styleUrl: './browser.component.css'
 })
@@ -44,6 +46,8 @@ export class BrowserComponent implements OnInit {
   bulkApplying   = signal(false);
   allKeywords    = signal<string[]>([]);
   allLocations   = signal<Location[]>([]);
+  bulkListResult = signal<string | null>(null);
+  private bulkListResultTimer?: ReturnType<typeof setTimeout>;
 
   // Comparison view
   showComparison = signal(false);
@@ -55,6 +59,7 @@ export class BrowserComponent implements OnInit {
     e => e.type === 'file' && !VIDEO_TYPES.includes(e.media_type as any) && !PHOTO_TYPES.includes(e.media_type as any)
   ));
   hasMore    = computed(() => this.entries().length < this.total());
+  bulkTrackedCount = computed(() => this.bulkTrackedEntries().length);
   showDetail = computed(() => this.loadingDetails() || !!this.selectedFile());
 
   // Detail-panel sibling navigation (photos only — matches the photo viewer).
@@ -240,6 +245,7 @@ export class BrowserComponent implements OnInit {
     this.bulkSelected.set(new Set());
     this.bulkKeyword.set('');
     this.bulkLocationId.set('');
+    this.clearBulkListResult();
   }
 
   toggleBulkSelect(entry: PathChild) {
@@ -306,6 +312,43 @@ export class BrowserComponent implements OnInit {
       next: () => { this.bulkApplying.set(false); this.bulkLocationId.set(''); },
       error: () => { this.bulkApplying.set(false); this.bulkLocationId.set(''); },
     });
+  }
+
+  bulkAddToList(list: FileList) {
+    const targets = this.bulkTrackedEntries();
+    const untrackedCount = this.bulkSelected().size - targets.length;
+    if (!targets.length) return;
+    this.bulkApplying.set(true);
+    this.clearBulkListResult();
+    const md5s = targets.map(e => e.md5_hash!);
+    this.api.addFilesToList(list.id, md5s).subscribe({
+      next: resp => {
+        this.bulkApplying.set(false);
+        const parts: string[] = [];
+        if (resp.added.length) parts.push(`Added ${resp.added.length} to '${list.name}'`);
+        if (resp.existing.length) parts.push(`${resp.existing.length} already in list`);
+        if (untrackedCount > 0) parts.push(`${untrackedCount} untracked skipped`);
+        this.showBulkListResult(parts.join(' · ') || `Nothing added to '${list.name}'`);
+      },
+      error: () => {
+        this.bulkApplying.set(false);
+        this.showBulkListResult(`Failed to add to '${list.name}'`);
+      },
+    });
+  }
+
+  private showBulkListResult(message: string) {
+    this.bulkListResult.set(message);
+    if (this.bulkListResultTimer) clearTimeout(this.bulkListResultTimer);
+    this.bulkListResultTimer = setTimeout(() => this.bulkListResult.set(null), BULK_RESULT_TIMEOUT_MS);
+  }
+
+  private clearBulkListResult() {
+    this.bulkListResult.set(null);
+    if (this.bulkListResultTimer) {
+      clearTimeout(this.bulkListResultTimer);
+      this.bulkListResultTimer = undefined;
+    }
   }
 
   entryPreviewUrl(entry: PathChild): string | null {
