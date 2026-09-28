@@ -183,6 +183,7 @@ footage-archive/
 │   ├── files.py            # POST /files/directory, GET /files/details, GET /files/exif (full exiftool dump), PATCH /files/rename, GET /files/clip-preview/{md5_hash}, PATCH /files/location, POST /files/checksum
 │   ├── search.py           # GET /files/search-facets (facet autocomplete), POST /files/search (filtered, paginated search)
 │   ├── keywords.py         # GET /keywords (all), POST /keywords (add to file), DELETE /keywords (remove from file)
+│   ├── lists.py            # GET/POST /lists, PATCH/DELETE /lists/{id}, GET/POST /lists/{id}/items, DELETE /lists/{id}/items/{md5_hash}, GET /lists/{id}/items/by-code/{code}
 │   ├── locations.py        # GET /locations, POST /locations (create), GET /locations/map-points (clustered map markers)
 │   ├── tracking.py         # POST /tracking/scan-directory, /scan-file, /import-metadata
 │   ├── ai.py               # POST /ai/classify-shot — ML shot-type classification for a tracked video
@@ -238,8 +239,12 @@ footage-archive/
 | `Keywords` | `id` (autoincrement) | Distinct keyword strings (`keyword` is UNIQUE) |
 | `FileKeywords` | `md5_hash + keyword_id` | Join table linking `Files` ↔ `Keywords` (FKs to both) |
 | `ClipPreviews` | `md5_hash` | JPEG preview stored as BLOB — 5-frame horizontal strip for videos, single resized thumbnail for photos |
+| `Lists` | `id` (autoincrement) | Named user-defined lists of files (`name` is UNIQUE) |
+| `ListItems` | `list_id + md5_hash` | Join table linking `Lists` ↔ `Files`, `ON DELETE CASCADE` from `Lists`; each row also carries an `item_code` |
 
-**Indexes:** `Files.directory` (for fast browser lookups), `Locations.country`, `Locations.city`, `Locations.(country, region, city)`, `Keywords.keyword`
+**Indexes:** `Files.directory` (for fast browser lookups), `Locations.country`, `Locations.city`, `Locations.(country, region, city)`, `Keywords.keyword`, `ListItems.md5_hash`
+
+**List item codes** — each `ListItems` row gets a random 6-character `item_code` drawn from an alphabet without visually-confusable characters (`ABCDEFGHJKMNPQRSTUVWXYZ23456789` — no `0`/`O`, `1`/`I`/`L`; ~700M combinations), unique only *within* its list (`uq__ListItems__list_id_item_code`). Generation/normalization lives in `db/list_codes.py` (`generate_item_code`, `normalize_item_code`); codes are stored upper-case and looked up case-insensitively. The code is stable while a file stays in the list — removing and re-adding it issues a new code. `Database.add_files_to_list` regenerates on collision (checked against the list's existing codes, with a bounded retry loop against a rare `IntegrityError` race).
 
 **Schema is managed by Alembic, not raw SQL.** `db/models.py` is the single source of truth (SQLAlchemy Core `Table` definitions); migrations live in `alembic/versions/`. `app.py` runs `alembic upgrade head` on startup, so the schema self-heals. The old `sql/setup.sql` is legacy and no longer loaded. To change the schema: edit `db/models.py`, then `uv run alembic revision --autogenerate -m "..."` and review the generated migration.
 
@@ -313,6 +318,7 @@ footage-archive/
 - [x] Bulk edit mode in grid: "Select" button → checkbox selection → assign location or add keyword to all selected tracked files in parallel; sticky action bar; ESC to cancel
 - [x] Photo thumbnails in browser grid and detail panel (600px JPEG, EXIF-rotation-corrected, `object-fit: contain` in detail view to avoid cropping)
 - [x] Tracked status badge on files in browser grid listing
+- [x] Lists backend: `Lists`/`ListItems` schema + `api/lists.py` (CRUD, bulk add/remove, paginated items, code lookup); random per-list item codes (`db/list_codes.py`); `GET /files/details` reports list memberships (`FileInfo.lists`)
 
 ---
 
