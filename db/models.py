@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, DateTime, Float, ForeignKey, Index, Integer, LargeBinary,
-    MetaData, String, Table, Text,
+    MetaData, String, Table, Text, UniqueConstraint,
 )
 from sqlalchemy.sql import func
 
@@ -105,9 +105,26 @@ clip_previews_table = Table(
     Column('data', LargeBinary),
 )
 
+lists_table = Table(
+    'Lists', metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('name', Text, nullable=False, unique=True),
+    Column('created_at', DateTime, server_default=func.now()),
+)
+
+list_items_table = Table(
+    'ListItems', metadata,
+    Column('list_id', Integer, ForeignKey('Lists.id', ondelete='CASCADE'), primary_key=True),
+    Column('md5_hash', String, ForeignKey('Files.md5_hash'), primary_key=True),
+    Column('item_code', String(8), nullable=False),
+    Column('added_at', DateTime, server_default=func.now()),
+    UniqueConstraint('list_id', 'item_code', name='uq__ListItems__list_id_item_code'),
+)
+
 Index('idx__Locations__country', locations_table.c.country)
 Index('idx__Locations__city', locations_table.c.city)
 Index('idx__Locations__country_region_city',
       locations_table.c.country, locations_table.c.region, locations_table.c.city)
 Index('idx__Files__directory', files_table.c.directory)
 Index('idx__Keywords__keyword', keywords_table.c.keyword)
+Index('idx__ListItems__md5_hash', list_items_table.c.md5_hash)
