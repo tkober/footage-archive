@@ -273,6 +273,19 @@
   border-color: #3b82f6;
 }
 
+.bulk-list-picker {
+  width: 170px;
+  --list-picker-accent: #3b82f6;
+  --list-picker-highlight-bg: #dbeafe;
+}
+
+.bulk-list-result {
+  flex-basis: 100%;
+  font-size: 0.78rem;
+  color: #1d4ed8;
+  padding-top: 2px;
+}
+
 .bulk-loc-select {
   font-size: 0.8rem;
   padding: 3px 6px;

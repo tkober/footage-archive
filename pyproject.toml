@@ -20,9 +20,12 @@ dependencies = [
     "alembic>=1.18.4",
     "sqlalchemy>=2.0",
     "psycopg2-binary>=2.9",
+    "reportlab>=5.0.1",
 ]
 
 [dependency-groups]
 dev = [
+    "pypdf>=6.19.0",
+    "pypdfium2>=5.13.0",
     "pytest>=9.1.1",
 ]

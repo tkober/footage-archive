@@ -17,6 +17,7 @@ Runs on an Unraid NAS server, edited over a 5Gbit network.
 | Maps | Google Maps (`@angular/google-maps`): map view, detail/location maps, geocoding — see `GOOGLE_SETUP.md` |
 | Metadata extraction | exiftool (all photo EXIF + full-dump endpoint) |
 | Preview generation | FFmpeg + FFprobe + Pillow + rawpy |
+| PDF generation | reportlab (list card export, base-14 fonts only — no system TTFs) |
 | Containerisation | Docker + Docker Compose (backend + frontend; linux/amd64 for Unraid) |
 | Frontend serving | nginx (serves static Angular bundle + reverse-proxies `/api` to the backend) |
 
@@ -183,13 +184,15 @@ footage-archive/
 │   ├── files.py            # POST /files/directory, GET /files/details, GET /files/exif (full exiftool dump), PATCH /files/rename, GET /files/clip-preview/{md5_hash}, PATCH /files/location, POST /files/checksum
 │   ├── search.py           # GET /files/search-facets (facet autocomplete), POST /files/search (filtered, paginated search)
 │   ├── keywords.py         # GET /keywords (all), POST /keywords (add to file), DELETE /keywords (remove from file)
-│   ├── lists.py            # GET/POST /lists, PATCH/DELETE /lists/{id}, GET/POST /lists/{id}/items, DELETE /lists/{id}/items/{md5_hash}, GET /lists/{id}/items/by-code/{code}
+│   ├── lists.py            # GET/POST /lists, PATCH/DELETE /lists/{id}, GET/POST /lists/{id}/items, DELETE /lists/{id}/items/{md5_hash}, GET /lists/{id}/items/by-code/{code}, GET /lists/{id}/export.pdf (cut-out cards, cols/rows query params)
 │   ├── locations.py        # GET /locations, POST /locations (create), GET /locations/map-points (clustered map markers)
 │   ├── tracking.py         # POST /tracking/scan-directory, /scan-file, /import-metadata
 │   ├── ai.py               # POST /ai/classify-shot — ML shot-type classification for a tracked video
 │   ├── tasks.py            # GET /tasks, GET /tasks/{id}, DELETE /tasks/completed, DELETE /tasks/{id}
 │   ├── troubleshoot.py     # GET /trouble-shooting/missing-preview, POST /trouble-shooting/missing-preview/fix
 │   └── dtos.py             # Pydantic request/response models (search query/results, etc.)
+├── exports/
+│   └── list_cards_pdf.py   # Pure PDF renderer (no DB access): A4 grid of cut-out cards for a list — big bold item code, small grey truncated/wrapped relative path, faint shared grid lines, page footer
 ├── db/                     # Decoupled DB layer (the only place that knows about SQLAlchemy)
 │   ├── engine.py           # Lazy singleton engine (pool_pre_ping) + dialect-aware upsert/upsert_ignore helpers
 │   ├── models.py           # SQLAlchemy Core Table definitions (metadata) + indexes — single source of truth for the schema
@@ -230,7 +233,8 @@ footage-archive/
         ├── shared/
         │   ├── file-detail-panel/       # Shared file detail panel (used by browser, search, lists)
         │   ├── image-viewer/            # Zoomable/pannable image viewer used by the detail panel
-        │   └── confirm-dialog/          # Generic confirm/cancel dialog on top of ModalComponent (reused by lists, future callers)
+        │   ├── confirm-dialog/          # Generic confirm/cancel dialog on top of ModalComponent (reused by lists, future callers)
+        │   └── list-picker/             # Reusable "add to list" input (text field + keyboard-navigable dropdown + ad hoc create); used by the detail panel and the browser's bulk action bar
         ├── modal/                  # Base modal shell (backdrop, teleport-to-body, Esc-to-close)
         └── settings/               # Settings page (empty placeholder)
 ```
@@ -325,11 +329,12 @@ footage-archive/
 - [x] AI shot classification: `POST /ai/classify-shot` — ML shot-type prediction for a tracked video (`shot_classifier/`)
 - [x] Interactive map in "New location" modal: Google Maps, click-to-pin, draggable Advanced Marker, geocoding via `google.maps.Geocoder` with progressive retry (drops region/name on failure, max 3 attempts)
 - [x] Read-only location map in file detail panel (Google Maps, zoom/pan enabled) — shows named location coords or raw GPS fallback
-- [x] Bulk edit mode in grid: "Select" button → checkbox selection → assign location or add keyword to all selected tracked files in parallel; sticky action bar; ESC to cancel
+- [x] Bulk edit mode in grid: "Select" button → checkbox selection → assign location or add keyword to all selected tracked files in parallel, or add the selection to a list (existing or ad hoc via the reusable `app-list-picker`) with a single `POST /lists/{id}/items` call, untracked files skipped and called out; sticky action bar with transient result message ("12 added to 'X' · 3 already in list · 2 untracked skipped"); ESC to cancel
 - [x] Photo thumbnails in browser grid and detail panel (600px JPEG, EXIF-rotation-corrected, `object-fit: contain` in detail view to avoid cropping)
 - [x] Tracked status badge on files in browser grid listing
 - [x] Lists backend: `Lists`/`ListItems` schema + `api/lists.py` (CRUD, bulk add/remove, paginated items, code lookup); random per-list item codes (`db/list_codes.py`); `GET /files/details` reports list memberships (`FileInfo.lists`)
-- [x] Lists frontend: sidebar "Lists" nav entry; overview page (create, inline rename, delete via confirm-dialog with item count); list detail page (item grid with thumbnail/big monospace code/truncated path, code quick-jump with 404 handling, deep-link `?code=` on load, click-to-open shared file detail panel, per-item remove via confirm dialog, 500-page-size load-more); reusable `ConfirmDialogComponent` on top of `ModalComponent`; header has a reserved (unimplemented) spot for a future "Export PDF" button
+- [x] Lists frontend: sidebar "Lists" nav entry; overview page (create, inline rename, delete via confirm-dialog with item count); list detail page (item grid with thumbnail/big monospace code/truncated path, code quick-jump with 404 handling, deep-link `?code=` on load, click-to-open shared file detail panel, per-item remove via confirm dialog, 500-page-size load-more); reusable `ConfirmDialogComponent` on top of `ModalComponent`; header "Export PDF" button (hidden when the list is empty) downloads `GET /lists/{id}/export.pdf`
+- [x] List PDF export: `GET /lists/{id}/export.pdf?cols=4&rows=7` renders an A4 sheet of cut-out cards via `exports/list_cards_pdf.py` (reportlab, base-14 fonts only) — big bold letter-spaced item code, small grey relative path (2-line wrap, else truncated from the start with a leading `…` so the file name stays visible), faint (#DDDDDD, 0.3pt) shared grid lines with no doubling even on a partial last page, small footer (list name · date · page n/m); ASCII-safe + RFC 5987 `Content-Disposition` filename
 - [x] Lists in the shared file detail panel (browser/search/lists): "Lists" section below keywords showing `Name · CODE` pills (tracked files only), pill name links to `/lists/:id?code=`, × removes via `ConfirmDialogComponent` ("...code will be released"); add-to-list input with a custom keyboard-navigable dropdown (existing lists filtered by text, trailing "+ Create list" entry when no exact match) that creates the list ad hoc and adds the file in one step; `listsChanged` output lets `list-detail` reload its grid/count and close the panel when the open item's own list membership was removed; `list-detail` now subscribes to paramMap/queryParamMap (reading both from `route.snapshot` to stay atomic across a single navigation) instead of a one-time snapshot read, so a detail-panel pill can jump between two list-detail routes without a stale-list 404 or a missed reload
 
 ---

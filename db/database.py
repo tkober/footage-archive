@@ -696,6 +696,24 @@ class Database:
             row = conn.execute(stmt).fetchone()
         return row._asdict() if row is not None else None
 
+    def get_all_list_items_for_export(self, list_id: int) -> list[dict]:
+        """All items of a list, sorted by item_code, with no pagination —
+        used by the PDF card export which needs every item on one pass."""
+        stmt = (
+            select(
+                list_items_table.c.item_code, list_items_table.c.md5_hash,
+                files_table.c.file_name, files_table.c.directory,
+                files_table.c.media_type, list_items_table.c.added_at,
+            )
+            .select_from(list_items_table.join(
+                files_table, list_items_table.c.md5_hash == files_table.c.md5_hash))
+            .where(list_items_table.c.list_id == list_id)
+            .order_by(list_items_table.c.item_code)
+        )
+        with get_engine().connect() as conn:
+            rows = conn.execute(stmt).fetchall()
+        return [row._asdict() for row in rows]
+
     def get_lists_for_file(self, md5_hash: str) -> list[dict]:
         stmt = (
             select(list_items_table.c.list_id, lists_table.c.name,

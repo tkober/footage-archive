@@ -59,12 +59,19 @@
             <button class="bulk-action-btn"
                     (click)="bulkAssignLocation()"
                     [disabled]="bulkApplying() || !bulkLocationId() || !bulkSelected().size">Assign</button>
+            <app-list-picker class="bulk-list-picker"
+                    placeholder="Add to list…"
+                    [disabled]="bulkApplying() || !bulkTrackedCount()"
+                    (picked)="bulkAddToList($event)" />
             <button class="bulk-compare-btn"
                     (click)="openComparison()"
                     [disabled]="comparablePhotos().length < 2"
                     title="Compare selected photos side by side">Compare</button>
             <button class="bulk-done-btn" (click)="exitBulkMode()">Done</button>
           </div>
+          @if (bulkListResult(); as msg) {
+            <div class="bulk-list-result">{{ msg }}</div>
+          }
         </div>
       }
 

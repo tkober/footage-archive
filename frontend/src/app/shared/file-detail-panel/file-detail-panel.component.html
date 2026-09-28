@@ -120,31 +120,9 @@
           }
         </div>
         <div class="list-add-row">
-          <div class="list-add-wrap">
-            <input
-              class="list-input"
-              placeholder="Add to list…"
-              [value]="newListValue()"
-              (input)="onListInputChange($any($event.target).value)"
-              (focus)="onListFocus()"
-              (blur)="onListInputBlur()"
-              (keydown)="onListKeydown($event)" />
-            @if (listDropdownOpen() && listDropdownEntries().length > 0) {
-              <div class="list-dropdown">
-                @for (entry of listDropdownEntries(); track (entry.type === 'existing' ? 'l' + entry.list.id : 'c' + entry.name); let i = $index) {
-                  <div class="list-dropdown-item"
-                       [class.highlighted]="i === listHighlightIndex()"
-                       (mousedown)="$event.preventDefault(); pickListEntry(entry)">
-                    @if (entry.type === 'existing') {
-                      {{ entry.list.name }}
-                    } @else {
-                      + Create list "{{ entry.name }}"
-                    }
-                  </div>
-                }
-              </div>
-            }
-          </div>
+          <app-list-picker
+            [excludeListIds]="memberListIds()"
+            (picked)="onListPicked($event)" />
         </div>
         @if (listAddError()) {
           <div class="list-error">{{ listAddError() }}</div>
