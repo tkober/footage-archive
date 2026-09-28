@@ -46,6 +46,29 @@
   min-width: 1px;
 }
 
+.export-pdf-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+  background: #fff;
+  color: #3f3f46;
+  font-size: 0.78rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.export-pdf-btn:hover {
+  background: #f4f4f5;
+  border-color: #a1a1aa;
+}
+
+.export-pdf-icon {
+  flex-shrink: 0;
+}
+
 .header-title-row {
   display: flex;
   align-items: baseline;
