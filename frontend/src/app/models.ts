@@ -107,6 +107,8 @@ export interface FileSearchQuery {
   bbox_south?: number | null;
   bbox_east?: number | null;
   bbox_north?: number | null;
+  list_ids?: number[];
+  list_code?: string | null;
   page?: number;
   page_size?: number;
 }
@@ -119,6 +121,7 @@ export interface SearchResult {
   recorded_at: string | null;
   country: string | null;
   city: string | null;
+  item_code?: string | null;
 }
 
 export interface SearchResponse {

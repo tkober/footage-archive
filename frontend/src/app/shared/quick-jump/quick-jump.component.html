@@ -1,0 +1,21 @@
+@if (lists().length) {
+  <div class="quick-jump">
+    <select class="quick-jump-select"
+            [ngModel]="selectedListId()"
+            (ngModelChange)="onListChange($event)"
+            (focus)="onSelectFocus()"
+            title="List to jump within">
+      @for (list of lists(); track list.id) {
+        <option [ngValue]="list.id">{{ list.name }}</option>
+      }
+    </select>
+    <input class="quick-jump-code"
+           [class.error]="error()"
+           [value]="code()"
+           (input)="onCodeInput($any($event.target).value)"
+           (keydown.enter)="jump()"
+           placeholder="Code"
+           [title]="error() ? 'No item with code ' + code() : 'Item code'"
+           maxlength="8" />
+  </div>
+}

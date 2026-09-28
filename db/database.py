@@ -395,6 +395,21 @@ class Database:
             conditions.append(geo_lat.between(s, n))
             conditions.append(geo_lon.between(w, e))
 
+        # List filter (OR semantics across the selected lists, like keywords) +
+        # optional code, both applied via a subquery on ListItems so results
+        # stay one row per file (no join fan-out).
+        list_ids = query.get('list_ids') or []
+        list_code = query.get('list_code')
+        if list_ids or list_code:
+            list_items_subq = select(list_items_table.c.md5_hash)
+            if list_ids:
+                list_items_subq = list_items_subq.where(list_items_table.c.list_id.in_(list_ids))
+            if list_code:
+                normalized_code = normalize_item_code(list_code)
+                list_items_subq = list_items_subq.where(
+                    list_items_table.c.item_code == normalized_code)
+            conditions.append(files_table.c.md5_hash.in_(list_items_subq))
+
         base_from = (
             files_table
             .outerjoin(file_details_table,
@@ -407,14 +422,29 @@ class Database:
                        files_table.c.md5_hash == photo_details_table.c.md5_hash)
         )
 
-        count_stmt = select(func.count()).select_from(base_from)
-        data_stmt = (
-            select(
-                files_table.c.md5_hash, files_table.c.file_name,
-                files_table.c.directory, files_table.c.media_type,
-                file_details_table.c.recorded_at,
-                locations_table.c.country, locations_table.c.city,
+        # When exactly one list is selected, also surface that list's item code
+        # per result (e.g. for a badge on the result card).
+        item_code_col = None
+        if len(list_ids) == 1:
+            item_code_subq = (
+                select(list_items_table.c.item_code)
+                .where(list_items_table.c.list_id == list_ids[0],
+                       list_items_table.c.md5_hash == files_table.c.md5_hash)
+                .scalar_subquery()
             )
+            item_code_col = item_code_subq.label('item_code')
+
+        count_stmt = select(func.count()).select_from(base_from)
+        data_columns = [
+            files_table.c.md5_hash, files_table.c.file_name,
+            files_table.c.directory, files_table.c.media_type,
+            file_details_table.c.recorded_at,
+            locations_table.c.country, locations_table.c.city,
+        ]
+        if item_code_col is not None:
+            data_columns.append(item_code_col)
+        data_stmt = (
+            select(*data_columns)
             .select_from(base_from)
             .order_by(
                 file_details_table.c.recorded_at.desc().nullslast(),

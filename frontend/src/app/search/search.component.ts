@@ -6,7 +6,7 @@ import { debounceTime, distinctUntilChanged, map, switchMap } from 'rxjs/operato
 
 import { ApiService } from '../services/api.service';
 import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
-import { FileInfo, FileSearchQuery, SearchResponse, SearchResult, VIDEO_TYPES, PHOTO_TYPES } from '../models';
+import { FileInfo, FileList, FileSearchQuery, SearchResponse, SearchResult, VIDEO_TYPES, PHOTO_TYPES } from '../models';
 
 const MEDIA_TYPE_OPTIONS = [
   { value: 'video',       label: 'Video' },
@@ -44,6 +44,12 @@ export class SearchComponent implements OnInit, OnDestroy {
   keywordInput       = signal('');
   // Geographic filter set by deep-linking from the map's "open in search" link
   bbox = signal<{ west: number; south: number; east: number; north: number } | null>(null);
+
+  // Lists
+  allLists         = signal<FileList[]>([]);
+  selectedListIds  = signal<Set<number>>(new Set());
+  listCode         = signal('');
+  showSingleListCode = computed(() => this.selectedListIds().size === 1);
 
   // ── Facet suggestion lists ──
   countrySuggestions     = signal<string[]>([]);
@@ -94,6 +100,7 @@ export class SearchComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.api.getAllKeywords().subscribe(kws => this.allKeywords.set(kws));
+    this.api.getLists().subscribe(lists => this.allLists.set(lists));
 
     // Debounced re-search on any filter change
     this.subs.push(
@@ -127,6 +134,19 @@ export class SearchComponent implements OnInit, OnDestroy {
       this.bbox.set({ west: +w, south: +s, east: +e, north: +n });
       this.onFilterChange();
     }
+
+    // Apply a list/code filter passed via query params (deep link, analogous to bbox).
+    const listParams = qp.getAll('list');
+    const code = qp.get('code');
+    if (listParams.length || code) {
+      if (listParams.length) {
+        this.selectedListIds.set(new Set(listParams.map(id => +id)));
+      }
+      if (code) {
+        this.listCode.set(code.toUpperCase());
+      }
+      this.onFilterChange();
+    }
   }
 
   clearBbox(): void {
@@ -145,6 +165,19 @@ export class SearchComponent implements OnInit, OnDestroy {
     const types = new Set(this.selectedMediaTypes());
     types.has(value) ? types.delete(value) : types.add(value);
     this.selectedMediaTypes.set(types);
+    this.onFilterChange();
+  }
+
+  toggleList(id: number): void {
+    const ids = new Set(this.selectedListIds());
+    ids.has(id) ? ids.delete(id) : ids.add(id);
+    this.selectedListIds.set(ids);
+    if (ids.size !== 1) this.listCode.set('');
+    this.onFilterChange();
+  }
+
+  onListCodeInput(value: string): void {
+    this.listCode.set(value.toUpperCase());
     this.onFilterChange();
   }
 
@@ -175,7 +208,9 @@ export class SearchComponent implements OnInit, OnDestroy {
       !!this.cameraMake() ||
       !!this.cameraModel() ||
       !!this.videoCodec() ||
-      !!this.bbox();
+      !!this.bbox() ||
+      this.selectedListIds().size > 0 ||
+      !!this.listCode();
     this.hasFilters.set(hasAny);
     if (hasAny) this.filterChange$.next();
     else { this.results.set([]); this.total.set(0); }
@@ -208,6 +243,10 @@ export class SearchComponent implements OnInit, OnDestroy {
       bbox_south:  this.bbox()?.south ?? null,
       bbox_east:   this.bbox()?.east  ?? null,
       bbox_north:  this.bbox()?.north ?? null,
+      list_ids:    [...this.selectedListIds()],
+      // With no list selected (e.g. a code-only deep link) the backend matches
+      // the code in any list; with several lists the code input is hidden.
+      list_code:   this.selectedListIds().size <= 1 ? (this.listCode() || null) : null,
       page,
       page_size:   this.PAGE_SIZE,
     };
@@ -215,11 +254,16 @@ export class SearchComponent implements OnInit, OnDestroy {
 
   private runSearch(append: boolean): void {
     this.loading.set(true);
-    this.api.searchFiles(this.buildQuery(this.currentPage())).subscribe({
+    const query = this.buildQuery(this.currentPage());
+    this.api.searchFiles(query).subscribe({
       next: (resp: SearchResponse) => {
         this.total.set(resp.total);
         this.results.set(append ? [...this.results(), ...resp.items] : resp.items);
         this.loading.set(false);
+        // A code search that resolves to exactly one result opens its detail directly.
+        if (!append && query.list_code && resp.items.length === 1) {
+          this.selectResult(resp.items[0]);
+        }
       },
       error: () => this.loading.set(false),
     });

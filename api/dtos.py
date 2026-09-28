@@ -177,6 +177,8 @@ class FileSearchQuery(BaseModel):
     bbox_south: Optional[float] = None
     bbox_east: Optional[float] = None
     bbox_north: Optional[float] = None
+    list_ids: list[int] = []
+    list_code: Optional[str] = None
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=50, ge=1, le=200)
 
@@ -189,6 +191,7 @@ class SearchResult(BaseModel):
     recorded_at: Optional[str]
     country: Optional[str]
     city: Optional[str]
+    item_code: Optional[str] = None
 
 
 class SearchResponse(BaseModel):
