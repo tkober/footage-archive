@@ -155,6 +155,12 @@ export interface MapPoint {
   members: MapMember[] | null;
 }
 
+export interface FileListMembership {
+  list_id: number;
+  name: string;
+  item_code: string;
+}
+
 export interface FileInfo {
   name: string;
   path: string;
@@ -172,6 +178,7 @@ export interface FileInfo {
   latitude?: number | null;
   longitude?: number | null;
   altitude?: number | null;
+  lists?: FileListMembership[];
 }
 
 export interface ShotMovement {
