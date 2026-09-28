@@ -222,6 +222,16 @@ footage-archive/
         ├── tasks-widget/           # Header task indicator with polling + progress
         ├── browser/                # Browser page: directory navigator + file detail panel
         │   └── context-menu/       # Right-click context menu (scan/track actions)
+        ├── search/                 # Faceted search page: filter panel + results grid + sliding detail panel
+        ├── map/                    # Map page: Google Maps clustering, flyouts, "open in search"
+        ├── lists/                  # Lists feature: overview (create/rename/delete) + list detail (item grid, code jump, remove)
+        │   ├── lists.component.*        # GET/POST/PATCH/DELETE /lists — grid of lists with inline rename + confirm-dialog delete
+        │   └── list-detail.component.*  # GET /lists/{id}/items — item grid (thumbnail + code + path), code quick-jump, deep-link ?code=, remove-from-list
+        ├── shared/
+        │   ├── file-detail-panel/       # Shared file detail panel (used by browser, search, lists)
+        │   ├── image-viewer/            # Zoomable/pannable image viewer used by the detail panel
+        │   └── confirm-dialog/          # Generic confirm/cancel dialog on top of ModalComponent (reused by lists, future callers)
+        ├── modal/                  # Base modal shell (backdrop, teleport-to-body, Esc-to-close)
         └── settings/               # Settings page (empty placeholder)
 ```
 
@@ -319,6 +329,7 @@ footage-archive/
 - [x] Photo thumbnails in browser grid and detail panel (600px JPEG, EXIF-rotation-corrected, `object-fit: contain` in detail view to avoid cropping)
 - [x] Tracked status badge on files in browser grid listing
 - [x] Lists backend: `Lists`/`ListItems` schema + `api/lists.py` (CRUD, bulk add/remove, paginated items, code lookup); random per-list item codes (`db/list_codes.py`); `GET /files/details` reports list memberships (`FileInfo.lists`)
+- [x] Lists frontend: sidebar "Lists" nav entry; overview page (create, inline rename, delete via confirm-dialog with item count); list detail page (item grid with thumbnail/big monospace code/truncated path, code quick-jump with 404 handling, deep-link `?code=` on load, click-to-open shared file detail panel, per-item remove via confirm dialog, 500-page-size load-more); reusable `ConfirmDialogComponent` on top of `ModalComponent`; header has a reserved (unimplemented) spot for a future "Export PDF" button
 
 ---
 
