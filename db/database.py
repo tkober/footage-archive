@@ -1,6 +1,7 @@
+import logging
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import pandas as pd
 from sqlalchemy import case, delete, func, select, update
@@ -12,6 +13,7 @@ from db.models import (
     clip_previews_table,
     file_details_table,
     file_keywords_table,
+    file_operations_table,
     files_table,
     keywords_table,
     list_items_table,
@@ -23,9 +25,29 @@ from db.models import (
 from ffmpeg.ffmpeg import ClipPreview
 from scanner.scanner import ScanResult
 
+logger = logging.getLogger(__name__)
+
 
 class DuplicateListNameError(Exception):
     """Raised when creating/renaming a list to a name that already exists."""
+
+
+class UndoRenameFailedError(Exception):
+    """Raised by run_guarded_rename() when the transaction commit failed
+    AND the subsequent attempt to physically reverse the rename
+    (undo_rename) also failed. The filesystem and DB may now be
+    inconsistent — callers must NOT mark the FileOperations journal row as
+    'rolled_back' or 'failed' in this case; leave it 'pending' so
+    recover_pending_operations() can reconcile it on next startup."""
+
+    def __init__(self, commit_error: Exception, undo_error: Exception):
+        self.commit_error = commit_error
+        self.undo_error = undo_error
+        super().__init__(
+            f'Transaction commit failed ({commit_error!r}) and reversing the '
+            f'physical rename also failed ({undo_error!r}) — filesystem and '
+            f'DB may be inconsistent; left for startup recovery.'
+        )
 
 
 def generate_identifier():
@@ -743,6 +765,152 @@ class Database:
         with get_engine().connect() as conn:
             rows = conn.execute(stmt).fetchall()
         return [row._asdict() for row in rows]
+
+    # ------------------------------------------------------------------
+    # File operations journal + safe move/rename support (fileops/)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _escape_like(value: str) -> str:
+        """Escape a literal string for use in a LIKE pattern with ESCAPE '\\'."""
+        return value.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
+    def insert_file_operation(self, kind: str, source_path: str, target_path: str) -> int:
+        """Insert a journal row in 'pending' status and commit immediately,
+        *before* the physical rename it describes is attempted."""
+        stmt = (
+            file_operations_table.insert()
+            .values(kind=kind, source_path=source_path, target_path=target_path, status='pending')
+        )
+        with get_engine().begin() as conn:
+            result = conn.execute(stmt)
+            return result.inserted_primary_key[0]
+
+    def mark_file_operation(self, operation_id: int, status: str, error: Optional[str] = None,
+                            finished: bool = True) -> None:
+        values = {'status': status, 'error': error}
+        if finished:
+            values['finished_at'] = func.now()
+        stmt = (
+            update(file_operations_table)
+            .where(file_operations_table.c.id == operation_id)
+            .values(**values)
+        )
+        with get_engine().begin() as conn:
+            conn.execute(stmt)
+
+    def get_pending_file_operations(self) -> list[dict]:
+        stmt = (
+            select(file_operations_table)
+            .where(file_operations_table.c.status == 'pending')
+            .order_by(file_operations_table.c.id)
+        )
+        with get_engine().connect() as conn:
+            rows = conn.execute(stmt).fetchall()
+        return [row._asdict() for row in rows]
+
+    def run_guarded_rename(self, apply_updates: Callable[[object], None],
+                           do_rename: Callable[[], None],
+                           undo_rename: Callable[[], None]) -> None:
+        """Runs ``apply_updates(conn)`` followed by ``do_rename()`` inside a
+        single DB transaction.
+
+        - If ``do_rename`` raises (e.g. the underlying ``os.rename`` failed),
+          the transaction is rolled back and the exception re-raised — the
+          caller marks the journal row 'failed'.
+        - If the transaction commit itself fails *after* ``do_rename``
+          already succeeded, ``undo_rename`` is called to reverse the
+          physical rename, and the exception is re-raised — the caller
+          marks the journal row 'rolled_back'.
+        - If ``undo_rename`` itself then also raises, the filesystem and DB
+          may now be inconsistent (the rename happened, the commit didn't,
+          and reversing it failed too) — :class:`UndoRenameFailedError` is
+          raised instead, so the caller knows NOT to mark the journal row
+          'rolled_back' (or 'failed'); it stays 'pending' for
+          recover_pending_operations() to reconcile on next startup.
+
+        The connection is always closed, success or failure.
+        """
+        conn = get_engine().connect()
+        try:
+            trans = conn.begin()
+            try:
+                apply_updates(conn)
+                do_rename()
+            except Exception:
+                trans.rollback()
+                raise
+            try:
+                trans.commit()
+            except Exception as commit_error:
+                try:
+                    undo_rename()
+                except Exception as undo_error:
+                    raise UndoRenameFailedError(commit_error, undo_error) from undo_error
+                raise
+        finally:
+            conn.close()
+
+    def update_file_path_on_conn(self, conn, old_directory: str, old_file_name: str,
+                                 new_directory: str, new_file_name: str) -> bool:
+        """Point the Files row matching (old_directory, old_file_name) at the
+        new location. No-op (returns False) if no tracked row matches —
+        untracked files are only moved on disk."""
+        stmt = (
+            update(files_table)
+            .where(files_table.c.directory == old_directory,
+                   files_table.c.file_name == old_file_name)
+            .values(directory=new_directory, file_name=new_file_name)
+        )
+        result = conn.execute(stmt)
+        return result.rowcount > 0
+
+    def update_directory_prefix_on_conn(self, conn, old_directory: str, new_directory: str) -> int:
+        """Prefix-update Files.directory for every row at ``old_directory`` or
+        below it (``old_directory`` itself, or anything under
+        ``old_directory + '/'``). `/a/bc` is never matched by a rename of
+        `/a/b` — the LIKE pattern is escaped and anchored with a trailing
+        '/'."""
+        like_pattern = self._escape_like(old_directory) + '/%'
+        start_pos = len(old_directory) + 1  # 1-indexed SQL substr position
+        stmt = (
+            update(files_table)
+            .where(
+                (files_table.c.directory == old_directory)
+                | files_table.c.directory.like(like_pattern, escape='\\')
+            )
+            .values(directory=new_directory + func.substr(files_table.c.directory, start_pos))
+        )
+        result = conn.execute(stmt)
+        return result.rowcount
+
+    def update_file_path(self, old_directory: str, old_file_name: str,
+                         new_directory: str, new_file_name: str) -> bool:
+        """Standalone (own-transaction) variant of update_file_path_on_conn,
+        used by recovery which runs outside the move/rename flow."""
+        with get_engine().begin() as conn:
+            return self.update_file_path_on_conn(conn, old_directory, old_file_name,
+                                                 new_directory, new_file_name)
+
+    def update_directory_prefix(self, old_directory: str, new_directory: str) -> int:
+        """Standalone (own-transaction) variant of update_directory_prefix_on_conn,
+        used by recovery which runs outside the move/rename flow."""
+        with get_engine().begin() as conn:
+            return self.update_directory_prefix_on_conn(conn, old_directory, new_directory)
+
+    def count_tracked_files_under(self, directory: str) -> int:
+        """Count Files rows at exactly ``directory`` or anywhere below it."""
+        like_pattern = self._escape_like(directory) + '/%'
+        stmt = (
+            select(func.count())
+            .select_from(files_table)
+            .where(
+                (files_table.c.directory == directory)
+                | files_table.c.directory.like(like_pattern, escape='\\')
+            )
+        )
+        with get_engine().connect() as conn:
+            return conn.execute(stmt).scalar_one()
 
     def get_lists_for_file(self, md5_hash: str) -> list[dict]:
         stmt = (

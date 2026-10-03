@@ -10,6 +10,8 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from api.dtos import FileQuery
 from davinci.davinciresolve import Metadata, DerivedMetadataColumns
 from db.database import Database
+from env.environment import Environment
+from fileops.pathlocks import shared
 from ffmpeg.ffmpeg import FFmpegInput, FFmpeg, FFprobe
 from photos.exif import probe_photo, generate_photo_thumbnail
 from scanner.scanner import Scanner, ScanResult
@@ -110,40 +112,42 @@ class _ProbeProgress:
 
 def index_files_in_directory(query: FileQuery, report: Callable[[str], None]):
     directory = Path(query.path)
-    report('Scanning files…')
-    scan_results = Scanner().scan_directory(directory)
-    total = len(scan_results)
-    report(f'Found {total} files, indexing…')
-    db = Database()
-    db.insert_scan_results(scan_results)
+    with shared(str(directory)):
+        report('Scanning files…')
+        scan_results = Scanner().scan_directory(directory)
+        total = len(scan_results)
+        report(f'Found {total} files, indexing…')
+        db = Database()
+        db.insert_scan_results(scan_results)
 
-    progress = _ProbeProgress(total, report)
+        progress = _ProbeProgress(total, report)
 
-    def probe(sc: ScanResult):
-        ok = True
-        try:
-            _probe_and_save(sc, db, generate_clip_preview=query.generate_clip_preview)
-        except Exception:
-            # Isolate per-file failures so one bad file doesn't abort the whole scan.
-            logging.exception(f'Failed to probe {sc.directory}/{sc.file_name}')
-            ok = False
-        finally:
-            progress.record(sc.file_name, ok)
+        def probe(sc: ScanResult):
+            ok = True
+            try:
+                _probe_and_save(sc, db, generate_clip_preview=query.generate_clip_preview)
+            except Exception:
+                # Isolate per-file failures so one bad file doesn't abort the whole scan.
+                logging.exception(f'Failed to probe {sc.directory}/{sc.file_name}')
+                ok = False
+            finally:
+                progress.record(sc.file_name, ok)
 
-    parallel_map(scan_results, probe)
+        parallel_map(scan_results, probe)
 
 
 def index_single_file(query: FileQuery, report: Callable[[str], None]):
     path = Path(query.path)
-    report('Hashing file…')
-    scan_results = Scanner().scan_files([path])
-    if not scan_results:
-        return
-    sc = scan_results[0]
-    db = Database()
-    db.insert_scan_results(scan_results)
-    report('Probing file…')
-    _probe_and_save(sc, db, generate_clip_preview=query.generate_clip_preview)
+    with shared(str(path)):
+        report('Hashing file…')
+        scan_results = Scanner().scan_files([path])
+        if not scan_results:
+            return
+        sc = scan_results[0]
+        db = Database()
+        db.insert_scan_results(scan_results)
+        report('Probing file…')
+        _probe_and_save(sc, db, generate_clip_preview=query.generate_clip_preview)
 
 
 def _probe_and_save(sc: ScanResult, db: Database, generate_clip_preview: bool):
@@ -198,45 +202,49 @@ def _save_file_details(db: Database, md5_hash: str, last_modified_at: str, recor
 
 def scan_files_in_metadata(query: FileQuery, report: Callable[[str], None]):
     path = Path(query.path)
-    report('Parsing metadata…')
-    metadata = Metadata(path)
-    records = metadata.get_details()
-    keywords = metadata.get_keywords()
-    total = len(records)
-    report(f'Hashing {total} files…')
-    scan_results = Scanner().scan_files(records[DerivedMetadataColumns.FILE_PATH.value])
+    # The CSV can reference files scattered anywhere under ROOT_DIR, not just
+    # next to `path` itself, so the whole root is held as a shared lock for
+    # the duration of the import rather than guessing a narrower subtree.
+    with shared(Environment().get_root_dir()):
+        report('Parsing metadata…')
+        metadata = Metadata(path)
+        records = metadata.get_details()
+        keywords = metadata.get_keywords()
+        total = len(records)
+        report(f'Hashing {total} files…')
+        scan_results = Scanner().scan_files(records[DerivedMetadataColumns.FILE_PATH.value])
 
-    df = pd.DataFrame([r.model_dump() for r in scan_results])
-    df[DerivedMetadataColumns.FILE_PATH.value] = df['directory'] + '/' + df['file_name']
+        df = pd.DataFrame([r.model_dump() for r in scan_results])
+        df[DerivedMetadataColumns.FILE_PATH.value] = df['directory'] + '/' + df['file_name']
 
-    details_merged = pd.merge(
-        left=df[['md5_hash', DerivedMetadataColumns.FILE_PATH.value]],
-        right=records,
-        on=DerivedMetadataColumns.FILE_PATH.value
-    )
+        details_merged = pd.merge(
+            left=df[['md5_hash', DerivedMetadataColumns.FILE_PATH.value]],
+            right=records,
+            on=DerivedMetadataColumns.FILE_PATH.value
+        )
 
-    keywords_merged = pd.merge(
-        left=df[['md5_hash', DerivedMetadataColumns.FILE_PATH.value]],
-        right=keywords,
-        on=DerivedMetadataColumns.FILE_PATH.value
-    )
+        keywords_merged = pd.merge(
+            left=df[['md5_hash', DerivedMetadataColumns.FILE_PATH.value]],
+            right=keywords,
+            on=DerivedMetadataColumns.FILE_PATH.value
+        )
 
-    report('Writing to database…')
-    db = Database()
-    db.insert_scan_results(scan_results)
-    db.insert_file_details(details_merged)
-    db.insert_video_details(details_merged)
-    db.insert_keywords(keywords_merged)
+        report('Writing to database…')
+        db = Database()
+        db.insert_scan_results(scan_results)
+        db.insert_file_details(details_merged)
+        db.insert_video_details(details_merged)
+        db.insert_keywords(keywords_merged)
 
-    if query.generate_clip_preview:
-        for i, row in enumerate(details_merged.itertuples(index=True, name='Row'), 1):
-            report(f'Generating preview {i} / {total}')
-            ffmpeg_input = FFmpegInput.from_time_code(
-                md5_hash=row.md5_hash,
-                file_path=row.file_path,
-                duration_tc=row.duration_tc
-            )
-            create_clip_preview(ffmpeg_input)
+        if query.generate_clip_preview:
+            for i, row in enumerate(details_merged.itertuples(index=True, name='Row'), 1):
+                report(f'Generating preview {i} / {total}')
+                ffmpeg_input = FFmpegInput.from_time_code(
+                    md5_hash=row.md5_hash,
+                    file_path=row.file_path,
+                    duration_tc=row.duration_tc
+                )
+                create_clip_preview(ffmpeg_input)
 
 
 def create_clip_preview(input: FFmpegInput):

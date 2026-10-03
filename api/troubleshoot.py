@@ -5,6 +5,7 @@ from fastapi import APIRouter, BackgroundTasks
 from api.tracking import create_clip_preview
 from db.database import Database
 from ffmpeg.ffmpeg import FFprobe
+from fileops.pathlocks import shared
 from tasks.taskmanager import TaskManager, TaskRequest
 
 TroubleShootingApi = APIRouter(prefix='/trouble-shooting')
@@ -34,6 +35,7 @@ def generate_missing_clip_previews(report):
     for i, row in enumerate(files.itertuples(index=True, name='Row'), 1):
         if not Path(row.file_path).exists():
             continue
-        report(f'Generating preview {i} / {total}')
-        ffmpeg_input = FFprobe().probe_file(row.md5_hash, row.file_path)
-        create_clip_preview(ffmpeg_input)
+        with shared(row.file_path):
+            report(f'Generating preview {i} / {total}')
+            ffmpeg_input = FFprobe().probe_file(row.md5_hash, row.file_path)
+            create_clip_preview(ffmpeg_input)

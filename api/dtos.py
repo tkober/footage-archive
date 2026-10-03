@@ -108,6 +108,33 @@ class RenameRequest(BaseModel):
     new_name: StrictStr
 
 
+class MoveRequest(BaseModel):
+    paths: List[StrictStr]
+    target_directory: StrictStr
+
+
+class MoveItemResult(BaseModel):
+    path: str
+    ok: bool
+    new_path: Optional[str] = None
+    error: Optional[str] = None
+
+
+class MovePreviewResponse(BaseModel):
+    file_count: int
+    tracked_count: int
+    sidecars: list[str]
+
+
+class MkdirRequest(BaseModel):
+    parent: StrictStr
+    name: StrictStr
+
+
+class MkdirResponse(BaseModel):
+    path: str
+
+
 class KeywordRequest(BaseModel):
     md5_hash: StrictStr
     keyword: StrictStr
@@ -266,3 +293,12 @@ class FileInfo(BaseModel):
     longitude: Optional[float] = None
     altitude: Optional[float] = None
     lists: list[FileListMembership] = []
+
+
+class RenameResponse(FileInfo):
+    """FileInfo-compatible rename result — works for both files and
+    directories. Existing frontend code only renames files today and reads
+    this exactly like a FileInfo (name/path/tracked/...); directories simply
+    report tracked=False and no media-specific details, plus an extra
+    `is_directory` flag the frontend can ignore for now."""
+    is_directory: bool = False

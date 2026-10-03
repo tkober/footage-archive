@@ -181,7 +181,7 @@ footage-archive/
 ├── api/
 │   ├── base.py             # GET / (redirect to /docs), GET /version
 │   ├── config.py           # GET /config  ← root_dir, task_poll_interval_ms, google_maps_api_key, google_maps_map_id
-│   ├── files.py            # POST /files/directory, GET /files/details, GET /files/exif (full exiftool dump), PATCH /files/rename, GET /files/clip-preview/{md5_hash}, PATCH /files/location, POST /files/checksum
+│   ├── files.py            # POST /files/directory, GET /files/details, GET /files/exif (full exiftool dump), PATCH /files/rename (file or directory, routed through fileops/), POST /files/move + /files/move/preview, POST /files/mkdir, GET /files/clip-preview/{md5_hash}, PATCH /files/location, POST /files/checksum
 │   ├── search.py           # GET /files/search-facets (facet autocomplete), POST /files/search (filtered, paginated search; incl. list_ids + list_code)
 │   ├── keywords.py         # GET /keywords (all), POST /keywords (add to file), DELETE /keywords (remove from file)
 │   ├── lists.py            # GET/POST /lists, PATCH/DELETE /lists/{id}, GET/POST /lists/{id}/items, DELETE /lists/{id}/items/{md5_hash}, GET /lists/{id}/items/by-code/{code}, GET /lists/{id}/export.pdf (cut-out cards, cols/rows query params)
@@ -193,6 +193,9 @@ footage-archive/
 │   └── dtos.py             # Pydantic request/response models (search query/results, etc.)
 ├── exports/
 │   └── list_cards_pdf.py   # Pure PDF renderer (no DB access): A4 grid of cut-out cards for a list — big bold item code, small grey truncated/wrapped relative path, faint shared grid lines, page footer
+├── fileops/                # Safe move/rename/mkdir service backing api/files.py's PATCH /rename, POST /move(/preview), POST /mkdir
+│   ├── pathlocks.py        # Process-wide in-memory reader/writer path lock registry: shared(path) (scans/tracking block while an overlapping move is in flight) + try_exclusive(paths) (move/rename raises PathLockedError immediately, never waits, on any overlapping shared/exclusive lock); overlap is Path.is_relative_to on resolved paths, never string startswith
+│   └── service.py          # Validation (ROOT_DIR, exists/absent, no self-move, name sanity) + os.rename-only physical moves/renames with sidecar handling + DB path updates, each physical rename journaled in FileOperations before it is attempted; recover_pending_operations() reconciles any 'pending' row left by a crash
 ├── db/                     # Decoupled DB layer (the only place that knows about SQLAlchemy)
 │   ├── engine.py           # Lazy singleton engine (pool_pre_ping) + dialect-aware upsert/upsert_ignore helpers
 │   ├── models.py           # SQLAlchemy Core Table definitions (metadata) + indexes — single source of truth for the schema
@@ -256,6 +259,7 @@ footage-archive/
 | `ClipPreviews` | `md5_hash` | JPEG preview stored as BLOB — 5-frame horizontal strip for videos, single resized thumbnail for photos |
 | `Lists` | `id` (autoincrement) | Named user-defined lists of files (`name` is UNIQUE) |
 | `ListItems` | `list_id + md5_hash` | Join table linking `Lists` ↔ `Files`, `ON DELETE CASCADE` from `Lists`; each row also carries an `item_code` |
+| `FileOperations` | `id` (autoincrement) | Journal of the safe move/rename service (`fileops/`): one row per physical `os.rename` — `kind` (`file_rename`/`dir_move`), `source_path`, `target_path`, `status` (`pending`/`done`/`rolled_back`/`failed`), `error`, `created_at`, `finished_at` |
 
 **Indexes:** `Files.directory` (for fast browser lookups), `Locations.country`, `Locations.city`, `Locations.(country, region, city)`, `Keywords.keyword`, `ListItems.md5_hash`
 
@@ -290,6 +294,7 @@ footage-archive/
 - **DaVinci Resolve CSV** as the primary editorial metadata enrichment path — imports shot/scene/take/angle/move/shot_type directly from Resolve's export.
 - **Task poll interval** — configurable via `TASK_POLL_INTERVAL_MS` env var, exposed through `/config` so the frontend picks it up dynamically.
 - **Google Maps (runtime-keyed)** — maps use `@angular/google-maps` (Maps JS API + Advanced Markers; geocoding via `google.maps.Geocoder`). The browser API key + Map ID come from `GOOGLE_MAPS_API_KEY`/`GOOGLE_MAPS_MAP_ID`, served to the frontend via `/config` (key stays in `.env`, never in git) and loaded once by `GoogleMapsLoaderService`. Blank key → maps gracefully disabled. Server-side clustering (`/locations/map-points`) is map-library-agnostic and unchanged. Setup: `GOOGLE_SETUP.md`.
+- **Safe move/rename with journal recovery + path locks** — `fileops/service.py` backs `PATCH /files/rename` (file or directory), `POST /files/move`/`/move/preview` and `POST /files/mkdir`. Every physical rename is `os.rename` only (never copy+delete; cross-filesystem `EXDEV` fails with a clear error) and is journaled in `FileOperations` as `pending` *before* it's attempted: the DB path update(s) and the `os.rename` run inside one transaction (`Database.run_guarded_rename`), so a failed `rename` rolls the transaction back (journal → `failed`) and a commit that fails *after* a successful rename triggers `os.rename` back (journal → `rolled_back`); the journal row only reaches `done` once both sides agree. `recover_pending_operations()` runs on every startup (`app.py` lifespan, after `alembic upgrade head`) and reconciles any `pending` row left by a crash by checking which side of the rename exists on disk. A file rename/move carries along same-stem sidecars (`BROWSER_HIDDEN_EXTENSIONS`) in the same transaction; a directory rename/move is a single physical rename plus a prefix `UPDATE` on `Files.directory` (escaped `LIKE ... ESCAPE '\'` so renaming `/a/b` never touches `/a/bc`). `fileops/pathlocks.py` is a simple in-process reader/writer lock keyed by resolved path (ancestor/descendant overlap via `Path.is_relative_to`, never string `startswith`): scans/tracking take a blocking `shared()` lock on the subtree they touch, while move/rename take a non-blocking `try_exclusive()` that immediately 409s ("A scan is running in this folder") instead of racing a running scan — there's only one backend process, so no cross-process locking is needed.
 - **Single-origin Compose stack** — the frontend's nginx serves the static Angular bundle *and* reverse-proxies `/api` to the backend on the internal network. The browser only talks to one origin, so there's no hardcoded backend host (prod `apiUrl` is the relative `/api`) and CORS is unnecessary. PostgreSQL stays external (NAS); Compose runs only `backend` + `frontend`.
 
 ---
@@ -313,7 +318,8 @@ footage-archive/
 - [x] `GET /config` endpoint (root_dir, task_poll_interval_ms, google_maps_api_key, google_maps_map_id)
 - [x] `POST /files/directory` with sorting, pagination, ROOT_DIR hardening, hidden extension filtering
 - [x] `GET /files/details` — filesystem info + DB tracking status + VideoDetails/PhotoDetails per file
-- [x] `PATCH /files/rename` — rename file on disk + update Files record
+- [x] `PATCH /files/rename` — rename a file *or directory* on disk + update `Files` record(s), via the safe move/rename service (journaled, path-locked)
+- [x] `POST /files/move` + `/files/move/preview`, `POST /files/mkdir` — bulk/single file move, directory move, dry-run counts (file/tracked/sidecars), new-folder creation; see "Safe move/rename with journal recovery + path locks" above
 - [x] Background task FAILED status with error message
 - [x] Background task progress reporting (step messages while running)
 - [x] Angular shell: header with page title, collapsible dark sidebar, lazy routing
