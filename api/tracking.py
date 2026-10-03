@@ -299,25 +299,11 @@ def index_files_in_directory(query: FileQuery, report: Callable[[str], None]):
     with shared(str(directory)):
         report('Scanning files…')
         scan_results = Scanner().scan_directory(directory)
-        total = len(scan_results)
-        report(f'Found {total} files, indexing…')
+        report(f'Found {len(scan_results)} files, reconciling…')
         db = Database()
-        db.insert_scan_results(scan_results)
-
-        progress = _ProbeProgress(total, report)
-
-        def probe(sc: ScanResult):
-            ok = True
-            try:
-                _probe_and_save(sc, db, generate_clip_preview=query.generate_clip_preview)
-            except Exception:
-                # Isolate per-file failures so one bad file doesn't abort the whole scan.
-                logging.exception(f'Failed to probe {sc.directory}/{sc.file_name}')
-                ok = False
-            finally:
-                progress.record(sc.file_name, ok)
-
-        parallel_map(scan_results, probe)
+        _scan_and_reconcile(scan_results, db, report,
+                            generate_clip_preview=query.generate_clip_preview,
+                            scanned_directory=str(directory))
 
 
 def rediscover_directory(query: RediscoverQuery, report: Callable[[str], None]):
@@ -371,6 +357,79 @@ def _rediscover_summary(result, track_new: bool) -> str:
     )
 
 
+def _scan_and_reconcile(scan_results: list[ScanResult], db: Database, report: Callable[[str], None],
+                        generate_clip_preview: bool, scanned_directory: str) -> None:
+    """Shared reconciliation path for the normal scan (directory + single
+    file): classify every hash found against the DB using the same rules as
+    `/tracking/rediscover` (fileops/rediscover.py), then probe every hash
+    that ends up at a settled tracked path — new (first sorted path wins,
+    other copies become conflicts), unchanged (re-probed to bump
+    last_indexed_at), or relinked (tracked path was gone, found exactly
+    once, so it was relinked like a rediscover before probing at the new
+    path). A hash left in conflict (old path still exists, or found more
+    than once with the old path gone) is never inserted/probed and its
+    `Files` row is left untouched."""
+    md5_hashes = sorted({sc.md5_hash for sc in scan_results})
+    tracked = db.get_tracked_paths_for_hashes(md5_hashes)
+    report('Matching against database…')
+    classification = classify_rediscover(scan_results, tracked, exists=lambda p: Path(p).exists())
+
+    scan_results_by_path = {f'{sc.directory}/{sc.file_name}': sc for sc in scan_results}
+
+    # One shared progress counter across both probing phases below (new
+    # hashes tracked during apply_rediscover(), then unchanged/relinked
+    # hashes probed at their settled path afterwards) so the per-file
+    # "Probed X / Y" messages stay monotonic for the whole scan.
+    total_to_probe = len(classification.new) + len(classification.unchanged) + len(classification.relinked)
+    progress = _ProbeProgress(total_to_probe, report)
+
+    def probe_one(sc: ScanResult):
+        ok = True
+        try:
+            _probe_and_save(sc, db, generate_clip_preview=generate_clip_preview)
+        except Exception:
+            # Isolate per-file failures so one bad file doesn't abort the whole scan.
+            logging.exception(f'Failed to probe {sc.directory}/{sc.file_name}')
+            ok = False
+        finally:
+            progress.record(sc.file_name, ok)
+
+    def probe_batch(batch: list[ScanResult]):
+        if not batch:
+            return
+        # `insert_scan_results` is only ever called here with ScanResults that
+        # already match the (post-relink) tracked path, so this upsert can
+        # never move a Files row — it only inserts new hashes or bumps
+        # last_indexed_at for ones that stayed put.
+        db.insert_scan_results(batch)
+        parallel_map(batch, probe_one)
+
+    report('Applying changes…')
+    result = apply_rediscover(
+        classification, scan_results, db,
+        scanned_directory=scanned_directory,
+        track_new=True,
+        track_new_files=probe_batch,
+        source='scan',
+    )
+
+    settled: list[ScanResult] = []
+    for md5_hash in classification.unchanged:
+        row = tracked[md5_hash]
+        sc = scan_results_by_path.get(f"{row['directory']}/{row['file_name']}")
+        if sc is not None:
+            settled.append(sc)
+    for r in classification.relinked:
+        sc = scan_results_by_path.get(r.new_path)
+        if sc is not None:
+            settled.append(sc)
+
+    probe_batch(settled)
+
+    indexed = result.new_tracked + len(settled)
+    report(f'Indexed {indexed} files · {result.relinked} relinked · {result.conflicts} conflicts')
+
+
 def index_single_file(query: FileQuery, report: Callable[[str], None]):
     path = Path(query.path)
     with shared(str(path)):
@@ -378,11 +437,10 @@ def index_single_file(query: FileQuery, report: Callable[[str], None]):
         scan_results = Scanner().scan_files([path])
         if not scan_results:
             return
-        sc = scan_results[0]
         db = Database()
-        db.insert_scan_results(scan_results)
-        report('Probing file…')
-        _probe_and_save(sc, db, generate_clip_preview=query.generate_clip_preview)
+        _scan_and_reconcile(scan_results, db, report,
+                            generate_clip_preview=query.generate_clip_preview,
+                            scanned_directory=str(path.parent))
 
 
 def _probe_and_save(sc: ScanResult, db: Database, generate_clip_preview: bool):
