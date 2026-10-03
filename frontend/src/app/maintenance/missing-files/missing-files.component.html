@@ -16,6 +16,10 @@
     <div class="form-error">{{ error() }}</div>
   }
 
+  @if (rediscoverNote()) {
+    <div class="rediscover-note">{{ rediscoverNote() }}</div>
+  }
+
   @if (hasChecked() && !error()) {
     @if (files().length === 0) {
       <div class="empty-state">All tracked files are present on disk.</div>
@@ -29,7 +33,7 @@
           <div class="group-header">
             <span class="group-path" [title]="group.directory">{{ group.relativeDirectory }}</span>
             <span class="group-count">{{ group.files.length }} file{{ group.files.length === 1 ? '' : 's' }}</span>
-            <button type="button" class="rediscover-btn" disabled title="Coming soon (#25)">
+            <button type="button" class="rediscover-btn" (click)="openRediscover(group)">
               Rediscover…
             </button>
           </div>
@@ -69,6 +73,15 @@
         </div>
       }
     }
+  }
+
+  @if (showRediscover()) {
+    <app-rediscover-dialog
+      [rootDir]="rootDir()"
+      [startDir]="rediscoverStartDir()"
+      (started)="onRediscoverStarted()"
+      (cancelled)="closeRediscover()"
+    />
   }
 
 </div>

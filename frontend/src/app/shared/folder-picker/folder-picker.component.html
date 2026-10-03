@@ -1,4 +1,4 @@
-<app-modal title="Move to…" (close)="onCancel()">
+<app-modal [title]="title()" (close)="onCancel()">
   <div class="picker">
 
     <nav class="picker-breadcrumbs">
@@ -55,7 +55,7 @@
       <button class="new-folder-btn" (click)="startNewFolder()" [disabled]="creatingFolder()">+ New folder</button>
       <span class="picker-target" [title]="currentDir()">{{ relativeDir(currentDir()) }}</span>
       <button class="move-here-btn" [disabled]="!!blockReason()" [title]="blockReason() ?? ''" (click)="confirmPick()">
-        Move here
+        {{ confirmLabel() }}
       </button>
     </div>
 

@@ -49,6 +49,9 @@
                   @if (task.progress && (task.status === 'RUNNING' || task.status === 'COMPLETED')) {
                     <span class="task-progress">{{ task.progress }}</span>
                   }
+                  @if (conflictCount(task) > 0) {
+                    <a class="task-review-link" routerLink="/maintenance" (click)="close()">Review conflicts</a>
+                  }
                   @if (task.error) {
                     <span class="task-error">{{ task.error }}</span>
                   }

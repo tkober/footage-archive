@@ -1,5 +1,6 @@
 import { DatePipe } from '@angular/common';
 import { Component, computed, inject, Input, OnDestroy, OnInit, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { Subscription, timer } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
 
@@ -9,7 +10,7 @@ import { ApiService } from '../services/api.service';
 @Component({
   selector: 'app-tasks-widget',
   standalone: true,
-  imports: [DatePipe],
+  imports: [DatePipe, RouterLink],
   templateUrl: './tasks-widget.component.html',
   styleUrl: './tasks-widget.component.css',
 })
@@ -18,6 +19,7 @@ export class TasksWidgetComponent implements OnInit, OnDestroy {
 
   private api = inject(ApiService);
   private pollSub?: Subscription;
+  private knownTaskStatus = new Map<string, Task['status']>();
 
   tasks = signal<Task[]>([]);
   open = signal(false);
@@ -28,13 +30,35 @@ export class TasksWidgetComponent implements OnInit, OnDestroy {
   ngOnInit() {
     this.pollSub = timer(0, this.pollIntervalMs)
       .pipe(switchMap(() => this.api.getTasks()))
-      .subscribe({ next: tasks => this.tasks.set(tasks) });
+      .subscribe({ next: tasks => this.applyTasks(tasks) });
 
     this.api.taskRefresh$.subscribe(() => this.refresh());
   }
 
   ngOnDestroy() {
     this.pollSub?.unsubscribe();
+  }
+
+  private applyTasks(tasks: Task[]) {
+    // A Rediscover task that just transitioned into COMPLETED may have left
+    // open path conflicts behind — nudge the sidebar badge + the maintenance
+    // page's conflicts section to reload.
+    for (const task of tasks) {
+      const previous = this.knownTaskStatus.get(task.id);
+      if (task.status === 'COMPLETED' && previous !== 'COMPLETED' && task.name === 'Rediscover') {
+        this.api.conflictsChanged$.next();
+      }
+      this.knownTaskStatus.set(task.id, task.status);
+    }
+    this.tasks.set(tasks);
+  }
+
+  /** Non-zero conflict count parsed out of a completed Rediscover task's
+      summary ("3 relinked · 2 conflicts · 0 new (not tracked) · 1 unchanged"). */
+  conflictCount(task: Task): number {
+    if (task.name !== 'Rediscover' || task.status !== 'COMPLETED' || !task.progress) return 0;
+    const match = task.progress.match(/(\d+)\s+conflicts?/);
+    return match ? parseInt(match[1], 10) : 0;
   }
 
   toggle() {
@@ -52,7 +76,7 @@ export class TasksWidgetComponent implements OnInit, OnDestroy {
   }
 
   refresh() {
-    this.api.getTasks().subscribe({ next: tasks => this.tasks.set(tasks) });
+    this.api.getTasks().subscribe({ next: tasks => this.applyTasks(tasks) });
   }
 
   clearAll() {

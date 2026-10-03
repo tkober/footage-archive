@@ -1,7 +1,7 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { PathChild } from '../../models';
 
-export type ContextMenuActionKind = 'scan' | 'track' | 'rename' | 'move';
+export type ContextMenuActionKind = 'scan' | 'track' | 'rename' | 'move' | 'rediscover';
 
 export interface ContextMenuActionEvent {
   kind: ContextMenuActionKind;

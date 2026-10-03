@@ -5,9 +5,19 @@ from threading import Lock
 from typing import Callable
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Response
 
-from api.dtos import FileQuery, RediscoverQuery
+from api.dtos import (
+    ConflictCandidate,
+    ConflictCountResponse,
+    ConflictEntry,
+    FileQuery,
+    RediscoverQuery,
+    ResolveBatchRequest,
+    ResolveBatchResponse,
+    ResolveBatchStrategy,
+    ResolveConflictRequest,
+)
 from davinci.davinciresolve import Metadata, DerivedMetadataColumns
 from db.database import Database
 from env.environment import Environment
@@ -66,6 +76,148 @@ async def rediscover(query: RediscoverQuery, background_tasks: BackgroundTasks):
     )
 
     return task.id
+
+
+def _conflict_entries(md5_hashes: list[str], conflict_rows: list[dict]) -> list[ConflictEntry]:
+    """Build ConflictEntry objects for ``md5_hashes`` from a flat list of
+    PathConflicts rows (as returned by Database.get_path_conflicts). One
+    summary query (get_tracked_files_with_attachment_counts) plus os.path
+    existence checks — no further DB round-trips."""
+    if not md5_hashes:
+        return []
+
+    summaries = {s['md5_hash']: s for s in Database().get_tracked_files_with_attachment_counts(
+        md5_hashes=md5_hashes
+    )}
+
+    candidates_by_hash: dict[str, list[dict]] = {}
+    for row in conflict_rows:
+        candidates_by_hash.setdefault(row['md5_hash'], []).append(row)
+
+    entries = []
+    for md5_hash in md5_hashes:
+        summary = summaries.get(md5_hash)
+        if summary is None:
+            # Hash no longer tracked (FK cascade would also have removed its
+            # conflicts, but guard against a race anyway).
+            continue
+        tracked_path = f"{summary['directory']}/{summary['file_name']}"
+        candidates = [
+            ConflictCandidate(
+                path=row['candidate_path'],
+                exists=Path(row['candidate_path']).exists(),
+                source=row['source'],
+                found_at=row['found_at'],
+            )
+            for row in sorted(candidates_by_hash.get(md5_hash, []), key=lambda r: r['candidate_path'])
+        ]
+        entries.append(ConflictEntry(
+            md5_hash=md5_hash,
+            file_name=summary['file_name'],
+            media_type=summary['media_type'],
+            has_preview=summary['has_preview'],
+            keyword_count=summary['keyword_count'],
+            has_location=summary['has_location'],
+            list_count=summary['list_count'],
+            tracked_path=tracked_path,
+            tracked_exists=Path(tracked_path).exists(),
+            candidates=candidates,
+        ))
+
+    entries.sort(key=lambda e: e.tracked_path)
+    return entries
+
+
+@TrackingApi.get('/conflicts')
+async def get_conflicts() -> list[ConflictEntry]:
+    db = Database()
+    md5_hashes = db.get_distinct_conflict_hashes()
+    rows = db.get_path_conflicts()
+    return _conflict_entries(md5_hashes, rows)
+
+
+@TrackingApi.get('/conflicts/count')
+async def get_conflicts_count() -> ConflictCountResponse:
+    return ConflictCountResponse(count=Database().count_distinct_conflicts())
+
+
+@TrackingApi.post('/conflicts/resolve', status_code=204)
+async def resolve_conflict(query: ResolveConflictRequest):
+    db = Database()
+    rows = db.get_path_conflicts(query.md5_hash)
+    if not rows:
+        raise HTTPException(status_code=404, detail='No open conflicts for this hash')
+
+    tracked = db.get_tracked_paths_for_hashes([query.md5_hash]).get(query.md5_hash)
+    if tracked is None:
+        raise HTTPException(status_code=404, detail='File is no longer tracked')
+    tracked_path = f"{tracked['directory']}/{tracked['file_name']}"
+
+    valid_paths = {tracked_path} | {r['candidate_path'] for r in rows}
+    if query.chosen_path not in valid_paths:
+        raise HTTPException(
+            status_code=400,
+            detail='chosen_path must be the currently tracked path or one of its candidates',
+        )
+
+    root = Path(Environment().get_root_dir())
+    if not Path(query.chosen_path).resolve().is_relative_to(root):
+        raise HTTPException(status_code=403, detail='Access outside root directory is not allowed')
+    if not Path(query.chosen_path).exists():
+        raise HTTPException(status_code=409, detail='File no longer exists')
+
+    new_directory = new_file_name = new_file_extension = None
+    if query.chosen_path != tracked_path:
+        p = Path(query.chosen_path)
+        new_directory, new_file_name, new_file_extension = str(p.parent), p.name, p.suffix
+
+    db.resolve_path_conflict(
+        query.md5_hash, tracked['directory'], tracked['file_name'],
+        new_directory, new_file_name, new_file_extension,
+    )
+    return Response(status_code=204)
+
+
+@TrackingApi.post('/conflicts/resolve-batch')
+async def resolve_conflicts_batch(query: ResolveBatchRequest) -> ResolveBatchResponse:
+    db = Database()
+    resolved = 0
+    skipped = []
+
+    for md5_hash in query.md5_hashes:
+        rows = db.get_path_conflicts(md5_hash)
+        if not rows:
+            skipped.append({'md5_hash': md5_hash, 'reason': 'No open conflicts'})
+            continue
+
+        tracked = db.get_tracked_paths_for_hashes([md5_hash]).get(md5_hash)
+        if tracked is None:
+            skipped.append({'md5_hash': md5_hash, 'reason': 'File is no longer tracked'})
+            continue
+        tracked_path = f"{tracked['directory']}/{tracked['file_name']}"
+
+        if query.strategy == ResolveBatchStrategy.KEEP_TRACKED:
+            if not Path(tracked_path).exists():
+                skipped.append({'md5_hash': md5_hash, 'reason': 'Tracked path no longer exists'})
+                continue
+            db.resolve_path_conflict(md5_hash, tracked['directory'], tracked['file_name'])
+            resolved += 1
+        else:
+            existing = [r['candidate_path'] for r in rows if Path(r['candidate_path']).exists()]
+            if not existing:
+                skipped.append({'md5_hash': md5_hash, 'reason': 'No existing candidate'})
+                continue
+            if len(existing) > 1:
+                skipped.append({'md5_hash': md5_hash, 'reason': 'Ambiguous: multiple existing candidates'})
+                continue
+            p = Path(existing[0])
+            db.resolve_path_conflict(
+                md5_hash, tracked['directory'], tracked['file_name'],
+                str(p.parent), p.name, p.suffix,
+            )
+            resolved += 1
+
+    return ResolveBatchResponse(resolved=resolved, skipped=skipped)
 
 
 @TrackingApi.post('/scan-file')

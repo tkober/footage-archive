@@ -5,11 +5,13 @@ import { ApiService } from '../../services/api.service';
 import { PathChild } from '../../models';
 
 /**
- * "Move to…" folder navigator on top of ModalComponent. Browses directories
- * from ROOT_DIR (reusing the existing directory-listing API, directories
- * only), with breadcrumbs and inline "New folder" creation. The source
- * directory itself, any of its descendants, and the sources' current common
- * parent (a no-op move) are disabled as a target.
+ * Folder navigator on top of ModalComponent, reused for two flows: "Move
+ * to…" (blocks the source/descendants/current-parent as invalid targets)
+ * and "Rediscover…" (a plain folder picker — any folder, including the
+ * source's own subtree, is a valid pick; nothing is blocked when
+ * `sourcePaths` is omitted). Browses directories from ROOT_DIR (reusing the
+ * existing directory-listing API, directories only), with breadcrumbs and
+ * inline "New folder" creation.
  */
 @Component({
   selector: 'app-folder-picker',
@@ -23,10 +25,14 @@ export class FolderPickerComponent implements OnInit {
 
   // ── Inputs / Outputs ──
   rootDir = input.required<string>();
-  /** Absolute paths being moved — used to block invalid targets. */
-  sourcePaths = input.required<string[]>();
-  /** Directory to open in initially; defaults to the common parent of the sources. */
+  /** Absolute paths being moved — used to block invalid targets. Omit for a
+      plain "pick any folder" flow (e.g. Rediscover) where nothing is blocked. */
+  sourcePaths = input<string[]>([]);
+  /** Directory to open in initially; defaults to the common parent of the sources
+      (or ROOT_DIR, if there are none). */
   startDir = input<string | null>(null);
+  title = input('Move to…');
+  confirmLabel = input('Move here');
 
   picked = output<string>();
   cancelled = output<void>();
@@ -72,7 +78,8 @@ export class FolderPickerComponent implements OnInit {
   });
 
   ngOnInit() {
-    const start = this.startDir() ?? this.parentOf(this.sourcePaths()[0] ?? this.rootDir());
+    const firstSource = this.sourcePaths()[0];
+    const start = this.startDir() ?? (firstSource ? this.parentOf(firstSource) : this.rootDir());
     this.navigateTo(start || this.rootDir());
   }
 

@@ -231,6 +231,18 @@
   word-break: break-word;
 }
 
+.task-review-link {
+  font-size: 0.7rem;
+  color: #60a5fa;
+  margin-top: 4px;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.task-review-link:hover {
+  text-decoration: underline;
+}
+
 .task-desc {
   font-size: 0.75rem;
   color: #52525b;

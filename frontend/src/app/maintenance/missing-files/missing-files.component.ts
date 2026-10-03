@@ -1,6 +1,7 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 
 import { ApiService } from '../../services/api.service';
+import { RediscoverDialogComponent } from '../../shared/rediscover-dialog/rediscover-dialog.component';
 import { MissingFile } from '../../models';
 
 export interface MissingFileGroup {
@@ -12,7 +13,7 @@ export interface MissingFileGroup {
 @Component({
   selector: 'app-missing-files',
   standalone: true,
-  imports: [],
+  imports: [RediscoverDialogComponent],
   templateUrl: './missing-files.component.html',
   styleUrl: './missing-files.component.css',
 })
@@ -24,6 +25,10 @@ export class MissingFilesComponent implements OnInit {
   error = signal<string | null>(null);
   files = signal<MissingFile[]>([]);
   rootDir = signal('');
+
+  rediscoverStartDir = signal<string | null>(null);
+  showRediscover = signal(false);
+  rediscoverNote = signal<string | null>(null);
 
   groups = computed<MissingFileGroup[]>(() => {
     const root = this.rootDir();
@@ -60,6 +65,20 @@ export class MissingFilesComponent implements OnInit {
         this.hasChecked.set(true);
       },
     });
+  }
+
+  openRediscover(group: MissingFileGroup): void {
+    this.rediscoverStartDir.set(group.directory);
+    this.showRediscover.set(true);
+  }
+
+  closeRediscover(): void {
+    this.showRediscover.set(false);
+  }
+
+  onRediscoverStarted(): void {
+    this.showRediscover.set(false);
+    this.rediscoverNote.set('Rediscover started — see tasks.');
   }
 
   private relativize(directory: string, root: string): string {

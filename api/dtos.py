@@ -118,6 +118,55 @@ class MissingFile(BaseModel):
     has_preview: bool
 
 
+class ConflictCandidate(BaseModel):
+    path: StrictStr
+    exists: bool
+    source: StrictStr
+    found_at: Optional[datetime] = None
+
+
+class ConflictEntry(BaseModel):
+    md5_hash: StrictStr
+    file_name: StrictStr
+    media_type: Optional[StrictStr] = None
+    has_preview: bool
+    keyword_count: int
+    has_location: bool
+    list_count: int
+    tracked_path: StrictStr
+    tracked_exists: bool
+    candidates: List[ConflictCandidate]
+
+
+class ConflictCountResponse(BaseModel):
+    count: int
+
+
+class ResolveConflictRequest(BaseModel):
+    md5_hash: StrictStr
+    chosen_path: StrictStr
+
+
+class ResolveBatchStrategy(str, Enum):
+    KEEP_TRACKED = 'keep_tracked'
+    USE_CANDIDATE = 'use_candidate'
+
+
+class ResolveBatchRequest(BaseModel):
+    strategy: ResolveBatchStrategy
+    md5_hashes: List[StrictStr]
+
+
+class ResolveBatchSkip(BaseModel):
+    md5_hash: StrictStr
+    reason: StrictStr
+
+
+class ResolveBatchResponse(BaseModel):
+    resolved: int
+    skipped: List[ResolveBatchSkip]
+
+
 class RenameRequest(BaseModel):
     path: StrictStr
     new_name: StrictStr

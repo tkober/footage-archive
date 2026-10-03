@@ -1,0 +1,84 @@
+.rediscover-confirm {
+  padding: 4px 16px 16px;
+  color: #d4d4d8;
+  font-size: 0.875rem;
+}
+
+.target-line {
+  margin: 0 0 14px;
+  line-height: 1.5;
+}
+
+.target-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #e4e4e7;
+}
+
+.track-new-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  cursor: pointer;
+}
+
+.track-new-row input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: #3b82f6;
+  cursor: pointer;
+}
+
+.hint {
+  margin: 0;
+  color: #a1a1aa;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.form-error {
+  color: #f87171;
+  font-size: 0.82rem;
+  margin: 10px 0 0;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.btn-cancel,
+.btn-confirm {
+  padding: 7px 16px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.btn-cancel {
+  background: none;
+  border-color: #3f3f46;
+  color: #d4d4d8;
+}
+
+.btn-cancel:hover {
+  background: #27272a;
+}
+
+.btn-confirm {
+  background: #3b82f6;
+  color: #fff;
+}
+
+.btn-confirm:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.btn-confirm:disabled,
+.btn-cancel:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
