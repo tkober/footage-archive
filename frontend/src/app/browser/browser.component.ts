@@ -394,7 +394,7 @@ export class BrowserComponent implements OnInit {
     if (!p) return '';
     const sidecarsPart = p.preview.sidecars.length ? ` + ${p.preview.sidecars.length} sidecars` : '';
     return `${p.preview.file_count} files (${p.preview.tracked_count} tracked)${sidecarsPart} `
-      + `will be moved to \`${this.relativePath(p.targetDirectory)}\`.`;
+      + `will be moved to "${this.relativePath(p.targetDirectory)}".`;
   }
 
   confirmPendingMove() {
