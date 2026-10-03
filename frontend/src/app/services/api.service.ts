@@ -4,7 +4,7 @@ import { Observable, Subject } from 'rxjs';
 import { shareReplay } from 'rxjs/operators';
 
 import { environment } from '../../environments/environment';
-import { AddFilesToListResponse, Config, DirectoryQuery, DirectoryResponse, ExifTag, FileInfo, FileList, FileSearchQuery, ListItem, ListItemsResponse, Location, MapPoint, MissingFile, SearchResponse, ShotClassification, Task } from '../models';
+import { AddFilesToListResponse, Config, DirectoryQuery, DirectoryResponse, ExifTag, FileInfo, FileList, FileSearchQuery, ListItem, ListItemsResponse, Location, MapPoint, MissingFile, MkdirResponse, MoveItemResult, MovePreviewResponse, RenameResponse, SearchResponse, ShotClassification, Task } from '../models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -57,6 +57,24 @@ export class ApiService {
 
   renameFile(path: string, newName: string): Observable<FileInfo> {
     return this.http.patch<FileInfo>(`${this.base}/files/rename`, { path, new_name: newName });
+  }
+
+  /** Same endpoint as renameFile, but typed for callers (the browser grid) that
+      also rename directories and need the `is_directory` flag. */
+  renamePath(path: string, newName: string): Observable<RenameResponse> {
+    return this.http.patch<RenameResponse>(`${this.base}/files/rename`, { path, new_name: newName });
+  }
+
+  previewMove(paths: string[], targetDirectory: string): Observable<MovePreviewResponse> {
+    return this.http.post<MovePreviewResponse>(`${this.base}/files/move/preview`, { paths, target_directory: targetDirectory });
+  }
+
+  moveFiles(paths: string[], targetDirectory: string): Observable<MoveItemResult[]> {
+    return this.http.post<MoveItemResult[]>(`${this.base}/files/move`, { paths, target_directory: targetDirectory });
+  }
+
+  mkdir(parent: string, name: string): Observable<MkdirResponse> {
+    return this.http.post<MkdirResponse>(`${this.base}/files/mkdir`, { parent, name });
   }
 
   getTasks(): Observable<Task[]> {

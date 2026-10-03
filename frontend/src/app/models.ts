@@ -184,6 +184,32 @@ export interface FileInfo {
   lists?: FileListMembership[];
 }
 
+/** PATCH /files/rename response: a FileInfo (zeroed-out for directories) plus
+    a flag telling the caller whether the renamed path was a directory. */
+export interface RenameResponse extends FileInfo {
+  is_directory: boolean;
+}
+
+/** Dry-run counts for a move/rename, from POST /files/move/preview. Purely
+    informational — never mutates anything. */
+export interface MovePreviewResponse {
+  file_count: number;
+  tracked_count: number;
+  sidecars: string[];
+}
+
+/** Per-path outcome of POST /files/move (bulk-safe: one entry per requested path). */
+export interface MoveItemResult {
+  path: string;
+  ok: boolean;
+  new_path?: string | null;
+  error?: string | null;
+}
+
+export interface MkdirResponse {
+  path: string;
+}
+
 export interface FileList {
   id: number;
   name: string;

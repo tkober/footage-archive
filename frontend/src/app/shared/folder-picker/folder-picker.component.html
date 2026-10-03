@@ -1,0 +1,63 @@
+<app-modal title="Move to…" (close)="onCancel()">
+  <div class="picker">
+
+    <nav class="picker-breadcrumbs">
+      @for (crumb of breadcrumbs(); track crumb.path; let last = $last) {
+        @if (!last) {
+          <button class="crumb" (click)="navigateTo(crumb.path)">{{ crumb.label }}</button>
+          <span class="sep">›</span>
+        } @else {
+          <span class="crumb active">{{ crumb.label }}</span>
+        }
+      }
+    </nav>
+
+    @if (loading()) {
+      <div class="picker-state">Loading…</div>
+    } @else if (error()) {
+      <div class="picker-state error">{{ error() }}</div>
+    } @else {
+      <div class="dir-list">
+        @for (dir of dirs(); track dir.path) {
+          <button class="dir-row" [class.disabled]="isBlocked(dir.path)"
+                  [title]="isBlocked(dir.path) ? 'Cannot move into this folder' : ''"
+                  [disabled]="isBlocked(dir.path)"
+                  (click)="navigateTo(dir.path)">
+            <svg class="dir-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>
+            </svg>
+            {{ dir.name }}
+          </button>
+        }
+        @if (!dirs().length) {
+          <div class="picker-state empty">No subfolders.</div>
+        }
+      </div>
+    }
+
+    @if (creatingFolder()) {
+      <div class="new-folder-row">
+        <input #newFolderInput class="new-folder-input"
+               [value]="newFolderName()"
+               (input)="newFolderName.set($any($event.target).value)"
+               (keydown.enter)="submitNewFolder()"
+               (keydown.escape)="cancelNewFolder(); $event.stopPropagation()"
+               placeholder="Folder name" />
+        <button class="new-folder-save" (click)="submitNewFolder()">Create</button>
+        <button class="new-folder-cancel" (click)="cancelNewFolder()">Cancel</button>
+      </div>
+      @if (newFolderError(); as err) {
+        <div class="picker-error">{{ err }}</div>
+      }
+    }
+
+    <div class="picker-footer">
+      <button class="new-folder-btn" (click)="startNewFolder()" [disabled]="creatingFolder()">+ New folder</button>
+      <span class="picker-target" [title]="currentDir()">{{ relativeDir(currentDir()) }}</span>
+      <button class="move-here-btn" [disabled]="!!blockReason()" [title]="blockReason() ?? ''" (click)="confirmPick()">
+        Move here
+      </button>
+    </div>
+
+  </div>
+</app-modal>
