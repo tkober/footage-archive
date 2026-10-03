@@ -160,8 +160,11 @@ def apply(classification: ClassificationResult, scan_results: list[ScanResult], 
         relinks = []
         for r in classification.relinked:
             p = Path(r.new_path)
+            old = Path(r.old_path)
             relinks.append({
                 'md5_hash': r.md5_hash,
+                'old_directory': str(old.parent),
+                'old_file_name': old.name,
                 'directory': str(p.parent),
                 'file_name': p.name,
                 'file_extension': p.suffix,

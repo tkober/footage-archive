@@ -996,16 +996,20 @@ class Database:
     def relink_files(self, relinks: list[dict]) -> None:
         """Point each row's (directory, file_name, file_extension) at its new
         location. ``relinks`` is a list of
-        {'md5_hash', 'directory', 'file_name', 'file_extension'}. Applied as
-        one transaction for all relinks of a single rediscover run. Metadata
-        tables are never touched."""
+        {'md5_hash', 'old_directory', 'old_file_name', 'directory', 'file_name',
+        'file_extension'}. A row is only updated if it still points at the old
+        path, so a concurrent change since classification is never overwritten.
+        Applied as one transaction for all relinks of a single rediscover run.
+        Metadata tables are never touched."""
         if not relinks:
             return
         with get_engine().begin() as conn:
             for r in relinks:
                 conn.execute(
                     update(files_table)
-                    .where(files_table.c.md5_hash == r['md5_hash'])
+                    .where(files_table.c.md5_hash == r['md5_hash'],
+                           files_table.c.directory == r['old_directory'],
+                           files_table.c.file_name == r['old_file_name'])
                     .values(directory=r['directory'], file_name=r['file_name'],
                             file_extension=r['file_extension'])
                 )
