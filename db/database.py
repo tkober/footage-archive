@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 import pandas as pd
-from sqlalchemy import case, delete, func, select, update
+from sqlalchemy import case, delete, func, select, tuple_, update
 from sqlalchemy.exc import IntegrityError
 
 from db.engine import get_engine, upsert, upsert_ignore
@@ -19,6 +19,7 @@ from db.models import (
     list_items_table,
     lists_table,
     locations_table,
+    path_conflicts_table,
     photo_details_table,
     video_details_table,
 )
@@ -970,6 +971,100 @@ class Database:
             .where(list_items_table.c.md5_hash == md5_hash)
             .order_by(func.lower(lists_table.c.name))
         )
+        with get_engine().connect() as conn:
+            rows = conn.execute(stmt).fetchall()
+        return [row._asdict() for row in rows]
+
+    # ------------------------------------------------------------------
+    # Rediscover (fileops/rediscover.py) + path conflicts
+    # ------------------------------------------------------------------
+
+    def get_tracked_paths_for_hashes(self, md5_hashes: list[str]) -> dict[str, dict]:
+        """md5_hash -> {'directory', 'file_name'} for the given hashes that
+        are currently tracked in Files. Hashes not tracked are simply absent
+        from the result."""
+        if not md5_hashes:
+            return {}
+        stmt = (
+            select(files_table.c.md5_hash, files_table.c.directory, files_table.c.file_name)
+            .where(files_table.c.md5_hash.in_(md5_hashes))
+        )
+        with get_engine().connect() as conn:
+            rows = conn.execute(stmt).fetchall()
+        return {row.md5_hash: {'directory': row.directory, 'file_name': row.file_name} for row in rows}
+
+    def relink_files(self, relinks: list[dict]) -> None:
+        """Point each row's (directory, file_name, file_extension) at its new
+        location. ``relinks`` is a list of
+        {'md5_hash', 'old_directory', 'old_file_name', 'directory', 'file_name',
+        'file_extension'}. A row is only updated if it still points at the old
+        path, so a concurrent change since classification is never overwritten.
+        Applied as one transaction for all relinks of a single rediscover run.
+        Metadata tables are never touched."""
+        if not relinks:
+            return
+        with get_engine().begin() as conn:
+            for r in relinks:
+                conn.execute(
+                    update(files_table)
+                    .where(files_table.c.md5_hash == r['md5_hash'],
+                           files_table.c.directory == r['old_directory'],
+                           files_table.c.file_name == r['old_file_name'])
+                    .values(directory=r['directory'], file_name=r['file_name'],
+                            file_extension=r['file_extension'])
+                )
+
+    def insert_path_conflicts(self, conflicts: list[dict], source: str) -> None:
+        """``conflicts`` is a list of {'md5_hash', 'candidate_path'}.
+        ON CONFLICT DO NOTHING on the (md5_hash, candidate_path) primary key —
+        re-running a rediscover never duplicates an already-known conflict."""
+        if not conflicts:
+            return
+        records = [
+            {'md5_hash': c['md5_hash'], 'candidate_path': c['candidate_path'], 'source': source}
+            for c in conflicts
+        ]
+        with get_engine().begin() as conn:
+            conn.execute(
+                upsert_ignore(path_conflicts_table, records, ['md5_hash', 'candidate_path'])
+            )
+
+    def get_path_conflicts_for_pruning(self, md5_hashes: list[str], directory: str) -> list[dict]:
+        """PathConflicts rows worth checking for staleness after a rediscover
+        of ``directory``: rows for any of ``md5_hashes`` (the hashes touched
+        by this run), plus rows whose candidate_path sits under ``directory``
+        (so a conflict left behind by an earlier run on this folder, for a
+        hash not touched this time, still gets reconsidered). This is a
+        bounded, predictable scope — it does not scan the whole table."""
+        like_pattern = self._escape_like(directory) + '/%'
+        under_directory = (
+            (path_conflicts_table.c.candidate_path == directory)
+            | path_conflicts_table.c.candidate_path.like(like_pattern, escape='\\')
+        )
+        condition = under_directory
+        if md5_hashes:
+            condition = path_conflicts_table.c.md5_hash.in_(md5_hashes) | under_directory
+        stmt = select(path_conflicts_table).where(condition)
+        with get_engine().connect() as conn:
+            rows = conn.execute(stmt).fetchall()
+        return [row._asdict() for row in rows]
+
+    def delete_path_conflicts(self, pairs: list[tuple[str, str]]) -> int:
+        """Delete specific (md5_hash, candidate_path) PathConflicts rows."""
+        if not pairs:
+            return 0
+        stmt = delete(path_conflicts_table).where(
+            tuple_(path_conflicts_table.c.md5_hash, path_conflicts_table.c.candidate_path).in_(pairs)
+        )
+        with get_engine().begin() as conn:
+            result = conn.execute(stmt)
+        return result.rowcount
+
+    def get_path_conflicts(self, md5_hash: Optional[str] = None) -> list[dict]:
+        stmt = select(path_conflicts_table)
+        if md5_hash is not None:
+            stmt = stmt.where(path_conflicts_table.c.md5_hash == md5_hash)
+        stmt = stmt.order_by(path_conflicts_table.c.md5_hash, path_conflicts_table.c.candidate_path)
         with get_engine().connect() as conn:
             rows = conn.execute(stmt).fetchall()
         return [row._asdict() for row in rows]

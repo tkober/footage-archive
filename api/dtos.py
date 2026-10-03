@@ -13,6 +13,10 @@ class FileQuery(ScanningQuery):
     path: StrictStr
 
 
+class RediscoverQuery(FileQuery):
+    track_new: bool = False
+
+
 class PathType(str, Enum):
     FILE = 'file'
     DIRECTORY = 'directory'

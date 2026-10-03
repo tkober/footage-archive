@@ -219,6 +219,10 @@
   margin-top: 2px;
 }
 
+.task-item.completed .task-progress {
+  color: #71717a;
+}
+
 .task-error {
   font-size: 0.7rem;
   color: #ef4444;
