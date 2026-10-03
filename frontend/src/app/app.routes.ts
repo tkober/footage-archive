@@ -28,6 +28,11 @@ export const routes: Routes = [
     loadComponent: () => import('./map/map.component').then(m => m.MapComponent)
   },
   {
+    path: 'maintenance',
+    title: 'Maintenance',
+    loadComponent: () => import('./maintenance/maintenance.component').then(m => m.MaintenanceComponent)
+  },
+  {
     path: 'settings',
     title: 'Settings',
     loadComponent: () => import('./settings/settings.component').then(m => m.SettingsComponent)

@@ -189,7 +189,7 @@ footage-archive/
 │   ├── tracking.py         # POST /tracking/scan-directory, /scan-file, /import-metadata
 │   ├── ai.py               # POST /ai/classify-shot — ML shot-type classification for a tracked video
 │   ├── tasks.py            # GET /tasks, GET /tasks/{id}, DELETE /tasks/completed, DELETE /tasks/{id}
-│   ├── troubleshoot.py     # GET /trouble-shooting/missing-preview, POST /trouble-shooting/missing-preview/fix
+│   ├── troubleshoot.py     # GET /trouble-shooting/missing-preview, POST /trouble-shooting/missing-preview/fix, GET /trouble-shooting/missing-files (optional ?path= subtree)
 │   └── dtos.py             # Pydantic request/response models (search query/results, etc.)
 ├── exports/
 │   └── list_cards_pdf.py   # Pure PDF renderer (no DB access): A4 grid of cut-out cards for a list — big bold item code, small grey truncated/wrapped relative path, faint shared grid lines, page footer
@@ -240,6 +240,8 @@ footage-archive/
         │   ├── quick-jump/              # Header box: pick a list + type an item code → /lists/:id?code= (gachapon use case)
         │   └── list-picker/             # Reusable "add to list" input (text field + keyboard-navigable dropdown + ad hoc create); used by the detail panel and the browser's bulk action bar
         ├── modal/                  # Base modal shell (backdrop, teleport-to-body, Esc-to-close)
+        ├── maintenance/            # Maintenance page: hosts troubleshooting sections (currently "Missing files"; "Path conflicts" to follow in #25)
+        │   └── missing-files/      # Missing-files section as its own embeddable component: auto-checks on page open, "Re-check" button, grouped-by-directory cards (thumbnail, keyword/location/list badges), disabled "Rediscover…" button per group (#25)
         └── settings/               # Settings page (empty placeholder)
 ```
 
@@ -315,6 +317,7 @@ footage-archive/
 - [x] DaVinci Resolve CSV metadata ingestion → `FileDetails` + `VideoDetails` + `Keywords`
 - [x] Clip preview generation (5-frame JPEG strip for videos, single thumbnail for photos) → `ClipPreviews`
 - [x] Missing preview detection + repair endpoint
+- [x] Missing-files detection: `GET /trouble-shooting/missing-files` (optional `?path=` subtree, 403 outside ROOT_DIR) — one query (`Database.get_tracked_files_with_attachment_counts`) returns every tracked file with keyword/location/list counts + preview presence, then `os.path.exists` filters to rows missing on disk (no hashing, nothing modified/deleted); frontend "Maintenance" page's "Missing files" section auto-checks on open, re-checkable, grouped by old directory with thumbnail + badges per file, disabled "Rediscover…" per group (#25)
 - [x] `GET /config` endpoint (root_dir, task_poll_interval_ms, google_maps_api_key, google_maps_map_id)
 - [x] `POST /files/directory` with sorting, pagination, ROOT_DIR hardening, hidden extension filtering
 - [x] `GET /files/details` — filesystem info + DB tracking status + VideoDetails/PhotoDetails per file

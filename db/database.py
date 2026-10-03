@@ -552,6 +552,55 @@ class Database:
         with get_engine().connect() as conn:
             return pd.read_sql_query(stmt, conn)
 
+    def get_tracked_files_with_attachment_counts(self, directory: Optional[str] = None) -> list[dict]:
+        """Every tracked Files row (optionally restricted to ``directory`` or
+        anything below it — same escaped LIKE-prefix approach as
+        count_tracked_files_under), with what's "attached" to it: keyword
+        count, whether a location is assigned, how many lists it's in, and
+        whether a clip preview exists. One query (correlated-subquery counts
+        + LEFT JOINs), no N+1."""
+        keyword_count = (
+            select(func.count())
+            .select_from(file_keywords_table)
+            .where(file_keywords_table.c.md5_hash == files_table.c.md5_hash)
+            .scalar_subquery()
+        )
+        list_count = (
+            select(func.count())
+            .select_from(list_items_table)
+            .where(list_items_table.c.md5_hash == files_table.c.md5_hash)
+            .scalar_subquery()
+        )
+        stmt = (
+            select(
+                files_table.c.md5_hash,
+                files_table.c.file_name,
+                files_table.c.directory,
+                files_table.c.media_type,
+                keyword_count.label('keyword_count'),
+                file_details_table.c.location_id.isnot(None).label('has_location'),
+                list_count.label('list_count'),
+                clip_previews_table.c.md5_hash.isnot(None).label('has_preview'),
+            )
+            .select_from(
+                files_table
+                .outerjoin(file_details_table,
+                           files_table.c.md5_hash == file_details_table.c.md5_hash)
+                .outerjoin(clip_previews_table,
+                           files_table.c.md5_hash == clip_previews_table.c.md5_hash)
+            )
+        )
+        if directory is not None:
+            like_pattern = self._escape_like(directory) + '/%'
+            stmt = stmt.where(
+                (files_table.c.directory == directory)
+                | files_table.c.directory.like(like_pattern, escape='\\')
+            )
+        stmt = stmt.order_by(files_table.c.directory, files_table.c.file_name)
+        with get_engine().connect() as conn:
+            rows = conn.execute(stmt).fetchall()
+        return [row._asdict() for row in rows]
+
     # ------------------------------------------------------------------
     # Lists
     # ------------------------------------------------------------------
