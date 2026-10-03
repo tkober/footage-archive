@@ -25,6 +25,13 @@
     }
   </nav>
 
+  @if (fileOpMessage(); as msg) {
+    <div class="file-op-message">
+      <span>{{ msg }}</span>
+      <button class="file-op-dismiss" (click)="dismissFileOpMessage()" title="Dismiss">✕</button>
+    </div>
+  }
+
   <div class="view-container" [class.detail-open]="showDetail()">
 
     <!-- Grid view -->
@@ -63,6 +70,10 @@
                     placeholder="Add to list…"
                     [disabled]="bulkApplying() || !bulkTrackedCount()"
                     (picked)="bulkAddToList($event)" />
+            <button class="bulk-action-btn bulk-move-btn"
+                    (click)="bulkMoveTo()"
+                    [disabled]="bulkApplying() || !bulkSelected().size"
+                    title="Move the selected files to another folder">Move to…</button>
             <button class="bulk-compare-btn"
                     (click)="openComparison()"
                     [disabled]="comparablePhotos().length < 2"
@@ -84,14 +95,33 @@
         @if (dirs().length) {
           <div class="dirs-row">
             @for (dir of dirs(); track dir.path) {
-              <button class="dir-chip"
-                      (click)="navigateTo(dir.path)"
-                      (contextmenu)="onEntryContextMenu($event, dir)">
-                <svg class="chip-icon" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>
-                </svg>
-                {{ dir.name }}
-              </button>
+              @if (isRenaming(dir)) {
+                <span class="dir-chip renaming">
+                  <svg class="chip-icon" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>
+                  </svg>
+                  <input #renameInputEl class="rename-input"
+                         [value]="renameValue()"
+                         (click)="$event.stopPropagation()"
+                         (input)="renameValue.set($any($event.target).value)"
+                         (keydown.enter)="commitRename(dir)"
+                         (keydown.escape)="cancelRename(); $event.stopPropagation()" />
+                  <button class="rename-save" (click)="commitRename(dir)" title="Save">✓</button>
+                  <button class="rename-cancel" (click)="cancelRename()" title="Cancel">✕</button>
+                </span>
+                @if (renameError()) {
+                  <div class="rename-error-chip">{{ renameError() }}</div>
+                }
+              } @else {
+                <button class="dir-chip"
+                        (click)="navigateTo(dir.path)"
+                        (contextmenu)="onEntryContextMenu($event, dir)">
+                  <svg class="chip-icon" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>
+                  </svg>
+                  {{ dir.name }}
+                </button>
+              }
             }
           </div>
         }
@@ -113,11 +143,25 @@
                     <img class="card-strip" [src]="thumbUrl" alt="" />
                     <div class="card-footer">
                       <span class="tracked-dot" [class.is-tracked]="entry.tracked === true"></span>
-                      <span class="card-name">{{ entry.name }}</span>
-                      @if (entry.file_extension) {
-                        <span class="ext">{{ entry.file_extension }}</span>
+                      @if (isRenaming(entry)) {
+                        <input #renameInputEl class="rename-input-file"
+                               [value]="renameValue()"
+                               (click)="$event.stopPropagation()"
+                               (input)="renameValue.set($any($event.target).value)"
+                               (keydown.enter)="commitRename(entry)"
+                               (keydown.escape)="cancelRename(); $event.stopPropagation()" />
+                        <button class="rename-save" (click)="commitRename(entry); $event.stopPropagation()" title="Save">✓</button>
+                        <button class="rename-cancel" (click)="cancelRename(); $event.stopPropagation()" title="Cancel">✕</button>
+                      } @else {
+                        <span class="card-name">{{ entry.name }}</span>
+                        @if (entry.file_extension) {
+                          <span class="ext">{{ entry.file_extension }}</span>
+                        }
                       }
                     </div>
+                    @if (renameError() && isRenaming(entry)) {
+                      <div class="rename-error-file">{{ renameError() }}</div>
+                    }
                   </div>
                 } @else {
                   <div class="file-card"
@@ -135,11 +179,25 @@
                     </div>
                     <div class="card-footer">
                       <span class="tracked-dot" [class.is-tracked]="entry.tracked === true"></span>
-                      <span class="card-name">{{ entry.name }}</span>
-                      @if (entry.file_extension) {
-                        <span class="ext">{{ entry.file_extension }}</span>
+                      @if (isRenaming(entry)) {
+                        <input #renameInputEl class="rename-input-file"
+                               [value]="renameValue()"
+                               (click)="$event.stopPropagation()"
+                               (input)="renameValue.set($any($event.target).value)"
+                               (keydown.enter)="commitRename(entry)"
+                               (keydown.escape)="cancelRename(); $event.stopPropagation()" />
+                        <button class="rename-save" (click)="commitRename(entry); $event.stopPropagation()" title="Save">✓</button>
+                        <button class="rename-cancel" (click)="cancelRename(); $event.stopPropagation()" title="Cancel">✕</button>
+                      } @else {
+                        <span class="card-name">{{ entry.name }}</span>
+                        @if (entry.file_extension) {
+                          <span class="ext">{{ entry.file_extension }}</span>
+                        }
                       }
                     </div>
+                    @if (renameError() && isRenaming(entry)) {
+                      <div class="rename-error-file">{{ renameError() }}</div>
+                    }
                   </div>
                 }
               }
@@ -171,11 +229,25 @@
                   }
                   <div class="card-footer">
                     <span class="tracked-dot" [class.is-tracked]="entry.tracked === true"></span>
-                    <span class="card-name">{{ entry.name }}</span>
-                    @if (entry.file_extension) {
-                      <span class="ext">{{ entry.file_extension }}</span>
+                    @if (isRenaming(entry)) {
+                      <input #renameInputEl class="rename-input-file"
+                             [value]="renameValue()"
+                             (click)="$event.stopPropagation()"
+                             (input)="renameValue.set($any($event.target).value)"
+                             (keydown.enter)="commitRename(entry)"
+                             (keydown.escape)="cancelRename(); $event.stopPropagation()" />
+                      <button class="rename-save" (click)="commitRename(entry); $event.stopPropagation()" title="Save">✓</button>
+                      <button class="rename-cancel" (click)="cancelRename(); $event.stopPropagation()" title="Cancel">✕</button>
+                    } @else {
+                      <span class="card-name">{{ entry.name }}</span>
+                      @if (entry.file_extension) {
+                        <span class="ext">{{ entry.file_extension }}</span>
+                      }
                     }
                   </div>
+                  @if (renameError() && isRenaming(entry)) {
+                    <div class="rename-error-file">{{ renameError() }}</div>
+                  }
                 </div>
               }
             </div>
@@ -202,11 +274,25 @@
                   </div>
                   <div class="card-footer">
                     <span class="tracked-dot" [class.is-tracked]="entry.tracked === true"></span>
-                    <span class="card-name">{{ entry.name }}</span>
-                    @if (entry.file_extension) {
-                      <span class="ext">{{ entry.file_extension }}</span>
+                    @if (isRenaming(entry)) {
+                      <input #renameInputEl class="rename-input-file"
+                             [value]="renameValue()"
+                             (click)="$event.stopPropagation()"
+                             (input)="renameValue.set($any($event.target).value)"
+                             (keydown.enter)="commitRename(entry)"
+                             (keydown.escape)="cancelRename(); $event.stopPropagation()" />
+                      <button class="rename-save" (click)="commitRename(entry); $event.stopPropagation()" title="Save">✓</button>
+                      <button class="rename-cancel" (click)="cancelRename(); $event.stopPropagation()" title="Cancel">✕</button>
+                    } @else {
+                      <span class="card-name">{{ entry.name }}</span>
+                      @if (entry.file_extension) {
+                        <span class="ext">{{ entry.file_extension }}</span>
+                      }
                     }
                   </div>
+                  @if (renameError() && isRenaming(entry)) {
+                    <div class="rename-error-file">{{ renameError() }}</div>
+                  }
                 </div>
               }
             </div>
@@ -260,4 +346,30 @@
 
 @if (showComparison()) {
   <app-comparison-view [items]="comparablePhotos()" (closed)="closeComparison()" />
+}
+
+@if (pendingRename(); as pr) {
+  <app-confirm-dialog
+    title="Confirm rename"
+    [message]="renamePreviewMessage()"
+    confirmLabel="Rename"
+    (confirmed)="confirmPendingRename()"
+    (cancelled)="cancelPendingRename()" />
+}
+
+@if (movePickerPaths(); as paths) {
+  <app-folder-picker
+    [rootDir]="rootDir() ?? ''"
+    [sourcePaths]="paths"
+    (picked)="onFolderPicked($event)"
+    (cancelled)="closeMovePicker()" />
+}
+
+@if (pendingMove(); as pm) {
+  <app-confirm-dialog
+    title="Confirm move"
+    [message]="movePreviewMessage()"
+    confirmLabel="Move"
+    (confirmed)="confirmPendingMove()"
+    (cancelled)="cancelPendingMove()" />
 }

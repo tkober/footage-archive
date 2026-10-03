@@ -1,21 +1,38 @@
-import { Component, computed, HostListener, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, ElementRef, HostListener, inject, OnInit, signal, ViewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, switchMap, map, tap } from 'rxjs';
 
-import { ContextMenuComponent } from './context-menu/context-menu.component';
+import { ContextMenuComponent, ContextMenuActionEvent } from './context-menu/context-menu.component';
 import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
 import { ListPickerComponent } from '../shared/list-picker/list-picker.component';
+import { FolderPickerComponent } from '../shared/folder-picker/folder-picker.component';
+import { ConfirmDialogComponent } from '../shared/confirm-dialog/confirm-dialog.component';
 import { ComparisonComponent } from '../comparison/comparison.component';
 import { ApiService } from '../services/api.service';
-import { FileInfo, FileList, Location, PathChild, VIDEO_TYPES, PHOTO_TYPES } from '../models';
+import { FileInfo, FileList, Location, MoveItemResult, MovePreviewResponse, PathChild, RenameResponse, VIDEO_TYPES, PHOTO_TYPES } from '../models';
 
 const PAGE_SIZE = 50;
 const BULK_RESULT_TIMEOUT_MS = 4000;
+const FILE_OP_RESULT_TIMEOUT_MS = 6000;
+
+/** Pending rename awaiting confirmation (directory rename, or a file rename whose sidecars move along). */
+interface PendingRename {
+  entry: PathChild;
+  newName: string;
+  preview: MovePreviewResponse;
+}
+
+/** Pending move awaiting confirmation, from either the context menu (single entry) or bulk mode. */
+interface PendingMove {
+  paths: string[];
+  targetDirectory: string;
+  preview: MovePreviewResponse;
+}
 
 @Component({
   selector: 'app-browser',
   standalone: true,
-  imports: [ContextMenuComponent, FileDetailPanelComponent, ListPickerComponent, ComparisonComponent],
+  imports: [ContextMenuComponent, FileDetailPanelComponent, ListPickerComponent, FolderPickerComponent, ConfirmDialogComponent, ComparisonComponent],
   templateUrl: './browser.component.html',
   styleUrl: './browser.component.css'
 })
@@ -51,6 +68,22 @@ export class BrowserComponent implements OnInit {
 
   // Comparison view
   showComparison = signal(false);
+
+  // Inline rename (file or directory tile, triggered from the context menu)
+  renamingPath  = signal<string | null>(null);
+  renameValue   = signal('');
+  renameError   = signal<string | null>(null);
+  pendingRename = signal<PendingRename | null>(null);
+  @ViewChild('renameInputEl') renameInputRef?: ElementRef<HTMLInputElement>;
+
+  // Move to… (folder picker + confirm), shared by the context menu and bulk mode
+  movePickerPaths = signal<string[] | null>(null);
+  pendingMove     = signal<PendingMove | null>(null);
+  moveError       = signal<string | null>(null);
+
+  // Transient feedback for rename/move results
+  fileOpMessage = signal<string | null>(null);
+  private fileOpMessageTimer?: ReturnType<typeof setTimeout>;
 
   dirs           = computed(() => this.entries().filter(e => e.type === 'directory'));
   videoFiles     = computed(() => this.entries().filter(e => e.type === 'file' && VIDEO_TYPES.includes(e.media_type as any)));
@@ -224,12 +257,245 @@ export class BrowserComponent implements OnInit {
     this.api.scanDirectory(path).subscribe({ next: () => this.api.taskRefresh$.next() });
   }
 
-  onContextMenuAction(entry: PathChild) {
-    const call = entry.type === 'directory'
-      ? this.api.scanDirectory(entry.path)
-      : this.api.trackFile(entry.path);
+  onContextMenuAction(event: ContextMenuActionEvent) {
+    const { kind, entry } = event;
+    if (kind === 'scan' || kind === 'track') {
+      const call = kind === 'scan' ? this.api.scanDirectory(entry.path) : this.api.trackFile(entry.path);
+      call.subscribe({ next: () => this.api.taskRefresh$.next() });
+    } else if (kind === 'rename') {
+      this.startRename(entry);
+    } else if (kind === 'move') {
+      this.openMovePicker([entry.path]);
+    }
+  }
 
-    call.subscribe({ next: () => this.api.taskRefresh$.next() });
+  // ── Rename (inline edit on the grid tile) ──
+
+  isRenaming(entry: PathChild): boolean {
+    return this.renamingPath() === entry.path;
+  }
+
+  startRename(entry: PathChild) {
+    this.renamingPath.set(entry.path);
+    this.renameValue.set(entry.name);
+    this.renameError.set(null);
+    setTimeout(() => {
+      const el = this.renameInputRef?.nativeElement;
+      if (el) {
+        el.focus();
+        const lastDot = entry.name.lastIndexOf('.');
+        const stemEnd = entry.type === 'file' && lastDot > 0 ? lastDot : entry.name.length;
+        el.setSelectionRange(0, stemEnd);
+      }
+    });
+  }
+
+  cancelRename() {
+    this.renamingPath.set(null);
+    this.renameError.set(null);
+  }
+
+  /** Enter on the inline rename input: directories always need a confirm (prefix update
+      can touch many rows); files only need one when sidecars will move along too. */
+  commitRename(entry: PathChild) {
+    const newName = this.renameValue().trim();
+    if (!newName || newName === entry.name) { this.cancelRename(); return; }
+
+    const parent = this.parentOf(entry.path);
+    this.api.previewMove([entry.path], parent).subscribe({
+      next: preview => {
+        if (entry.type === 'directory' || preview.sidecars.length > 0) {
+          this.pendingRename.set({ entry, newName, preview });
+        } else {
+          this.executeRename(entry, newName);
+        }
+      },
+      // Preview is informational only — if it fails for some reason, still let the
+      // rename itself be attempted; the rename call surfaces any real error.
+      error: () => this.executeRename(entry, newName),
+    });
+  }
+
+  confirmPendingRename() {
+    const p = this.pendingRename();
+    if (!p) return;
+    this.pendingRename.set(null);
+    this.executeRename(p.entry, p.newName);
+  }
+
+  cancelPendingRename() {
+    this.pendingRename.set(null);
+  }
+
+  renamePreviewMessage(): string {
+    const p = this.pendingRename();
+    if (!p) return '';
+    if (p.entry.type === 'directory') {
+      return `Rename folder to "${p.newName}"? ${p.preview.file_count} files `
+        + `(${p.preview.tracked_count} tracked) will be renamed along with it.`;
+    }
+    return `Rename "${p.entry.name}" to "${p.newName}"? ${p.preview.sidecars.length} sidecar file(s) `
+      + `will be renamed along with it.`;
+  }
+
+  private executeRename(entry: PathChild, newName: string) {
+    this.api.renamePath(entry.path, newName).subscribe({
+      next: resp => this.applyRenameResult(entry, resp),
+      error: err => this.renameError.set(err.error?.detail ?? 'Rename failed'),
+    });
+  }
+
+  private applyRenameResult(entry: PathChild, resp: RenameResponse) {
+    this.renamingPath.set(null);
+    this.renameError.set(null);
+
+    this.entries.update(list => list.map(e =>
+      e.path === entry.path ? { ...e, name: resp.name, path: resp.path } : e
+    ));
+
+    // The renamed directory is the one we're currently looking at (via the
+    // background context menu on the current path itself) — follow it.
+    if (this.currentPath() === entry.path && resp.path !== entry.path) {
+      this.navigateTo(resp.path);
+    }
+
+    // The open detail panel is showing the file that was just renamed.
+    const sel = this.selectedFile();
+    if (sel && sel.path === entry.path) {
+      this.selectedFile.set({ ...sel, name: resp.name, path: resp.path });
+    }
+
+    this.showFileOpMessage(`Renamed to "${resp.name}"`);
+  }
+
+  // ── Move to… (folder picker + confirm) ──
+
+  openMovePicker(paths: string[]) {
+    this.moveError.set(null);
+    this.movePickerPaths.set(paths);
+  }
+
+  closeMovePicker() {
+    this.movePickerPaths.set(null);
+  }
+
+  onFolderPicked(targetDirectory: string) {
+    const paths = this.movePickerPaths();
+    this.movePickerPaths.set(null);
+    if (!paths) return;
+    this.api.previewMove(paths, targetDirectory).subscribe({
+      next: preview => this.pendingMove.set({ paths, targetDirectory, preview }),
+      error: err => this.showFileOpMessage(err.error?.detail ?? 'Could not preview the move'),
+    });
+  }
+
+  movePreviewMessage(): string {
+    const p = this.pendingMove();
+    if (!p) return '';
+    const sidecarsPart = p.preview.sidecars.length ? ` + ${p.preview.sidecars.length} sidecars` : '';
+    return `${p.preview.file_count} files (${p.preview.tracked_count} tracked)${sidecarsPart} `
+      + `will be moved to \`${this.relativePath(p.targetDirectory)}\`.`;
+  }
+
+  confirmPendingMove() {
+    const p = this.pendingMove();
+    if (!p) return;
+    this.pendingMove.set(null);
+    this.api.moveFiles(p.paths, p.targetDirectory).subscribe({
+      next: results => this.applyMoveResults(results, p.targetDirectory),
+      error: err => this.showFileOpMessage(err.error?.detail ?? 'Move failed'),
+    });
+  }
+
+  cancelPendingMove() {
+    this.pendingMove.set(null);
+  }
+
+  private applyMoveResults(results: MoveItemResult[], targetDirectory: string) {
+    const ok = results.filter(r => r.ok);
+    const failed = results.filter(r => !r.ok);
+
+    let message = `${ok.length} moved`;
+    if (failed.length) {
+      message += ` · ${failed.length} failed: ` + failed.map(f => f.error).join('; ');
+    }
+    this.showFileOpMessage(message, failed.length > 0);
+
+    // Clear the bulk selection for whatever moved; leftover (failed) selection stays.
+    if (ok.length) {
+      const movedPaths = new Set(ok.map(r => r.path));
+      this.bulkSelected.update(sel => new Set([...sel].filter(p => !movedPaths.has(p))));
+    }
+
+    // Did we move the directory we're currently looking at (or an ancestor of it)?
+    let navigateTarget: string | null = null;
+    for (const r of ok) {
+      if (!r.new_path) continue;
+      const cur = this.currentPath();
+      if (!cur) continue;
+      if (cur === r.path) {
+        navigateTarget = r.new_path;
+      } else if (cur.startsWith(r.path + '/')) {
+        navigateTarget = r.new_path + cur.slice(r.path.length);
+      }
+    }
+
+    // Did we move the file the detail panel is showing?
+    const sel = this.selectedFile();
+    if (sel) {
+      const moved = ok.find(r => r.new_path && (sel.path === r.path || sel.path.startsWith(r.path + '/')));
+      if (moved && moved.new_path) {
+        const newSelPath = sel.path === moved.path ? moved.new_path : moved.new_path + sel.path.slice(moved.path.length);
+        this.api.getFileDetails(newSelPath).subscribe({
+          next: info => this.selectedFile.set(info),
+          error: () => this.closeDetails(),
+        });
+      }
+    }
+
+    if (navigateTarget) {
+      this.navigateTo(navigateTarget);
+    } else {
+      this.reloadCurrentDirectory();
+    }
+  }
+
+  private reloadCurrentDirectory() {
+    const path = this.currentPath();
+    if (path) this.loadDirectory(path);
+  }
+
+  private showFileOpMessage(message: string, sticky = false) {
+    this.fileOpMessage.set(message);
+    if (this.fileOpMessageTimer) clearTimeout(this.fileOpMessageTimer);
+    if (!sticky) {
+      this.fileOpMessageTimer = setTimeout(() => this.fileOpMessage.set(null), FILE_OP_RESULT_TIMEOUT_MS);
+    }
+  }
+
+  dismissFileOpMessage() {
+    this.fileOpMessage.set(null);
+    if (this.fileOpMessageTimer) {
+      clearTimeout(this.fileOpMessageTimer);
+      this.fileOpMessageTimer = undefined;
+    }
+  }
+
+  bulkMoveTo() {
+    if (!this.bulkSelected().size) return;
+    this.openMovePicker([...this.bulkSelected()]);
+  }
+
+  private parentOf(path: string): string {
+    const idx = path.lastIndexOf('/');
+    return idx > 0 ? path.slice(0, idx) : '/';
+  }
+
+  relativePath(path: string): string {
+    const root = this.rootDir();
+    if (!root) return path;
+    if (path === root) return '/';
+    return path.startsWith(root) ? path.slice(root.length).replace(/^\/+/, '') : path;
   }
 
   enterBulkMode() {
