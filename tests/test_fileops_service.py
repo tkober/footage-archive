@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy.engine import Transaction
 
 import fileops.service as svc
+from db.database import Database
 from db.engine import get_engine
 from db.models import file_details_table, file_keywords_table, files_table, keywords_table, \
     list_items_table, lists_table, locations_table
@@ -400,3 +401,197 @@ def test_preview_move_counts_files_and_tracked_and_sidecars(db, root_dir, monkey
     assert preview.file_count == 2  # main file + sidecar
     assert preview.tracked_count == 1  # only the main file is tracked
     assert preview.sidecars == [str(sidecar)]
+
+
+# ---------------------------------------------------------------------------
+# TOCTOU: target appearing between up-front validation and the physical
+# rename must never be silently overwritten by os.rename.
+# ---------------------------------------------------------------------------
+
+def test_target_created_between_validation_and_rename_is_not_overwritten(db, root_dir, monkeypatch):
+    src = root_dir / 'a.jpg'
+    _mkfile(src, b'original')
+    _insert_file_row(str(root_dir), 'a.jpg', 'h1')
+    target = root_dir / 'b.jpg'
+
+    original_insert = Database.insert_file_operation
+
+    def sneaky_insert(self, *args, **kwargs):
+        # Simulate a concurrent writer creating the target in the window
+        # between the service's up-front _require_absent() check and the
+        # physical os.rename — this runs after that check (it's part of
+        # dispatching the rename) but before do_rename()'s own re-check.
+        if not target.exists():
+            target.write_bytes(b'already-here')
+        return original_insert(self, *args, **kwargs)
+
+    monkeypatch.setattr(Database, 'insert_file_operation', sneaky_insert)
+
+    with pytest.raises(svc.AlreadyExistsError):
+        svc.rename_path(str(src), 'b.jpg')
+
+    # The pre-existing target must be untouched, and the source must not
+    # have been consumed by a silent os.rename overwrite.
+    assert target.read_bytes() == b'already-here'
+    assert src.exists()
+    assert src.read_bytes() == b'original'
+    assert _get_file_row(str(root_dir), 'a.jpg') is not None
+    assert _get_file_row(str(root_dir), 'b.jpg') is None
+
+
+def test_sidecar_target_created_between_validation_and_rename_is_not_overwritten(db, root_dir, monkeypatch):
+    monkeypatch.setenv('BROWSER_HIDDEN_EXTENSIONS', '.xmp')
+    src = root_dir / 'clip.mov'
+    sidecar = root_dir / 'clip.xmp'
+    _mkfile(src)
+    _mkfile(sidecar)
+    sidecar_target = root_dir / 'renamed.xmp'
+
+    original_insert = Database.insert_file_operation
+
+    def sneaky_insert(self, *args, **kwargs):
+        if not sidecar_target.exists():
+            sidecar_target.write_bytes(b'already-here')
+        return original_insert(self, *args, **kwargs)
+
+    monkeypatch.setattr(Database, 'insert_file_operation', sneaky_insert)
+
+    with pytest.raises(svc.AlreadyExistsError):
+        svc.rename_path(str(src), 'renamed.mov')
+
+    # Nothing should have moved — the main file's rename is reversed when a
+    # later rename in the group (the sidecar) fails.
+    assert src.exists()
+    assert sidecar.exists()
+    assert not (root_dir / 'renamed.mov').exists()
+    assert sidecar_target.read_bytes() == b'already-here'
+
+
+# ---------------------------------------------------------------------------
+# Undo failure after a commit failure: must leave the journal 'pending'.
+# ---------------------------------------------------------------------------
+
+def test_undo_failure_after_commit_failure_leaves_journal_pending(db, root_dir, monkeypatch):
+    src = root_dir / 'a.jpg'
+    _mkfile(src)
+    _insert_file_row(str(root_dir), 'a.jpg', 'h1')
+
+    original_commit = Transaction.commit
+    commit_calls = {'n': 0}
+
+    def flaky_commit(self):
+        commit_calls['n'] += 1
+        # 1st commit = the journal 'pending' insert (must succeed); 2nd =
+        # the guarded rename's own transaction, which we want to fail.
+        if commit_calls['n'] == 2:
+            raise RuntimeError('commit boom')
+        return original_commit(self)
+
+    original_rename = os.rename
+    rename_calls = {'n': 0}
+
+    def flaky_rename(a, b):
+        rename_calls['n'] += 1
+        # 1st call = the real do_rename() rename, which must succeed so we
+        # reach the commit-failure path; 2nd call = undo_rename() trying to
+        # reverse it, which we want to fail too.
+        if rename_calls['n'] == 2:
+            raise OSError('undo also fails')
+        return original_rename(a, b)
+
+    monkeypatch.setattr(Transaction, 'commit', flaky_commit)
+    monkeypatch.setattr(os, 'rename', flaky_rename)
+
+    with pytest.raises(Exception):
+        svc.rename_path(str(src), 'b.jpg')
+
+    monkeypatch.setattr(Transaction, 'commit', original_commit)
+    monkeypatch.setattr(os, 'rename', original_rename)
+
+    # The journal row must stay 'pending' — not 'rolled_back' (which would
+    # claim the disk was reverted, when it wasn't) and not 'failed' (which
+    # would stop recover_pending_operations() from ever looking at it).
+    from sqlalchemy import select
+    from db.models import file_operations_table
+    with get_engine().connect() as conn:
+        rows = conn.execute(select(file_operations_table)).fetchall()
+    assert len(rows) == 1
+    assert rows[0]._asdict()['status'] == 'pending'
+
+    # recover_pending_operations() must still be able to fix this up later.
+    svc.recover_pending_operations()
+    with get_engine().connect() as conn:
+        rows = conn.execute(select(file_operations_table)).fetchall()
+    assert rows[0]._asdict()['status'] in ('done', 'rolled_back')
+
+
+def test_run_guarded_rename_always_closes_connection_on_undo_failure(db, monkeypatch):
+    from db.database import UndoRenameFailedError
+
+    original_commit = Transaction.commit
+
+    def failing_commit(self):
+        raise RuntimeError('commit boom')
+
+    def failing_undo():
+        raise RuntimeError('undo boom')
+
+    monkeypatch.setattr(Transaction, 'commit', failing_commit)
+    try:
+        with pytest.raises(UndoRenameFailedError):
+            db.run_guarded_rename(lambda conn: None, lambda: None, failing_undo)
+    finally:
+        monkeypatch.setattr(Transaction, 'commit', original_commit)
+
+    # The engine pool must not have leaked a connection left open by the
+    # failure path — a fresh checkout must still work immediately after.
+    with get_engine().connect() as conn:
+        conn.execute(__import__('sqlalchemy').text('SELECT 1'))
+
+
+# ---------------------------------------------------------------------------
+# Name validation: '.' and '..' are never valid names.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize('bad_name', ['.', '..'])
+def test_validate_name_rejects_dot_and_dotdot(db, root_dir, bad_name):
+    src = root_dir / 'a.jpg'
+    _mkfile(src)
+
+    with pytest.raises(svc.InvalidNameError):
+        svc.rename_path(str(src), bad_name)
+
+    with pytest.raises(svc.InvalidNameError):
+        svc.mkdir(str(root_dir), bad_name)
+
+
+# ---------------------------------------------------------------------------
+# Non-EXDEV OSError during a bulk move must not abort the remaining items.
+# ---------------------------------------------------------------------------
+
+def test_permission_error_in_bulk_move_is_reported_per_item_not_raised(db, root_dir, monkeypatch):
+    target = root_dir / 'target'
+    target.mkdir()
+    bad_file = root_dir / 'bad.jpg'
+    ok_file = root_dir / 'ok.jpg'
+    _mkfile(bad_file)
+    _mkfile(ok_file)
+
+    original_rename = os.rename
+
+    def flaky_rename(a, b):
+        if Path(a) == bad_file:
+            raise PermissionError('permission denied')
+        return original_rename(a, b)
+
+    monkeypatch.setattr(os, 'rename', flaky_rename)
+
+    results = svc.move_paths([str(bad_file), str(ok_file)], str(target))
+
+    assert len(results) == 2
+    by_path = {r.path: r for r in results}
+    assert by_path[str(bad_file)].ok is False
+    assert 'permission denied' in by_path[str(bad_file)].error.lower()
+    assert by_path[str(ok_file)].ok is True
+    assert bad_file.exists()  # untouched
+    assert (target / 'ok.jpg').exists()

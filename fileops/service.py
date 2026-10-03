@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from db.database import Database
+from db.database import Database, UndoRenameFailedError
 from env.environment import Environment
 from fileops.pathlocks import PathLockedError, try_exclusive
 
@@ -108,7 +108,7 @@ def _hidden_extensions() -> set[str]:
 
 def _validate_name(name: str) -> str:
     name = name.strip()
-    if not name or '/' in name or '\\' in name:
+    if not name or '/' in name or '\\' in name or name in ('.', '..'):
         raise InvalidNameError(f'Invalid name: {name!r}')
     return name
 
@@ -185,6 +185,13 @@ def _journal_physical_rename(db: Database, kind: str, src: Path, dst: Path,
     state = {'rename_completed': False}
 
     def do_rename():
+        # Re-check immediately before the physical rename: `dst` was free
+        # when the caller validated it, but os.rename() on Linux silently
+        # *replaces* an existing target, so a target created in the
+        # (now very narrow, lock-held) window since would otherwise be
+        # clobbered without warning.
+        if dst.exists():
+            raise AlreadyExistsError(f'Target already exists: {dst}')
         _os_rename(src, dst)
         state['rename_completed'] = True
 
@@ -193,6 +200,16 @@ def _journal_physical_rename(db: Database, kind: str, src: Path, dst: Path,
 
     try:
         db.run_guarded_rename(apply_updates, do_rename, undo_rename)
+    except UndoRenameFailedError:
+        # Commit failed AND reversing the physical rename also failed —
+        # filesystem/DB may now be inconsistent. Leave the journal row
+        # 'pending' (untouched) so recover_pending_operations() reconciles
+        # it on next startup, instead of recording a status that would
+        # stop recovery from ever looking at it again.
+        logger.error('Undo failed after a commit failure for FileOperation '
+                     '#%s (%s -> %s); leaving it pending for startup recovery',
+                     op_id, src, dst, exc_info=True)
+        raise
     except Exception as e:
         # If do_rename() completed, the only way this still raised is a
         # post-rename commit failure, which already called undo_rename().
@@ -231,6 +248,10 @@ def _rename_single_file_with_sidecars(db: Database, src: Path, dst: Path) -> Non
     def do_rename():
         for s, d in pairs:
             try:
+                # Re-check immediately before each physical rename — see
+                # the comment in _journal_physical_rename.do_rename for why.
+                if d.exists():
+                    raise AlreadyExistsError(f'Target already exists: {d}')
                 _os_rename(s, d)
             except Exception:
                 # Reverse everything already renamed in this group.
@@ -248,6 +269,13 @@ def _rename_single_file_with_sidecars(db: Database, src: Path, dst: Path) -> Non
 
     try:
         db.run_guarded_rename(apply_updates, do_rename, undo_rename)
+    except UndoRenameFailedError:
+        # See _journal_physical_rename — leave every row in this group
+        # 'pending' so startup recovery can reconcile them individually.
+        logger.error('Undo failed after a commit failure for FileOperations '
+                     '#%s (group rename of %s); leaving them pending for '
+                     'startup recovery', op_ids, src, exc_info=True)
+        raise
     except Exception as e:
         # If do_rename() completed fully, the only way run_guarded_rename
         # still raised is a post-rename commit failure, which already
@@ -281,10 +309,14 @@ def rename_path(path: str, new_name: str) -> str:
     new_name = _validate_name(new_name)
     src = _require_exists(_resolve_in_root(path))
     dst = _resolve_in_root(str(src.parent / new_name))
-    _require_absent(dst)
 
     db = Database()
     with try_exclusive([str(src), str(dst)]):
+        # Checked inside the lock, right before dispatching — the
+        # do_rename() closures re-check again immediately before each
+        # physical os.rename, since even the lock doesn't block a target
+        # created by something outside this service.
+        _require_absent(dst)
         if src.is_dir():
             _rename_or_move_directory(db, src, dst)
         else:
@@ -358,13 +390,20 @@ def _move_one_directory(src: Path, target_dir: Path) -> MoveResult:
     try:
         _require_exists(src)
         dst = _resolve_in_root(str(dst))
-        _require_absent(dst)
         if dst.is_relative_to(src) or dst == src:
             raise SelfMoveError(f'Cannot move "{src}" into itself or a descendant')
         with try_exclusive([str(src), str(dst)]):
+            # Checked inside the lock — see rename_path for why this still
+            # isn't the last word; do_rename() re-checks right before the
+            # physical rename too.
+            _require_absent(dst)
             _rename_or_move_directory(db, src, dst)
         return MoveResult(path=str(src), ok=True, new_path=str(dst))
     except (FileOpError, PathLockedError) as e:
+        return MoveResult(path=str(src), ok=False, error=str(e))
+    except OSError as e:
+        # e.g. a PermissionError from the underlying os.rename — don't let
+        # one bad item abort the rest of a bulk operation with a 500.
         return MoveResult(path=str(src), ok=False, error=str(e))
 
 
@@ -376,13 +415,20 @@ def _move_one_file(raw_path: str, target_dir: Path) -> MoveResult:
         if src.is_dir():
             raise FileOpError(f'"{src}" is a directory — move it on its own, not mixed with files')
         dst = _resolve_in_root(str(target_dir / src.name))
-        _require_absent(dst)
         with try_exclusive([str(src), str(dst)]):
+            # Checked inside the lock — see rename_path for why this still
+            # isn't the last word; do_rename() re-checks right before the
+            # physical rename too.
+            _require_absent(dst)
             _rename_single_file_with_sidecars(db, src, dst)
         return MoveResult(path=str(src), ok=True, new_path=str(dst))
     except FileOpError as e:
         return MoveResult(path=raw_path, ok=False, error=str(e))
     except PathLockedError as e:
+        return MoveResult(path=raw_path, ok=False, error=str(e))
+    except OSError as e:
+        # e.g. a PermissionError from the underlying os.rename — don't let
+        # one bad item abort the rest of a bulk operation with a 500.
         return MoveResult(path=raw_path, ok=False, error=str(e))
 
 

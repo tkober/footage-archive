@@ -10,7 +10,7 @@ from api.dtos import (
     RenameResponse, AssignLocationRequest, LocationDto, ExifTag, MoveRequest, MoveItemResult,
     MovePreviewResponse, MkdirRequest, MkdirResponse,
 )
-from db.database import Database
+from db.database import Database, UndoRenameFailedError
 from env.environment import Environment
 from fileops import service as fileops_service
 from fileops.pathlocks import PathLockedError
@@ -166,6 +166,10 @@ def _fileops_error_to_http(e: Exception) -> HTTPException:
         return HTTPException(status_code=400, detail=str(e))
     if isinstance(e, fileops_service.FileOpError):
         return HTTPException(status_code=400, detail=str(e))
+    if isinstance(e, UndoRenameFailedError):
+        return HTTPException(status_code=500, detail=str(e))
+    if isinstance(e, OSError):
+        return HTTPException(status_code=500, detail=f'Filesystem error: {e}')
     raise e
 
 

@@ -22,14 +22,32 @@ from db.models import (
     photo_details_table,
     video_details_table,
 )
-
-logger = logging.getLogger(__name__)
 from ffmpeg.ffmpeg import ClipPreview
 from scanner.scanner import ScanResult
+
+logger = logging.getLogger(__name__)
 
 
 class DuplicateListNameError(Exception):
     """Raised when creating/renaming a list to a name that already exists."""
+
+
+class UndoRenameFailedError(Exception):
+    """Raised by run_guarded_rename() when the transaction commit failed
+    AND the subsequent attempt to physically reverse the rename
+    (undo_rename) also failed. The filesystem and DB may now be
+    inconsistent — callers must NOT mark the FileOperations journal row as
+    'rolled_back' or 'failed' in this case; leave it 'pending' so
+    recover_pending_operations() can reconcile it on next startup."""
+
+    def __init__(self, commit_error: Exception, undo_error: Exception):
+        self.commit_error = commit_error
+        self.undo_error = undo_error
+        super().__init__(
+            f'Transaction commit failed ({commit_error!r}) and reversing the '
+            f'physical rename also failed ({undo_error!r}) — filesystem and '
+            f'DB may be inconsistent; left for startup recovery.'
+        )
 
 
 def generate_identifier():
@@ -804,23 +822,34 @@ class Database:
           already succeeded, ``undo_rename`` is called to reverse the
           physical rename, and the exception is re-raised — the caller
           marks the journal row 'rolled_back'.
+        - If ``undo_rename`` itself then also raises, the filesystem and DB
+          may now be inconsistent (the rename happened, the commit didn't,
+          and reversing it failed too) — :class:`UndoRenameFailedError` is
+          raised instead, so the caller knows NOT to mark the journal row
+          'rolled_back' (or 'failed'); it stays 'pending' for
+          recover_pending_operations() to reconcile on next startup.
+
+        The connection is always closed, success or failure.
         """
         conn = get_engine().connect()
-        trans = conn.begin()
         try:
-            apply_updates(conn)
-            do_rename()
-        except Exception:
-            trans.rollback()
+            trans = conn.begin()
+            try:
+                apply_updates(conn)
+                do_rename()
+            except Exception:
+                trans.rollback()
+                raise
+            try:
+                trans.commit()
+            except Exception as commit_error:
+                try:
+                    undo_rename()
+                except Exception as undo_error:
+                    raise UndoRenameFailedError(commit_error, undo_error) from undo_error
+                raise
+        finally:
             conn.close()
-            raise
-        try:
-            trans.commit()
-        except Exception:
-            undo_rename()
-            conn.close()
-            raise
-        conn.close()
 
     def update_file_path_on_conn(self, conn, old_directory: str, old_file_name: str,
                                  new_directory: str, new_file_name: str) -> bool:
