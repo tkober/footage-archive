@@ -7,11 +7,12 @@ from typing import Callable
 import pandas as pd
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 
-from api.dtos import FileQuery
+from api.dtos import FileQuery, RediscoverQuery
 from davinci.davinciresolve import Metadata, DerivedMetadataColumns
 from db.database import Database
 from env.environment import Environment
 from fileops.pathlocks import shared
+from fileops.rediscover import apply as apply_rediscover, classify as classify_rediscover
 from ffmpeg.ffmpeg import FFmpegInput, FFmpeg, FFprobe
 from photos.exif import probe_photo, generate_photo_thumbnail
 from scanner.scanner import Scanner, ScanResult
@@ -36,6 +37,30 @@ async def scan_directory(query: FileQuery, background_tasks: BackgroundTasks):
             name='Scan directory',
             description=f'Scanning directory "{query.path}".',
             method=lambda report: index_files_in_directory(query, report)
+        ),
+        background_tasks
+    )
+
+    return task.id
+
+
+@TrackingApi.post('/rediscover')
+async def rediscover(query: RediscoverQuery, background_tasks: BackgroundTasks):
+    path = Path(query.path)
+
+    root = Path(Environment().get_root_dir())
+    resolved = path.resolve()
+    if not resolved.is_relative_to(root):
+        raise HTTPException(status_code=403, detail='Access outside root directory is not allowed')
+    if not path.is_dir():
+        raise HTTPException(status_code=400, detail='Provided path is not a directory')
+
+    task_manager = TaskManager()
+    task = task_manager.request_task(
+        TaskRequest(
+            name='Rediscover',
+            description=f'Rediscovering directory "{query.path}".',
+            method=lambda report: rediscover_directory(query, report)
         ),
         background_tasks
     )
@@ -134,6 +159,57 @@ def index_files_in_directory(query: FileQuery, report: Callable[[str], None]):
                 progress.record(sc.file_name, ok)
 
         parallel_map(scan_results, probe)
+
+
+def rediscover_directory(query: RediscoverQuery, report: Callable[[str], None]):
+    directory = Path(query.path)
+    with shared(str(directory)):
+        report('Hashing files…')
+        scan_results = Scanner().scan_directory(directory)
+        total = len(scan_results)
+        report(f'Hashed {total} files, matching against database…')
+
+        db = Database()
+        md5_hashes = sorted({sc.md5_hash for sc in scan_results})
+        tracked = db.get_tracked_paths_for_hashes(md5_hashes)
+        classification = classify_rediscover(scan_results, tracked, exists=lambda p: Path(p).exists())
+
+        def track_new_files(to_track: list[ScanResult]):
+            if not to_track:
+                return
+            db.insert_scan_results(to_track)
+            progress = _ProbeProgress(len(to_track), report)
+
+            def probe(sc: ScanResult):
+                ok = True
+                try:
+                    _probe_and_save(sc, db, generate_clip_preview=query.generate_clip_preview)
+                except Exception:
+                    logging.exception(f'Failed to probe {sc.directory}/{sc.file_name}')
+                    ok = False
+                finally:
+                    progress.record(sc.file_name, ok)
+
+            parallel_map(to_track, probe)
+
+        report('Applying changes…')
+        result = apply_rediscover(
+            classification, scan_results, db,
+            scanned_directory=str(directory),
+            track_new=query.track_new,
+            track_new_files=track_new_files if query.track_new else None,
+            source='rediscover',
+        )
+
+        report(_rediscover_summary(result, query.track_new))
+
+
+def _rediscover_summary(result, track_new: bool) -> str:
+    new_label = f'{result.new_tracked} new tracked' if track_new else f'{result.new_found} new (not tracked)'
+    return (
+        f'{result.relinked} relinked · {result.conflicts} conflicts · '
+        f'{new_label} · {result.unchanged} unchanged'
+    )
 
 
 def index_single_file(query: FileQuery, report: Callable[[str], None]):

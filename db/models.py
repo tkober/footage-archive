@@ -133,6 +133,14 @@ file_operations_table = Table(
     Column('finished_at', DateTime),
 )
 
+path_conflicts_table = Table(
+    'PathConflicts', metadata,
+    Column('md5_hash', String, ForeignKey('Files.md5_hash', ondelete='CASCADE'), primary_key=True),
+    Column('candidate_path', Text, primary_key=True),
+    Column('source', Text, nullable=False),
+    Column('found_at', DateTime, server_default=func.now()),
+)
+
 Index('idx__Locations__country', locations_table.c.country)
 Index('idx__Locations__city', locations_table.c.city)
 Index('idx__Locations__country_region_city',
@@ -140,3 +148,5 @@ Index('idx__Locations__country_region_city',
 Index('idx__Files__directory', files_table.c.directory)
 Index('idx__Keywords__keyword', keywords_table.c.keyword)
 Index('idx__ListItems__md5_hash', list_items_table.c.md5_hash)
+# PathConflicts needs no extra index: its PK (md5_hash, candidate_path) already
+# covers lookups by md5_hash.
