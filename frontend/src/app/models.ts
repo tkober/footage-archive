@@ -227,6 +227,17 @@ export interface ExifTag {
   value: string;
 }
 
+export interface MissingFile {
+  md5_hash: string;
+  file_name: string;
+  directory: string;
+  media_type: MediaType | null;
+  keyword_count: number;
+  has_location: boolean;
+  list_count: number;
+  has_preview: boolean;
+}
+
 export interface ShotFraming {
   shot_size: string;
   angle: string;

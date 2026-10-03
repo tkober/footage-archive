@@ -4,7 +4,7 @@ import { Observable, Subject } from 'rxjs';
 import { shareReplay } from 'rxjs/operators';
 
 import { environment } from '../../environments/environment';
-import { AddFilesToListResponse, Config, DirectoryQuery, DirectoryResponse, ExifTag, FileInfo, FileList, FileSearchQuery, ListItem, ListItemsResponse, Location, MapPoint, SearchResponse, ShotClassification, Task } from '../models';
+import { AddFilesToListResponse, Config, DirectoryQuery, DirectoryResponse, ExifTag, FileInfo, FileList, FileSearchQuery, ListItem, ListItemsResponse, Location, MapPoint, MissingFile, SearchResponse, ShotClassification, Task } from '../models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -153,5 +153,13 @@ export class ApiService {
 
   listExportPdfUrl(id: number): string {
     return `${this.base}/lists/${id}/export.pdf`;
+  }
+
+  // ── Maintenance / troubleshooting ──
+
+  getMissingFiles(path?: string): Observable<MissingFile[]> {
+    return this.http.get<MissingFile[]>(`${this.base}/trouble-shooting/missing-files`, {
+      params: path ? { path } : {}
+    });
   }
 }

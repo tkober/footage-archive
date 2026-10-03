@@ -103,6 +103,17 @@ class ExifTag(BaseModel):
     value: str
 
 
+class MissingFile(BaseModel):
+    md5_hash: StrictStr
+    file_name: StrictStr
+    directory: StrictStr
+    media_type: Optional[StrictStr] = None
+    keyword_count: int
+    has_location: bool
+    list_count: int
+    has_preview: bool
+
+
 class RenameRequest(BaseModel):
     path: StrictStr
     new_name: StrictStr

@@ -1,0 +1,74 @@
+<div class="missing-files-section">
+
+  <div class="section-header">
+    <h3 class="section-title">Missing files</h3>
+    <button type="button" class="check-btn" [disabled]="loading()" (click)="check()">
+      @if (loading()) {
+        <span class="spinner"></span>
+        Checking…
+      } @else {
+        Re-check
+      }
+    </button>
+  </div>
+
+  @if (error()) {
+    <div class="form-error">{{ error() }}</div>
+  }
+
+  @if (hasChecked() && !error()) {
+    @if (files().length === 0) {
+      <div class="empty-state">All tracked files are present on disk.</div>
+    } @else {
+      <div class="summary-line">
+        {{ files().length }} tracked file{{ files().length === 1 ? '' : 's' }} {{ files().length === 1 ? 'is' : 'are' }} missing on disk.
+      </div>
+
+      @for (group of groups(); track group.directory) {
+        <div class="directory-group">
+          <div class="group-header">
+            <span class="group-path" [title]="group.directory">{{ group.relativeDirectory }}</span>
+            <span class="group-count">{{ group.files.length }} file{{ group.files.length === 1 ? '' : 's' }}</span>
+            <button type="button" class="rediscover-btn" disabled title="Coming soon (#25)">
+              Rediscover…
+            </button>
+          </div>
+
+          <div class="file-grid">
+            @for (file of group.files; track file.md5_hash) {
+              <div class="file-card">
+                @if (file.has_preview) {
+                  <img class="file-thumb" [src]="api.clipPreviewUrl(file.md5_hash)" alt="" />
+                } @else {
+                  <div class="placeholder-thumb">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M4 4h16v16H4z" opacity="0" />
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M9 9l6 6M15 9l-6 6" />
+                    </svg>
+                  </div>
+                }
+                <div class="file-footer">
+                  <span class="file-name" [title]="file.file_name">{{ file.file_name }}</span>
+                  <span class="file-media-type">{{ file.media_type ?? 'unknown' }}</span>
+                  <div class="badge-row">
+                    @if (file.keyword_count > 0) {
+                      <span class="badge">{{ file.keyword_count }} keyword{{ file.keyword_count === 1 ? '' : 's' }}</span>
+                    }
+                    @if (file.has_location) {
+                      <span class="badge">location</span>
+                    }
+                    @if (file.list_count > 0) {
+                      <span class="badge">{{ file.list_count }} list{{ file.list_count === 1 ? '' : 's' }}</span>
+                    }
+                  </div>
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+      }
+    }
+  }
+
+</div>
