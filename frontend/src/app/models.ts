@@ -264,6 +264,38 @@ export interface MissingFile {
   has_preview: boolean;
 }
 
+export interface ConflictCandidate {
+  path: string;
+  exists: boolean;
+  source: string;
+  found_at: string | null;
+}
+
+export interface ConflictEntry {
+  md5_hash: string;
+  file_name: string;
+  media_type: MediaType | null;
+  has_preview: boolean;
+  keyword_count: number;
+  has_location: boolean;
+  list_count: number;
+  tracked_path: string;
+  tracked_exists: boolean;
+  candidates: ConflictCandidate[];
+}
+
+export type ResolveBatchStrategy = 'keep_tracked' | 'use_candidate';
+
+export interface ResolveBatchSkip {
+  md5_hash: string;
+  reason: string;
+}
+
+export interface ResolveBatchResponse {
+  resolved: number;
+  skipped: ResolveBatchSkip[];
+}
+
 export interface ShotFraming {
   shot_size: string;
   angle: string;

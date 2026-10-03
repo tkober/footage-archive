@@ -7,6 +7,7 @@ import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detai
 import { ListPickerComponent } from '../shared/list-picker/list-picker.component';
 import { FolderPickerComponent } from '../shared/folder-picker/folder-picker.component';
 import { ConfirmDialogComponent } from '../shared/confirm-dialog/confirm-dialog.component';
+import { RediscoverDialogComponent } from '../shared/rediscover-dialog/rediscover-dialog.component';
 import { ComparisonComponent } from '../comparison/comparison.component';
 import { ApiService } from '../services/api.service';
 import { FileInfo, FileList, Location, MoveItemResult, MovePreviewResponse, PathChild, RenameResponse, VIDEO_TYPES, PHOTO_TYPES } from '../models';
@@ -32,7 +33,7 @@ interface PendingMove {
 @Component({
   selector: 'app-browser',
   standalone: true,
-  imports: [ContextMenuComponent, FileDetailPanelComponent, ListPickerComponent, FolderPickerComponent, ConfirmDialogComponent, ComparisonComponent],
+  imports: [ContextMenuComponent, FileDetailPanelComponent, ListPickerComponent, FolderPickerComponent, ConfirmDialogComponent, RediscoverDialogComponent, ComparisonComponent],
   templateUrl: './browser.component.html',
   styleUrl: './browser.component.css'
 })
@@ -80,6 +81,10 @@ export class BrowserComponent implements OnInit {
   movePickerPaths = signal<string[] | null>(null);
   pendingMove     = signal<PendingMove | null>(null);
   moveError       = signal<string | null>(null);
+
+  // Rediscover (context menu on a directory) — a single checkbox confirm,
+  // the folder is already known.
+  rediscoverPath = signal<string | null>(null);
 
   // Transient feedback for rename/move results
   fileOpMessage = signal<string | null>(null);
@@ -266,7 +271,20 @@ export class BrowserComponent implements OnInit {
       this.startRename(entry);
     } else if (kind === 'move') {
       this.openMovePicker([entry.path]);
+    } else if (kind === 'rediscover') {
+      this.rediscoverPath.set(entry.path);
     }
+  }
+
+  // ── Rediscover (context menu on a directory) ──
+
+  closeRediscover() {
+    this.rediscoverPath.set(null);
+  }
+
+  onRediscoverStarted() {
+    this.rediscoverPath.set(null);
+    this.showFileOpMessage('Rediscover started — see tasks.');
   }
 
   // ── Rename (inline edit on the grid tile) ──

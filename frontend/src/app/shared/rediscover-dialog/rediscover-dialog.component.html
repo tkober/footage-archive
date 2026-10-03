@@ -1,0 +1,40 @@
+@if (step() === 'pick') {
+  <app-folder-picker
+    [rootDir]="rootDir()"
+    [startDir]="startDir()"
+    title="Rediscover…"
+    confirmLabel="Rediscover here"
+    (picked)="onFolderPicked($event)"
+    (cancelled)="onPickerCancelled()"
+  />
+} @else {
+  <app-modal title="Rediscover" (close)="onCancel()">
+    <div class="rediscover-confirm">
+      <p class="target-line">
+        Looking in <span class="target-path" [title]="targetPath()">{{ relativeTarget() }}</span>
+      </p>
+
+      <label class="track-new-row">
+        <input type="checkbox" name="track-new-files" [checked]="trackNew()" (change)="toggleTrackNew()" />
+        Also track new files
+      </label>
+
+      <p class="hint">
+        Files whose tracked path still exists elsewhere, or that are found at more
+        than one place, are left as a path conflict for you to resolve afterwards.
+        Nothing on disk is changed.
+      </p>
+
+      @if (error()) {
+        <p class="form-error">{{ error() }}</p>
+      }
+
+      <div class="confirm-actions">
+        <button type="button" class="btn-cancel" [disabled]="starting()" (click)="onCancel()">Cancel</button>
+        <button type="button" class="btn-confirm" [disabled]="starting()" (click)="start()">
+          {{ starting() ? 'Starting…' : 'Start' }}
+        </button>
+      </div>
+    </div>
+  </app-modal>
+}

@@ -111,13 +111,28 @@
 .rediscover-btn {
   margin-left: auto;
   padding: 4px 10px;
-  border: 1px solid #e4e4e7;
+  border: 1px solid #d4d4d8;
   border-radius: 6px;
-  background: #fafafa;
-  color: #a1a1aa;
+  background: #fff;
+  color: #3f3f46;
   font-size: 0.75rem;
-  cursor: not-allowed;
+  cursor: pointer;
   flex-shrink: 0;
+}
+
+.rediscover-btn:hover {
+  background: #f4f4f5;
+  border-color: #a1a1aa;
+}
+
+.rediscover-note {
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  margin-bottom: 12px;
 }
 
 /* ── File cards ── */

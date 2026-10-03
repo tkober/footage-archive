@@ -4,12 +4,16 @@ import { Observable, Subject } from 'rxjs';
 import { shareReplay } from 'rxjs/operators';
 
 import { environment } from '../../environments/environment';
-import { AddFilesToListResponse, Config, DirectoryQuery, DirectoryResponse, ExifTag, FileInfo, FileList, FileSearchQuery, ListItem, ListItemsResponse, Location, MapPoint, MissingFile, MkdirResponse, MoveItemResult, MovePreviewResponse, RenameResponse, SearchResponse, ShotClassification, Task } from '../models';
+import { AddFilesToListResponse, Config, ConflictEntry, DirectoryQuery, DirectoryResponse, ExifTag, FileInfo, FileList, FileSearchQuery, ListItem, ListItemsResponse, Location, MapPoint, MissingFile, MkdirResponse, MoveItemResult, MovePreviewResponse, RenameResponse, ResolveBatchResponse, ResolveBatchStrategy, SearchResponse, ShotClassification, Task } from '../models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly base = environment.apiUrl;
   readonly taskRefresh$ = new Subject<void>();
+  /** Fired whenever something may have changed the open-conflicts count (a
+      resolve, a completed Rediscover task) — the sidebar badge and the
+      maintenance page's "Path conflicts" section both listen. */
+  readonly conflictsChanged$ = new Subject<void>();
   private config$?: Observable<Config>;
 
   constructor(private http: HttpClient) {}
@@ -178,6 +182,34 @@ export class ApiService {
   getMissingFiles(path?: string): Observable<MissingFile[]> {
     return this.http.get<MissingFile[]>(`${this.base}/trouble-shooting/missing-files`, {
       params: path ? { path } : {}
+    });
+  }
+
+  rediscover(path: string, trackNew: boolean): Observable<string> {
+    return this.http.post<string>(`${this.base}/tracking/rediscover`, {
+      path, track_new: trackNew, generate_clip_preview: true,
+    });
+  }
+
+  // ── Path conflicts (#25) ──
+
+  getConflicts(): Observable<ConflictEntry[]> {
+    return this.http.get<ConflictEntry[]>(`${this.base}/tracking/conflicts`);
+  }
+
+  getConflictsCount(): Observable<{ count: number }> {
+    return this.http.get<{ count: number }>(`${this.base}/tracking/conflicts/count`);
+  }
+
+  resolveConflict(md5Hash: string, chosenPath: string): Observable<void> {
+    return this.http.post<void>(`${this.base}/tracking/conflicts/resolve`, {
+      md5_hash: md5Hash, chosen_path: chosenPath,
+    });
+  }
+
+  resolveConflictsBatch(strategy: ResolveBatchStrategy, md5Hashes: string[]): Observable<ResolveBatchResponse> {
+    return this.http.post<ResolveBatchResponse>(`${this.base}/tracking/conflicts/resolve-batch`, {
+      strategy, md5_hashes: md5Hashes,
     });
   }
 }

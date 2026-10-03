@@ -33,6 +33,11 @@ class DuplicateListNameError(Exception):
     """Raised when creating/renaming a list to a name that already exists."""
 
 
+class StaleConflictError(Exception):
+    """Raised by resolve_path_conflict() when the tracked path changed
+    since the caller read it, so the guarded repoint matched no row."""
+
+
 class UndoRenameFailedError(Exception):
     """Raised by run_guarded_rename() when the transaction commit failed
     AND the subsequent attempt to physically reverse the rename
@@ -553,13 +558,15 @@ class Database:
         with get_engine().connect() as conn:
             return pd.read_sql_query(stmt, conn)
 
-    def get_tracked_files_with_attachment_counts(self, directory: Optional[str] = None) -> list[dict]:
+    def get_tracked_files_with_attachment_counts(self, directory: Optional[str] = None,
+                                                  md5_hashes: Optional[list[str]] = None) -> list[dict]:
         """Every tracked Files row (optionally restricted to ``directory`` or
         anything below it — same escaped LIKE-prefix approach as
-        count_tracked_files_under), with what's "attached" to it: keyword
-        count, whether a location is assigned, how many lists it's in, and
-        whether a clip preview exists. One query (correlated-subquery counts
-        + LEFT JOINs), no N+1."""
+        count_tracked_files_under — and/or to a specific set of ``md5_hashes``,
+        used by the path-conflicts listing), with what's "attached" to it:
+        keyword count, whether a location is assigned, how many lists it's
+        in, and whether a clip preview exists. One query (correlated-subquery
+        counts + LEFT JOINs), no N+1."""
         keyword_count = (
             select(func.count())
             .select_from(file_keywords_table)
@@ -597,6 +604,10 @@ class Database:
                 (files_table.c.directory == directory)
                 | files_table.c.directory.like(like_pattern, escape='\\')
             )
+        if md5_hashes is not None:
+            if not md5_hashes:
+                return []
+            stmt = stmt.where(files_table.c.md5_hash.in_(md5_hashes))
         stmt = stmt.order_by(files_table.c.directory, files_table.c.file_name)
         with get_engine().connect() as conn:
             rows = conn.execute(stmt).fetchall()
@@ -1068,3 +1079,41 @@ class Database:
         with get_engine().connect() as conn:
             rows = conn.execute(stmt).fetchall()
         return [row._asdict() for row in rows]
+
+    def get_distinct_conflict_hashes(self) -> list[str]:
+        """md5_hash values currently carrying one or more open PathConflicts
+        rows, used to build the grouped conflict listing (GET /tracking/conflicts)."""
+        stmt = select(path_conflicts_table.c.md5_hash).distinct().order_by(path_conflicts_table.c.md5_hash)
+        with get_engine().connect() as conn:
+            return [row[0] for row in conn.execute(stmt).fetchall()]
+
+    def count_distinct_conflicts(self) -> int:
+        """Number of distinct md5_hash values with open conflicts — backs the
+        sidebar badge (GET /tracking/conflicts/count)."""
+        stmt = select(func.count(func.distinct(path_conflicts_table.c.md5_hash)))
+        with get_engine().connect() as conn:
+            return conn.execute(stmt).scalar_one()
+
+    def resolve_path_conflict(self, md5_hash: str, old_directory: str, old_file_name: str,
+                              new_directory: Optional[str] = None, new_file_name: Optional[str] = None,
+                              new_file_extension: Optional[str] = None) -> None:
+        """Resolve a path conflict for ``md5_hash`` in one transaction: if a
+        new path is given (the chosen path differs from the currently tracked
+        one), repoint the Files row — guarded on the old path, like
+        relink_files — then unconditionally delete every PathConflicts row
+        for this hash. Disk is never touched."""
+        with get_engine().begin() as conn:
+            if new_directory is not None:
+                result = conn.execute(
+                    update(files_table)
+                    .where(files_table.c.md5_hash == md5_hash,
+                           files_table.c.directory == old_directory,
+                           files_table.c.file_name == old_file_name)
+                    .values(directory=new_directory, file_name=new_file_name,
+                            file_extension=new_file_extension)
+                )
+                if result.rowcount == 0:
+                    # Tracked path changed since the caller read it — don't
+                    # drop the conflict rows on a no-op; let the caller retry.
+                    raise StaleConflictError(md5_hash)
+            conn.execute(delete(path_conflicts_table).where(path_conflicts_table.c.md5_hash == md5_hash))

@@ -373,3 +373,11 @@
     (confirmed)="confirmPendingMove()"
     (cancelled)="cancelPendingMove()" />
 }
+
+@if (rediscoverPath(); as path) {
+  <app-rediscover-dialog
+    [rootDir]="rootDir() ?? ''"
+    [path]="path"
+    (started)="onRediscoverStarted()"
+    (cancelled)="closeRediscover()" />
+}

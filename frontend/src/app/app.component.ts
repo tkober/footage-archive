@@ -22,6 +22,7 @@ export class AppComponent implements OnInit {
   taskPollIntervalMs = signal(5000);
   frontendVersion = APP_VERSION;
   backendVersion = signal('…');
+  conflictsCount = signal(0);
 
   constructor(private router: Router) {}
 
@@ -41,6 +42,16 @@ export class AppComponent implements OnInit {
     this.api.getBackendVersion().subscribe({
       next: res => this.backendVersion.set(res.version),
       error: () => this.backendVersion.set('unknown'),
+    });
+
+    this.refreshConflictsCount();
+    this.api.conflictsChanged$.subscribe(() => this.refreshConflictsCount());
+  }
+
+  private refreshConflictsCount() {
+    this.api.getConflictsCount().subscribe({
+      next: res => this.conflictsCount.set(res.count),
+      error: () => {},
     });
   }
 

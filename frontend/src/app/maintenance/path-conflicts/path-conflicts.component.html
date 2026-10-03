@@ -1,0 +1,116 @@
+<div class="path-conflicts-section">
+
+  <div class="section-header">
+    <h3 class="section-title">Path conflicts</h3>
+    @if (conflicts().length > 0) {
+      <div class="header-actions">
+        <button type="button" class="action-btn" [disabled]="batchRunning()" (click)="openBatch('keep_tracked')">
+          Keep all current
+        </button>
+        <button type="button" class="action-btn" [disabled]="batchRunning()" (click)="openBatch('use_candidate')">
+          Use new location for all
+        </button>
+      </div>
+    }
+  </div>
+
+  <p class="explain-note">
+    The other copy stays on disk and will be untracked afterwards. Nothing is deleted.
+  </p>
+
+  @if (error()) {
+    <div class="form-error">{{ error() }}</div>
+  }
+
+  @if (batchResult()) {
+    <div class="batch-result">{{ batchResult() }}</div>
+  }
+
+  @if (loading()) {
+    <div class="loading-state">Loading…</div>
+  } @else if (!error()) {
+    @if (conflicts().length === 0) {
+      <div class="empty-state">No path conflicts.</div>
+    } @else {
+      <div class="conflict-grid">
+        @for (entry of conflicts(); track entry.md5_hash) {
+          <div class="conflict-card">
+            <div class="card-main">
+              @if (entry.has_preview) {
+                <img class="card-thumb" [src]="api.clipPreviewUrl(entry.md5_hash)" alt="" />
+              } @else {
+                <div class="card-placeholder-thumb">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M9 9l6 6M15 9l-6 6" />
+                  </svg>
+                </div>
+              }
+
+              <div class="card-body">
+                <div class="card-name" [title]="entry.file_name">{{ entry.file_name }}</div>
+                <div class="badge-row">
+                  @if (entry.keyword_count > 0) {
+                    <span class="badge">{{ entry.keyword_count }} keyword{{ entry.keyword_count === 1 ? '' : 's' }}</span>
+                  }
+                  @if (entry.has_location) {
+                    <span class="badge">location</span>
+                  }
+                  @if (entry.list_count > 0) {
+                    <span class="badge">{{ entry.list_count }} list{{ entry.list_count === 1 ? '' : 's' }}</span>
+                  }
+                </div>
+
+                <div class="path-list">
+                  <label class="path-row">
+                    <input type="radio" [name]="'conflict-' + entry.md5_hash"
+                           [checked]="selection()[entry.md5_hash] === entry.tracked_path"
+                           (change)="select(entry.md5_hash, entry.tracked_path)" />
+                    <span class="path-text" [title]="entry.tracked_path">{{ relative(entry.tracked_path) }}</span>
+                    <span class="path-tag tag-tracked">currently tracked</span>
+                    <span class="path-exists" [class.missing]="!entry.tracked_exists">
+                      {{ entry.tracked_exists ? 'exists' : 'missing' }}
+                    </span>
+                  </label>
+
+                  @for (candidate of entry.candidates; track candidate.path) {
+                    <label class="path-row" [class.disabled]="!candidate.exists">
+                      <input type="radio" [name]="'conflict-' + entry.md5_hash"
+                             [disabled]="!candidate.exists"
+                             [checked]="selection()[entry.md5_hash] === candidate.path"
+                             (change)="select(entry.md5_hash, candidate.path)" />
+                      <span class="path-text" [title]="candidate.path">{{ relative(candidate.path) }}</span>
+                      <span class="path-exists" [class.missing]="!candidate.exists">
+                        {{ candidate.exists ? 'exists' : 'missing' }}
+                      </span>
+                    </label>
+                  }
+                </div>
+
+                @if (applyError()[entry.md5_hash]) {
+                  <div class="form-error card-error">{{ applyError()[entry.md5_hash] }}</div>
+                }
+
+                <div class="card-footer">
+                  <button type="button" class="apply-btn" [disabled]="!!applying()[entry.md5_hash]" (click)="apply(entry)">
+                    {{ applying()[entry.md5_hash] ? 'Applying…' : 'Apply' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        }
+      </div>
+    }
+  }
+
+  @if (pendingBatch()) {
+    <app-confirm-dialog
+      [title]="batchTitle()"
+      [message]="batchMessage()"
+      confirmLabel="Confirm"
+      (confirmed)="confirmBatch()"
+      (cancelled)="cancelBatch()" />
+  }
+
+</div>
