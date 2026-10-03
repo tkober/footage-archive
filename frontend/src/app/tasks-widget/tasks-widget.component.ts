@@ -7,6 +7,9 @@ import { switchMap } from 'rxjs/operators';
 import { Task } from '../models';
 import { ApiService } from '../services/api.service';
 
+/** Tasks whose final summary reports path conflicts (see api/tracking.py). */
+const CONFLICT_TASKS = new Set(['Rediscover', 'Scan directory', 'Track file']);
+
 @Component({
   selector: 'app-tasks-widget',
   standalone: true,
@@ -40,12 +43,12 @@ export class TasksWidgetComponent implements OnInit, OnDestroy {
   }
 
   private applyTasks(tasks: Task[]) {
-    // A Rediscover task that just transitioned into COMPLETED may have left
+    // A rediscover or scan task that just transitioned into COMPLETED may have left
     // open path conflicts behind — nudge the sidebar badge + the maintenance
     // page's conflicts section to reload.
     for (const task of tasks) {
       const previous = this.knownTaskStatus.get(task.id);
-      if (task.status === 'COMPLETED' && previous !== 'COMPLETED' && task.name === 'Rediscover') {
+      if (task.status === 'COMPLETED' && previous !== 'COMPLETED' && CONFLICT_TASKS.has(task.name)) {
         this.api.conflictsChanged$.next();
       }
       this.knownTaskStatus.set(task.id, task.status);
@@ -53,10 +56,10 @@ export class TasksWidgetComponent implements OnInit, OnDestroy {
     this.tasks.set(tasks);
   }
 
-  /** Non-zero conflict count parsed out of a completed Rediscover task's
-      summary ("3 relinked · 2 conflicts · 0 new (not tracked) · 1 unchanged"). */
+  /** Non-zero conflict count parsed out of a completed rediscover/scan task's
+      summary ("3 relinked · 2 conflicts · …"). */
   conflictCount(task: Task): number {
-    if (task.name !== 'Rediscover' || task.status !== 'COMPLETED' || !task.progress) return 0;
+    if (!CONFLICT_TASKS.has(task.name) || task.status !== 'COMPLETED' || !task.progress) return 0;
     const match = task.progress.match(/(\d+)\s+conflicts?/);
     return match ? parseInt(match[1], 10) : 0;
   }
