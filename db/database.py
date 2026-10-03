@@ -33,6 +33,11 @@ class DuplicateListNameError(Exception):
     """Raised when creating/renaming a list to a name that already exists."""
 
 
+class StaleConflictError(Exception):
+    """Raised by resolve_path_conflict() when the tracked path changed
+    since the caller read it, so the guarded repoint matched no row."""
+
+
 class UndoRenameFailedError(Exception):
     """Raised by run_guarded_rename() when the transaction commit failed
     AND the subsequent attempt to physically reverse the rename
@@ -1099,7 +1104,7 @@ class Database:
         for this hash. Disk is never touched."""
         with get_engine().begin() as conn:
             if new_directory is not None:
-                conn.execute(
+                result = conn.execute(
                     update(files_table)
                     .where(files_table.c.md5_hash == md5_hash,
                            files_table.c.directory == old_directory,
@@ -1107,4 +1112,8 @@ class Database:
                     .values(directory=new_directory, file_name=new_file_name,
                             file_extension=new_file_extension)
                 )
+                if result.rowcount == 0:
+                    # Tracked path changed since the caller read it — don't
+                    # drop the conflict rows on a no-op; let the caller retry.
+                    raise StaleConflictError(md5_hash)
             conn.execute(delete(path_conflicts_table).where(path_conflicts_table.c.md5_hash == md5_hash))

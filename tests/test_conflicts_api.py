@@ -3,6 +3,8 @@ GET /tracking/conflicts(/count), POST /tracking/conflicts/resolve(-batch)."""
 
 from pathlib import Path
 
+import pytest
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -288,3 +290,15 @@ def test_batch_use_candidate_resolves_single_existing_skips_ambiguous_and_none(d
         row = conn.execute(files_table.select().where(files_table.c.md5_hash == 'h_single')).fetchone()
         assert row.directory == str(single_dir)
         assert row.file_name == 'copy.jpg'
+
+
+def test_resolve_path_conflict_raises_when_tracked_path_changed(db, root_dir):
+    from db.database import StaleConflictError
+    from scanner.scanner import ScanResult
+    from datetime import datetime
+    db.insert_scan_results([ScanResult(md5_hash='stale1', file_name='a.jpg', file_extension='.jpg',
+                                       media_type='photo', directory=str(root_dir), last_indexed_at=datetime.now())])
+    db.insert_path_conflicts([{'md5_hash': 'stale1', 'candidate_path': f'{root_dir}/b.jpg'}], source='rediscover')
+    with pytest.raises(StaleConflictError):
+        db.resolve_path_conflict('stale1', str(root_dir), 'old_name.jpg', str(root_dir), 'b.jpg', '.jpg')
+    assert db.get_path_conflicts('stale1'), 'conflict rows must survive a stale resolve'

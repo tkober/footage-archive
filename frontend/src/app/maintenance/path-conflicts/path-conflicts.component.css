@@ -81,7 +81,7 @@
 
 .conflict-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
   gap: 12px;
 }
 
@@ -164,7 +164,7 @@
 
 .path-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   font-size: 0.78rem;
   color: #3f3f46;
@@ -188,9 +188,8 @@
 
 .path-text {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* Wrap instead of truncating: the path is what the user decides on. */
+  overflow-wrap: anywhere;
   flex: 1;
   min-width: 0;
 }

@@ -19,7 +19,7 @@ from api.dtos import (
     ResolveConflictRequest,
 )
 from davinci.davinciresolve import Metadata, DerivedMetadataColumns
-from db.database import Database
+from db.database import Database, StaleConflictError
 from env.environment import Environment
 from fileops.pathlocks import shared
 from fileops.rediscover import apply as apply_rediscover, classify as classify_rediscover
@@ -171,10 +171,13 @@ async def resolve_conflict(query: ResolveConflictRequest):
         p = Path(query.chosen_path)
         new_directory, new_file_name, new_file_extension = str(p.parent), p.name, p.suffix
 
-    db.resolve_path_conflict(
-        query.md5_hash, tracked['directory'], tracked['file_name'],
-        new_directory, new_file_name, new_file_extension,
-    )
+    try:
+        db.resolve_path_conflict(
+            query.md5_hash, tracked['directory'], tracked['file_name'],
+            new_directory, new_file_name, new_file_extension,
+        )
+    except StaleConflictError:
+        raise HTTPException(status_code=409, detail='The tracked path changed meanwhile, please reload')
     return Response(status_code=204)
 
 
@@ -211,10 +214,14 @@ async def resolve_conflicts_batch(query: ResolveBatchRequest) -> ResolveBatchRes
                 skipped.append({'md5_hash': md5_hash, 'reason': 'Ambiguous: multiple existing candidates'})
                 continue
             p = Path(existing[0])
-            db.resolve_path_conflict(
-                md5_hash, tracked['directory'], tracked['file_name'],
-                str(p.parent), p.name, p.suffix,
-            )
+            try:
+                db.resolve_path_conflict(
+                    md5_hash, tracked['directory'], tracked['file_name'],
+                    str(p.parent), p.name, p.suffix,
+                )
+            except StaleConflictError:
+                skipped.append({'md5_hash': md5_hash, 'reason': 'Tracked path changed meanwhile'})
+                continue
             resolved += 1
 
     return ResolveBatchResponse(resolved=resolved, skipped=skipped)
