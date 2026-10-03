@@ -23,6 +23,7 @@ from api.troubleshoot import TroubleShootingApi
 from alembic import command
 from alembic.config import Config
 from env.environment import Environment
+from fileops.service import recover_pending_operations
 
 env = Environment()
 
@@ -36,6 +37,11 @@ logger = logging.getLogger(f'{__name__}')
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+    try:
+        recover_pending_operations()
+    except Exception:
+        logger.exception('Failed to recover pending file operations on startup')
+
     application.include_router(AiApi)
     application.include_router(BaseApi)
     application.include_router(ConfigApi)

@@ -121,6 +121,18 @@ list_items_table = Table(
     UniqueConstraint('list_id', 'item_code', name='uq__ListItems__list_id_item_code'),
 )
 
+file_operations_table = Table(
+    'FileOperations', metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('kind', Text, nullable=False),
+    Column('source_path', Text, nullable=False),
+    Column('target_path', Text, nullable=False),
+    Column('status', Text, nullable=False),
+    Column('error', Text),
+    Column('created_at', DateTime, server_default=func.now()),
+    Column('finished_at', DateTime),
+)
+
 Index('idx__Locations__country', locations_table.c.country)
 Index('idx__Locations__city', locations_table.c.city)
 Index('idx__Locations__country_region_city',

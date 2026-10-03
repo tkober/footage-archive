@@ -4,9 +4,16 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, Response
 
-from api.dtos import DirectoryQuery, DirectoryResponse, FileInfo, FileListMembership, FileQuery, PathChild, PathType, FileDescriptor, SortField, SortOrder, VideoDetails, PhotoDetails, RenameRequest, AssignLocationRequest, LocationDto, ExifTag
+from api.dtos import (
+    DirectoryQuery, DirectoryResponse, FileInfo, FileListMembership, FileQuery, PathChild,
+    PathType, FileDescriptor, SortField, SortOrder, VideoDetails, PhotoDetails, RenameRequest,
+    RenameResponse, AssignLocationRequest, LocationDto, ExifTag, MoveRequest, MoveItemResult,
+    MovePreviewResponse, MkdirRequest, MkdirResponse,
+)
 from db.database import Database
 from env.environment import Environment
+from fileops import service as fileops_service
+from fileops.pathlocks import PathLockedError
 from photos.exif import dump_all_exif, render_full_raw
 from scanner.scanner import Scanner
 
@@ -145,35 +152,75 @@ async def get_file_exif(path: str) -> list[ExifTag]:
     return [ExifTag(**t) for t in dump_all_exif(str(p))]
 
 
-@FilesApi.patch('/rename')
-async def rename_file(request: RenameRequest) -> FileInfo:
-    root = Path(_env.get_root_dir())
-    p = Path(request.path).resolve()
+def _fileops_error_to_http(e: Exception) -> HTTPException:
+    if isinstance(e, PathLockedError):
+        return HTTPException(status_code=409, detail='A scan is running in this folder')
+    if isinstance(e, fileops_service.OutsideRootError):
+        return HTTPException(status_code=403, detail=str(e))
+    if isinstance(e, fileops_service.NotFoundError):
+        return HTTPException(status_code=404, detail=str(e))
+    if isinstance(e, (fileops_service.AlreadyExistsError, fileops_service.SidecarConflictError,
+                     fileops_service.CrossFilesystemError)):
+        return HTTPException(status_code=409, detail=str(e))
+    if isinstance(e, (fileops_service.InvalidNameError, fileops_service.SelfMoveError)):
+        return HTTPException(status_code=400, detail=str(e))
+    if isinstance(e, fileops_service.FileOpError):
+        return HTTPException(status_code=400, detail=str(e))
+    raise e
 
-    if not p.is_relative_to(root):
-        raise HTTPException(status_code=403, detail='Access outside root directory is not allowed')
-    if not p.exists():
-        raise HTTPException(status_code=404, detail='File not found')
+
+def _build_rename_response(p: Path, db: Database) -> RenameResponse:
     if p.is_dir():
-        raise HTTPException(status_code=400, detail='Path is a directory')
+        stat = p.stat()
+        return RenameResponse(
+            name=p.name,
+            path=str(p),
+            file_extension=None,
+            size_bytes=0,
+            modified_at=datetime.fromtimestamp(stat.st_mtime),
+            tracked=False,
+            is_directory=True,
+        )
+    info = _build_file_info(p, db)
+    return RenameResponse(**info.model_dump(), is_directory=False)
 
-    new_name = request.new_name.strip()
-    if not new_name or '/' in new_name or '\\' in new_name:
-        raise HTTPException(status_code=400, detail='Invalid filename')
 
-    new_path = p.parent / new_name
-    if new_path.exists():
-        raise HTTPException(status_code=409, detail='A file with that name already exists')
+@FilesApi.patch('/rename')
+def rename_file(request: RenameRequest) -> RenameResponse:
+    try:
+        new_path = fileops_service.rename_path(request.path, request.new_name)
+    except Exception as e:
+        raise _fileops_error_to_http(e)
 
-    db = Database()
-    db_record = db.get_file_by_path(str(p))
+    return _build_rename_response(Path(new_path), Database())
 
-    p.rename(new_path)
 
-    if db_record:
-        db.rename_file(db_record['md5_hash'], new_name)
+@FilesApi.post('/move/preview')
+def preview_move(request: MoveRequest) -> MovePreviewResponse:
+    try:
+        result = fileops_service.preview_move(request.paths, request.target_directory)
+    except Exception as e:
+        raise _fileops_error_to_http(e)
+    return MovePreviewResponse(file_count=result.file_count, tracked_count=result.tracked_count,
+                               sidecars=result.sidecars)
 
-    return _build_file_info(new_path, db)
+
+@FilesApi.post('/move')
+def move_files(request: MoveRequest) -> list[MoveItemResult]:
+    try:
+        results = fileops_service.move_paths(request.paths, request.target_directory)
+    except Exception as e:
+        raise _fileops_error_to_http(e)
+    return [MoveItemResult(path=r.path, ok=r.ok, new_path=r.new_path, error=r.error) for r in results]
+
+
+@FilesApi.post('/mkdir', status_code=201)
+def make_directory(request: MkdirRequest) -> MkdirResponse:
+    try:
+        new_path = fileops_service.mkdir(request.parent, request.name)
+    except Exception as e:
+        raise _fileops_error_to_http(e)
+    return MkdirResponse(path=new_path)
 
 
 @FilesApi.get('/clip-preview/{md5_hash}')
