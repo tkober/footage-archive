@@ -31,55 +31,6 @@
     <!-- Grid view -->
     <div class="list-view" (contextmenu)="onBackgroundContextMenu($event)">
 
-      @if (bulkMode()) {
-        <div class="bulk-bar">
-          <span class="bulk-count">{{ bulkSelected().size }} selected</span>
-          <button class="bulk-select-all-btn" (click)="selectAllBulk()">All</button>
-          <button class="bulk-clear-btn" (click)="clearBulkSelection()">Clear</button>
-          <div class="bulk-actions">
-            <input class="bulk-keyword-input"
-                   list="bulk-keyword-suggestions"
-                   placeholder="Add keyword…"
-                   [value]="bulkKeyword()"
-                   (input)="bulkKeyword.set($any($event.target).value)"
-                   (keydown.enter)="bulkAddKeyword()" />
-            <datalist id="bulk-keyword-suggestions">
-              @for (kw of allKeywords(); track kw) { <option [value]="kw"></option> }
-            </datalist>
-            <button class="bulk-action-btn"
-                    (click)="bulkAddKeyword()"
-                    [disabled]="bulkApplying() || !bulkKeyword().trim() || !bulkSelected().size">Add tag</button>
-            <select class="bulk-loc-select"
-                    [value]="bulkLocationId()"
-                    (change)="bulkLocationId.set($any($event.target).value)">
-              <option value="">— location —</option>
-              @for (loc of allLocations(); track loc.id) {
-                <option [value]="loc.id">{{ formatLocation(loc) }}</option>
-              }
-            </select>
-            <button class="bulk-action-btn"
-                    (click)="bulkAssignLocation()"
-                    [disabled]="bulkApplying() || !bulkLocationId() || !bulkSelected().size">Assign</button>
-            <app-list-picker class="bulk-list-picker"
-                    placeholder="Add to list…"
-                    [disabled]="bulkApplying() || !bulkTrackedCount()"
-                    (picked)="bulkAddToList($event)" />
-            <button class="bulk-action-btn bulk-move-btn"
-                    (click)="bulkMoveTo()"
-                    [disabled]="bulkApplying() || !bulkSelected().size"
-                    title="Move the selected files to another folder">Move to…</button>
-            <button class="bulk-compare-btn"
-                    (click)="openComparison()"
-                    [disabled]="comparablePhotos().length < 2"
-                    title="Compare selected photos side by side">Compare</button>
-            <button class="bulk-done-btn" (click)="exitBulkMode()">Done</button>
-          </div>
-          @if (bulkListResult(); as msg) {
-            <div class="bulk-list-result">{{ msg }}</div>
-          }
-        </div>
-      }
-
       @if (loading()) {
         <div class="state-msg">Loading…</div>
       } @else if (error()) {
@@ -139,8 +90,8 @@
                     [bulkSelected]="bulkMode() && isBulkSelected(entry)"
                     [selecting]="bulkMode()"
                     [renaming]="isRenaming(entry)"
-                    (open)="onEntryClick(entry)"
-                    (toggleSelect)="toggleBulkSelect(entry)"
+                    (open)="onCardOpen(entry, $event)"
+                    (toggleSelect)="onCardToggle(entry, $event)"
                     (contextMenu)="onEntryContextMenu($event, entry)"
                     (more)="onCardMore(entry, $event)">
                   <input #renameInputEl class="rename-input-file"
@@ -182,8 +133,8 @@
                     [bulkSelected]="bulkMode() && isBulkSelected(entry)"
                     [selecting]="bulkMode()"
                     [renaming]="isRenaming(entry)"
-                    (open)="onEntryClick(entry)"
-                    (toggleSelect)="toggleBulkSelect(entry)"
+                    (open)="onCardOpen(entry, $event)"
+                    (toggleSelect)="onCardToggle(entry, $event)"
                     (contextMenu)="onEntryContextMenu($event, entry)"
                     (more)="onCardMore(entry, $event)">
                   <input #renameInputEl class="rename-input-file"
@@ -224,8 +175,8 @@
                     [bulkSelected]="bulkMode() && isBulkSelected(entry)"
                     [selecting]="bulkMode()"
                     [renaming]="isRenaming(entry)"
-                    (open)="onEntryClick(entry)"
-                    (toggleSelect)="toggleBulkSelect(entry)"
+                    (open)="onCardOpen(entry, $event)"
+                    (toggleSelect)="onCardToggle(entry, $event)"
                     (contextMenu)="onEntryContextMenu($event, entry)"
                     (more)="onCardMore(entry, $event)">
                   <input #renameInputEl class="rename-input-file"
@@ -285,6 +236,90 @@
   </div>
 
 </div>
+
+@if (bulkMode()) {
+  <div class="bulk" role="toolbar" aria-label="Selection">
+    <span class="bulk-count"><span class="n">{{ bulkSelected().size }}</span> selected</span>
+    <div class="bulk-acts">
+      <button #kwBtn type="button" class="btn" [disabled]="bulkApplying() || !bulkTrackedCount()"
+              (click)="openBulkPop('keyword', kwBtn)" title="Add a keyword to the selected files">
+        <app-icon name="tag" [size]="16" /><span class="lbl">Keyword</span>
+      </button>
+      <button #locBtn type="button" class="btn" [disabled]="bulkApplying() || !bulkTrackedCount()"
+              (click)="openBulkPop('location', locBtn)" title="Set the location of the selected files">
+        <app-icon name="pin" [size]="16" /><span class="lbl">Location</span>
+      </button>
+      <button #listBtn type="button" class="btn" [disabled]="bulkApplying() || !bulkTrackedCount()"
+              (click)="openBulkPop('list', listBtn)" title="Add the selected files to a list">
+        <app-icon name="list" [size]="16" /><span class="lbl">Add to list</span>
+      </button>
+      <button type="button" class="btn" [disabled]="bulkApplying() || !bulkSelected().size"
+              (click)="bulkMoveTo()" title="Move the selected files to another folder">
+        <app-icon name="move" [size]="16" /><span class="lbl">Move</span>
+      </button>
+      <button type="button" class="btn" [disabled]="comparablePhotos().length < 2"
+              (click)="openComparison()" title="Compare the selected photos side by side">
+        <app-icon name="compare" [size]="16" /><span class="lbl">Compare</span>
+      </button>
+    </div>
+    <span class="bulk-sep"></span>
+    @if (bulkSelected().size < orderedFiles().length) {
+      <button type="button" class="btn btn-ghost" (click)="selectAllBulk()">All</button>
+    } @else {
+      <button type="button" class="btn btn-ghost" (click)="clearBulkSelection()">None</button>
+    }
+    <button type="button" class="icon-btn" (click)="exitBulkMode()" title="Exit selection (Esc)">
+      <app-icon name="x" [size]="16" />
+    </button>
+  </div>
+}
+
+@if (bulkPop(); as bp) {
+  <app-popover [anchor]="bp.anchor" [width]="300" align="start" (closed)="closeBulkPop()">
+    @switch (bp.kind) {
+      @case ('keyword') {
+        <form class="quick-form" (submit)="$event.preventDefault(); bulkAddKeyword()">
+          <label class="quick-label" for="bulk-keyword">Add keyword to <b>{{ bulkTrackedCount() }} {{ bulkTrackedCount() === 1 ? 'file' : 'files' }}</b></label>
+          <div class="quick-row">
+            <input id="bulk-keyword" class="input" list="bulk-keyword-suggestions" autocomplete="off"
+                   placeholder="e.g. beach"
+                   [value]="bulkKeyword()"
+                   (input)="bulkKeyword.set($any($event.target).value)" />
+            <button type="submit" class="btn btn-primary" [disabled]="!bulkKeyword().trim()">Add</button>
+          </div>
+          <datalist id="bulk-keyword-suggestions">
+            @for (kw of allKeywords(); track kw) { <option [value]="kw"></option> }
+          </datalist>
+        </form>
+      }
+      @case ('location') {
+        <div class="quick-form">
+          <label class="quick-label" for="bulk-location">Set location for <b>{{ bulkTrackedCount() }} {{ bulkTrackedCount() === 1 ? 'file' : 'files' }}</b></label>
+          <input id="bulk-location" class="input" autocomplete="off" placeholder="Filter locations…"
+                 [value]="locationFilter()"
+                 (input)="locationFilter.set($any($event.target).value)"
+                 (keydown.enter)="filteredLocations()[0] && bulkAssignLocation(filteredLocations()[0].id)" />
+          <div class="loc-list" role="listbox">
+            @for (loc of filteredLocations(); track loc.id) {
+              <button type="button" class="loc-opt" role="option" (click)="bulkAssignLocation(loc.id)">
+                <app-icon name="pin" [size]="14" />
+                <span><b>{{ loc.name || loc.city || loc.region || loc.country }}</b><small>{{ locationGeo(loc) }}</small></span>
+              </button>
+            } @empty {
+              <span class="loc-empty">{{ allLocations().length ? 'No location matches.' : 'No locations yet. Create one in a file\'s detail view.' }}</span>
+            }
+          </div>
+        </div>
+      }
+      @case ('list') {
+        <div class="quick-form">
+          <span class="quick-label">Add <b>{{ bulkTrackedCount() }} {{ bulkTrackedCount() === 1 ? 'file' : 'files' }}</b> to a list</span>
+          <app-list-picker placeholder="Find or create a list…" (picked)="bulkAddToList($event)" />
+        </div>
+      }
+    }
+  </app-popover>
+}
 
 @if (menuEntry(); as m) {
   <app-menu

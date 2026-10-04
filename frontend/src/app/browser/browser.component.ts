@@ -26,7 +26,6 @@ const SKELETON_CAP = 12;
 const SHORTCUTS: Record<string, string> = {
   ' ': 'open', F2: 'rename', m: 'move', k: 'keyword', l: 'list', t: 'track',
 };
-const BULK_RESULT_TIMEOUT_MS = 4000;
 const FILE_OP_RESULT_TIMEOUT_MS = 6000;
 const THUMB_STORAGE_KEY = 'fa-thumb';
 const THUMB_MIN = 140;
@@ -107,8 +106,11 @@ export class BrowserComponent implements OnInit {
   bulkApplying   = signal(false);
   allKeywords    = signal<string[]>([]);
   allLocations   = signal<Location[]>([]);
-  bulkListResult = signal<string | null>(null);
-  private bulkListResultTimer?: ReturnType<typeof setTimeout>;
+  /** Last tile clicked in selection mode; Shift-click selects up to here. */
+  private selectionAnchor: string | null = null;
+  /** Keyword / location / list form above the floating bulk bar (#42). */
+  bulkPop        = signal<{ kind: 'keyword' | 'location' | 'list'; anchor: HTMLElement } | null>(null);
+  locationFilter = signal('');
 
   // Comparison view
   showComparison = signal(false);
@@ -157,6 +159,13 @@ export class BrowserComponent implements OnInit {
 
   skeletons = computed(() => Array.from({ length: this.skeletonCount() }, (_, i) => i));
   bulkTrackedCount = computed(() => this.bulkTrackedEntries().length);
+  /** Files in the order they're rendered (videos, stills, untracked): the range for Shift-click. */
+  orderedFiles = computed(() => [...this.videoFiles(), ...this.photoFiles(), ...this.untrackedFiles()]);
+  filteredLocations = computed(() => {
+    const q = this.locationFilter().trim().toLowerCase();
+    const locs = this.allLocations();
+    return q ? locs.filter(l => this.formatLocation(l).toLowerCase().includes(q)) : locs;
+  });
   showDetail = computed(() => this.loadingDetails() || !!this.selectedFile());
 
   /** Section-heading counts (#39) come from the server-side `counts` for the
@@ -507,7 +516,7 @@ export class BrowserComponent implements OnInit {
   onShortcut(ev: Event) {
     const event = ev as KeyboardEvent;
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
-    if (this.menuEntry() || this.quickPop() || this.showDetail() || this.showComparison() || this.renamingPath()
+    if (this.menuEntry() || this.quickPop() || this.bulkPop() || this.showDetail() || this.showComparison() || this.renamingPath()
         || this.pendingRename() || this.movePickerPaths() || this.pendingMove() || this.rediscoverPath()) return;
     const target = event.target as HTMLElement | null;
     if (!target || target.closest('input, textarea, select, [contenteditable="true"]')) return;
@@ -840,7 +849,56 @@ export class BrowserComponent implements OnInit {
     this.bulkSelected.set(new Set());
     this.bulkKeyword.set('');
     this.bulkLocationId.set('');
-    this.clearBulkListResult();
+    this.bulkPop.set(null);
+    this.selectionAnchor = null;
+  }
+
+  /** Click / Enter on a tile. In selection mode, or with Shift/Cmd/Ctrl, it
+      selects instead of opening; selection starts without pressing "Select". */
+  onCardOpen(entry: PathChild, event: MouseEvent | KeyboardEvent) {
+    const modifier = event.shiftKey || event.metaKey || event.ctrlKey;
+    if (entry.type === 'file' && (this.bulkMode() || modifier)) {
+      this.selectEntry(entry, event.shiftKey);
+      return;
+    }
+    this.onEntryClick(entry);
+  }
+
+  onCardToggle(entry: PathChild, event: MouseEvent) {
+    this.selectEntry(entry, event.shiftKey);
+  }
+
+  private selectEntry(entry: PathChild, range: boolean) {
+    if (!this.bulkMode()) this.enterBulkMode();
+    const order = this.orderedFiles().map(e => e.path);
+    const from = range && this.selectionAnchor ? order.indexOf(this.selectionAnchor) : -1;
+    const to = order.indexOf(entry.path);
+    if (from >= 0 && to >= 0) {
+      const [a, b] = from < to ? [from, to] : [to, from];
+      this.bulkSelected.update(sel => {
+        const next = new Set(sel);
+        order.slice(a, b + 1).forEach(p => next.add(p));
+        return next;
+      });
+    } else {
+      this.toggleBulkSelect(entry);
+    }
+    this.selectionAnchor = entry.path;
+  }
+
+  openBulkPop(kind: 'keyword' | 'location' | 'list', anchor: HTMLElement) {
+    if (this.bulkPop()?.kind === kind) { this.closeBulkPop(); return; }
+    this.locationFilter.set('');
+    this.bulkPop.set({ kind, anchor });
+    setTimeout(() => document.querySelector<HTMLInputElement>('.quick-form input')?.focus());
+  }
+
+  closeBulkPop() {
+    this.bulkPop.set(null);
+  }
+
+  locationGeo(loc: Location): string {
+    return [loc.city, loc.region, loc.country].filter(Boolean).join(', ');
   }
 
   toggleBulkSelect(entry: PathChild) {
@@ -889,11 +947,20 @@ export class BrowserComponent implements OnInit {
     const kw = this.bulkKeyword().trim();
     const targets = this.bulkTrackedEntries();
     if (!kw || !targets.length) return;
+    const skipped = this.bulkSelected().size - targets.length;
     this.bulkApplying.set(true);
     this.bulkKeyword.set('');
+    this.closeBulkPop();
     forkJoin(targets.map(e => this.api.addKeyword(e.md5_hash!, kw))).subscribe({
-      next: () => this.bulkApplying.set(false),
-      error: () => this.bulkApplying.set(false),
+      next: () => {
+        this.bulkApplying.set(false);
+        if (!this.allKeywords().includes(kw)) this.allKeywords.update(list => [...list, kw]);
+        this.toast.show(this.withSkipped(`Added “${kw}” to ${this.plural(targets.length, 'file')}`, skipped));
+      },
+      error: () => {
+        this.bulkApplying.set(false);
+        this.toast.show(`Couldn't add “${kw}” to every file. Try again.`);
+      },
     });
   }
 
@@ -902,10 +969,22 @@ export class BrowserComponent implements OnInit {
     if (!locationId) return;
     const targets = this.bulkTrackedEntries();
     if (!targets.length) return;
+    const skipped = this.bulkSelected().size - targets.length;
+    const loc = this.allLocations().find(l => l.id === locationId);
+    const label = loc ? (loc.name || loc.city || loc.region || loc.country) : 'location';
     this.bulkApplying.set(true);
+    this.closeBulkPop();
     forkJoin(targets.map(e => this.api.assignLocation(e.md5_hash!, locationId))).subscribe({
-      next: () => { this.bulkApplying.set(false); this.bulkLocationId.set(''); },
-      error: () => { this.bulkApplying.set(false); this.bulkLocationId.set(''); },
+      next: () => {
+        this.bulkApplying.set(false);
+        this.bulkLocationId.set('');
+        this.toast.show(this.withSkipped(`Set ${label} for ${this.plural(targets.length, 'file')}`, skipped));
+      },
+      error: () => {
+        this.bulkApplying.set(false);
+        this.bulkLocationId.set('');
+        this.toast.show(`Couldn't set the location for every file. Try again.`);
+      },
     });
   }
 
@@ -914,7 +993,7 @@ export class BrowserComponent implements OnInit {
     const untrackedCount = this.bulkSelected().size - targets.length;
     if (!targets.length) return;
     this.bulkApplying.set(true);
-    this.clearBulkListResult();
+    this.closeBulkPop();
     const md5s = targets.map(e => e.md5_hash!);
     this.api.addFilesToList(list.id, md5s).subscribe({
       next: resp => {
@@ -923,28 +1002,23 @@ export class BrowserComponent implements OnInit {
         if (resp.added.length) parts.push(`Added ${resp.added.length} to '${list.name}'`);
         if (resp.existing.length) parts.push(`${resp.existing.length} already in list`);
         if (untrackedCount > 0) parts.push(`${untrackedCount} untracked skipped`);
-        this.showBulkListResult(parts.join(' · ') || `Nothing added to '${list.name}'`);
+        this.toast.show(parts.join(' · ') || `Nothing added to '${list.name}'`);
       },
       error: () => {
         this.bulkApplying.set(false);
-        this.showBulkListResult(`Failed to add to '${list.name}'`);
+        this.toast.show(`Failed to add to '${list.name}'`);
       },
     });
   }
 
-  private showBulkListResult(message: string) {
-    this.bulkListResult.set(message);
-    if (this.bulkListResultTimer) clearTimeout(this.bulkListResultTimer);
-    this.bulkListResultTimer = setTimeout(() => this.bulkListResult.set(null), BULK_RESULT_TIMEOUT_MS);
+  private plural(n: number, word: string): string {
+    return `${n} ${word}${n === 1 ? '' : 's'}`;
   }
 
-  private clearBulkListResult() {
-    this.bulkListResult.set(null);
-    if (this.bulkListResultTimer) {
-      clearTimeout(this.bulkListResultTimer);
-      this.bulkListResultTimer = undefined;
-    }
+  private withSkipped(message: string, skipped: number): string {
+    return skipped > 0 ? `${message} · ${skipped} untracked skipped` : message;
   }
+
 
   cardKind(entry: PathChild): 'video' | 'photo' | 'other' {
     if (VIDEO_TYPES.includes(entry.media_type as any)) return 'video';

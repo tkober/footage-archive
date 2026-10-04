@@ -51,8 +51,10 @@ export class MediaCardComponent {
       every other input is ignored. */
   skeleton = input(false);
 
-  open = output<void>();
-  toggleSelect = output<void>();
+  /** Click / Enter on the tile; the event carries Shift/Cmd/Ctrl for range
+      and multi selection (#42). */
+  open = output<MouseEvent | KeyboardEvent>();
+  toggleSelect = output<MouseEvent>();
   contextMenu = output<MouseEvent>();
   /** The "⋯" button element, so the caller can anchor its context menu. */
   more = output<HTMLElement>();
@@ -91,13 +93,13 @@ export class MediaCardComponent {
     this.imgError.set(true);
   }
 
-  onClick() {
-    this.open.emit();
+  onClick(event: MouseEvent | KeyboardEvent) {
+    this.open.emit(event);
   }
 
   onToggleSelect(event: MouseEvent) {
     event.stopPropagation();
-    this.toggleSelect.emit();
+    this.toggleSelect.emit(event);
   }
 
   onMore(event: MouseEvent) {

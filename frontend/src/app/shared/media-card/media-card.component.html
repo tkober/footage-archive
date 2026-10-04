@@ -6,10 +6,11 @@
 } @else {
 <div class="card"
      [class.sel]="selected()"
+     [class.bulk-sel]="bulkSelected()"
      [class.untracked]="tracked() === false"
      tabindex="0"
-     (click)="onClick()"
-     (keydown.enter)="onClick()"
+     (click)="onClick($event)"
+     (keydown.enter)="onClick($any($event))"
      (contextmenu)="onContextMenu($event)">
 
   <div class="thumb" [class.video]="kind() === 'video'">
