@@ -84,6 +84,12 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
             md5_hash=tracked[e.name]['md5_hash'] if e.is_file() and e.name in tracked else None,
             media_type=tracked[e.name]['media_type'] if e.is_file() and e.name in tracked else None,
             file_count=_count_direct_files(e, hidden) if e.is_dir() else None,
+            duration_tc=(
+                tracked[e.name]['duration_tc']
+                if e.is_file() and e.name in tracked
+                and _directory_kind(tracked[e.name]['media_type']) == DirectoryKind.VIDEO
+                else None
+            ),
         )
         for e in path.iterdir()
         if not e.name.startswith('._')

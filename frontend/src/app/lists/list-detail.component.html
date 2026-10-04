@@ -62,17 +62,19 @@
       }
 
       @if (items().length > 0) {
-        <div class="item-grid">
+        <div class="grid">
           @for (item of items(); track item.md5_hash) {
-            <div class="item-card"
-                 (click)="openItem(item)"
-                 [class.selected]="selectedItem()?.md5_hash === item.md5_hash">
-              <img class="item-thumb" [src]="api.clipPreviewUrl(item.md5_hash)" alt="" />
+            <div class="item-card-wrap">
+              <app-media-card
+                  [kind]="cardKind(item)"
+                  [name]="relativePath(item)"
+                  [extension]="cardExtension(item)"
+                  [previewUrl]="api.clipPreviewUrl(item.md5_hash)"
+                  [tracked]="true"
+                  [code]="item.item_code"
+                  [selected]="selectedItem()?.md5_hash === item.md5_hash"
+                  (open)="openItem(item)" />
               <button type="button" class="remove-btn" title="Remove from list" (click)="requestRemove(item, $event)">✕</button>
-              <div class="item-footer">
-                <span class="item-code">{{ item.item_code }}</span>
-                <span class="item-path" [title]="relativePath(item)">{{ relativePath(item) }}</span>
-              </div>
             </div>
           }
         </div>

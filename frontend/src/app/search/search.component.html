@@ -199,30 +199,18 @@
     @if (videoResults().length) {
       <div class="grid-section">
         <span class="section-label">Videos</span>
-        <div class="file-grid video-grid">
+        <div class="grid videos">
           @for (result of videoResults(); track result.md5_hash) {
-            <div class="file-card"
-                 (click)="selectResult(result)"
-                 [class.selected]="selectedFile()?.md5_hash === result.md5_hash">
-              @if (result.md5_hash) {
-                <img class="card-strip" [src]="api.clipPreviewUrl(result.md5_hash)" alt="" />
-              } @else {
-                <div class="placeholder-thumb video-thumb">
-                  <svg viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
-                  </svg>
-                </div>
-              }
-              <div class="card-footer">
-                @if (result.item_code) {
-                  <span class="card-code">{{ result.item_code }}</span>
-                }
-                <span class="card-name" [title]="result.file_name">{{ result.file_name }}</span>
-                @if (result.recorded_at) {
-                  <span class="card-date">{{ result.recorded_at.slice(0, 10) }}</span>
-                }
-              </div>
-            </div>
+            <app-media-card
+                kind="video"
+                [name]="result.file_name"
+                [extension]="cardExtension(result)"
+                [previewUrl]="result.md5_hash ? api.clipPreviewUrl(result.md5_hash) : null"
+                [tracked]="true"
+                [code]="result.item_code ?? null"
+                [date]="result.recorded_at ? result.recorded_at.slice(0, 10) : null"
+                [selected]="selectedFile()?.md5_hash === result.md5_hash"
+                (open)="selectResult(result)" />
           }
         </div>
       </div>
@@ -232,30 +220,18 @@
     @if (photoResults().length) {
       <div class="grid-section">
         <span class="section-label">Stills</span>
-        <div class="file-grid stills-grid">
+        <div class="grid">
           @for (result of photoResults(); track result.md5_hash) {
-            <div class="file-card"
-                 (click)="selectResult(result)"
-                 [class.selected]="selectedFile()?.md5_hash === result.md5_hash">
-              @if (result.md5_hash) {
-                <img class="card-thumb" [src]="api.clipPreviewUrl(result.md5_hash)" alt="" />
-              } @else {
-                <div class="placeholder-thumb photo-thumb">
-                  <svg viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
-                  </svg>
-                </div>
-              }
-              <div class="card-footer">
-                @if (result.item_code) {
-                  <span class="card-code">{{ result.item_code }}</span>
-                }
-                <span class="card-name" [title]="result.file_name">{{ result.file_name }}</span>
-                @if (result.recorded_at) {
-                  <span class="card-date">{{ result.recorded_at.slice(0, 10) }}</span>
-                }
-              </div>
-            </div>
+            <app-media-card
+                kind="photo"
+                [name]="result.file_name"
+                [extension]="cardExtension(result)"
+                [previewUrl]="result.md5_hash ? api.clipPreviewUrl(result.md5_hash) : null"
+                [tracked]="true"
+                [code]="result.item_code ?? null"
+                [date]="result.recorded_at ? result.recorded_at.slice(0, 10) : null"
+                [selected]="selectedFile()?.md5_hash === result.md5_hash"
+                (open)="selectResult(result)" />
           }
         </div>
       </div>

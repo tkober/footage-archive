@@ -64,6 +64,8 @@ class PathChild(BaseModel):
     # Directory entries only: number of direct, non-hidden files in that
     # subdirectory (not recursive). None if the subdirectory couldn't be read.
     file_count: Optional[int] = None
+    # Tracked video files only: VideoDetails.duration_tc (e.g. "00:12:34:10").
+    duration_tc: Optional[StrictStr] = None
 
 
 class DirectoryCounts(BaseModel):

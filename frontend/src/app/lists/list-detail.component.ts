@@ -6,14 +6,15 @@ import { combineLatest } from 'rxjs';
 import { ApiService } from '../services/api.service';
 import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
 import { ConfirmDialogComponent } from '../shared/confirm-dialog/confirm-dialog.component';
-import { FileInfo, FileList, ListItem } from '../models';
+import { MediaCardComponent, MediaCardKind } from '../shared/media-card/media-card.component';
+import { FileInfo, FileList, ListItem, VIDEO_TYPES } from '../models';
 
 const PAGE_SIZE = 500;
 
 @Component({
   selector: 'app-list-detail',
   standalone: true,
-  imports: [FormsModule, RouterLink, FileDetailPanelComponent, ConfirmDialogComponent],
+  imports: [FormsModule, RouterLink, FileDetailPanelComponent, ConfirmDialogComponent, MediaCardComponent],
   templateUrl: './list-detail.component.html',
   styleUrl: './list-detail.component.css',
 })
@@ -126,6 +127,15 @@ export class ListDetailComponent implements OnInit {
       dir = dir.slice(root.length).replace(/^\/+/, '');
     }
     return dir ? `${dir}/${item.file_name}` : item.file_name;
+  }
+
+  cardKind(item: ListItem): MediaCardKind {
+    return VIDEO_TYPES.includes(item.media_type as any) ? 'video' : 'photo';
+  }
+
+  cardExtension(item: ListItem): string | null {
+    const dot = item.file_name.lastIndexOf('.');
+    return dot > 0 ? item.file_name.slice(dot + 1) : null;
   }
 
   // ── Code jump ──

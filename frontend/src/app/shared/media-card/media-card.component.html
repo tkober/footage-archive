@@ -1,0 +1,62 @@
+<div class="card"
+     [class.sel]="selected()"
+     [class.untracked]="tracked() === false"
+     tabindex="0"
+     (click)="onClick()"
+     (keydown.enter)="onClick()"
+     (contextmenu)="onContextMenu($event)">
+
+  <div class="thumb" [class.video]="kind() === 'video'">
+    @if (kind() === 'other') {
+      <div class="pending plain">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22">
+          <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+        </svg>
+      </div>
+    } @else if (showPending()) {
+      <div class="pending" [class.shimmer]="tracked() !== false">
+        @if (tracked() !== false) {
+          Generating preview…
+        } @else {
+          <app-icon name="eye" [size]="18" />
+        }
+      </div>
+    } @else if (kind() === 'video') {
+      <img class="strip" [src]="previewUrl()" alt="" loading="lazy" (error)="onImgError()" />
+    } @else {
+      <img class="single" [src]="previewUrl()" alt="" loading="lazy" (error)="onImgError()" />
+    }
+
+    @if (kind() === 'photo' && !showPending() && showExt() && extension()) {
+      <span class="tag ext">{{ extension() }}</span>
+    }
+    @if (tracked() === false) {
+      <span class="pill-untracked">Untracked</span>
+    }
+  </div>
+
+  <button type="button" class="chk" [class.checked]="bulkSelected()" [class.visible]="selecting()"
+          aria-label="Select" (click)="onToggleSelect($event)"></button>
+  <button type="button" class="more" aria-label="More actions" (click)="onMore($event)">
+    <app-icon name="dots" [size]="14" />
+  </button>
+
+  @if (renaming()) {
+    <div class="cap renaming">
+      <ng-content />
+    </div>
+  } @else {
+    <div class="cap">
+      @if (code()) {
+        <span class="code">{{ code() }}</span>
+      }
+      <span class="name" [title]="name()">{{ displayName() }}</span>
+      @if (meta()) {
+        <span class="meta">{{ meta() }}</span>
+      }
+      @if (date()) {
+        <span class="date">{{ date() }}</span>
+      }
+    </div>
+  }
+</div>

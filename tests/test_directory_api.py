@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from api.files import FilesApi
 from db.engine import get_engine
-from db.models import files_table
+from db.models import files_table, video_details_table
 
 
 def _make_client() -> TestClient:
@@ -210,6 +210,29 @@ def test_kind_filter_pagination_refers_to_filtered_list(db, root_dir):
 
     page3 = _list_dir(client, root_dir, kind='photo', page=3, page_size=2)
     assert len(page3['items']) == 1  # 5 photos, page_size 2 -> last page has 1
+
+
+def test_duration_tc_populated_for_tracked_video_only(db, root_dir):
+    client = _make_client()
+
+    (root_dir / 'video.mov').write_bytes(b'x')
+    (root_dir / 'photo.jpg').write_bytes(b'x')
+    (root_dir / 'untracked.txt').write_bytes(b'x')
+    _insert_file_row(str(root_dir), 'video.mov', 'h_video', media_type='video')
+    _insert_file_row(str(root_dir), 'photo.jpg', 'h_photo', media_type='photo')
+    # untracked.txt deliberately left untracked (no DB row)
+
+    with get_engine().begin() as conn:
+        conn.execute(video_details_table.insert().values(
+            md5_hash='h_video', duration_tc='00:12:34:10',
+        ))
+
+    body = _list_dir(client, root_dir)
+    by_name = {e['name']: e for e in body['items']}
+
+    assert by_name['video.mov']['duration_tc'] == '00:12:34:10'
+    assert by_name['photo.jpg']['duration_tc'] is None
+    assert by_name['untracked.txt']['duration_tc'] is None
 
 
 def test_no_kind_means_everything_as_today(db, root_dir):
