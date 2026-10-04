@@ -6,6 +6,8 @@ import { GoogleMap, MapAdvancedMarker, MapInfoWindow } from '@angular/google-map
 
 import { ApiService } from '../services/api.service';
 import { GoogleMapsLoaderService } from '../services/google-maps-loader.service';
+import { ThemeService } from '../services/theme.service';
+import { IconComponent } from '../shared/icon/icon.component';
 import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
 import { FileInfo, MapMember, MapPoint, VIDEO_TYPES } from '../models';
 
@@ -27,9 +29,10 @@ const ICON_360   = '<svg viewBox="0 0 24 24"><path d="M12 7C6.48 7 2 9.24 2 12c0
 @Component({
   selector: 'app-map',
   standalone: true,
-  imports: [GoogleMap, MapAdvancedMarker, MapInfoWindow, FileDetailPanelComponent],
+  imports: [GoogleMap, MapAdvancedMarker, MapInfoWindow, FileDetailPanelComponent, IconComponent],
   templateUrl: './map.component.html',
   styleUrl: './map.component.css',
+  host: { class: 'page-flush' },
 })
 export class MapComponent implements OnInit, OnDestroy {
   private api = inject(ApiService);
@@ -54,6 +57,7 @@ export class MapComponent implements OnInit, OnDestroy {
   readonly center: google.maps.LatLngLiteral = { lat: 20, lng: 0 };
   readonly zoom = 2;
   readonly mapOptions: google.maps.MapOptions = {
+    colorScheme: inject(ThemeService).resolved() === 'light' ? 'LIGHT' : 'DARK',
     streetViewControl: false,
     fullscreenControl: false,
     mapTypeControl: true,

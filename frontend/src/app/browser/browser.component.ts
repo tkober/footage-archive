@@ -5,7 +5,7 @@ import { forkJoin, switchMap, map, tap } from 'rxjs';
 import { HeaderService } from '../services/header.service';
 import { MenuComponent, MenuItem, MenuPoint } from '../shared/menu/menu.component';
 import { PopoverComponent } from '../shared/popover/popover.component';
-import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
+import { DetailNavItem, FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
 import { ListPickerComponent } from '../shared/list-picker/list-picker.component';
 import { FolderPickerComponent } from '../shared/folder-picker/folder-picker.component';
 import { ConfirmDialogComponent } from '../shared/confirm-dialog/confirm-dialog.component';
@@ -196,12 +196,25 @@ export class BrowserComponent implements OnInit {
   });
 
   // Detail-panel sibling navigation (photos only — matches the photo viewer).
-  photoNavCount = computed(() => this.photoFiles().length);
-  photoNavIndex = computed(() => {
+  /** Detail neighbours (#43): the loaded files of the same kind as the open one. */
+  private detailSiblings = computed(() => {
     const cur = this.selectedFile();
-    if (!cur) return -1;
-    return this.photoFiles().findIndex(e => e.path === cur.path);
+    if (!cur) return [];
+    if (VIDEO_TYPES.includes(cur.media_type as any)) return this.videoFiles();
+    if (PHOTO_TYPES.includes(cur.media_type as any)) return this.photoFiles();
+    return this.untrackedFiles();
   });
+  detailNavItems = computed<DetailNavItem[]>(() => this.detailSiblings().map(e => ({
+    key: e.path,
+    label: e.name,
+    previewUrl: this.entryPreviewUrl(e),
+    video: this.cardKind(e) === 'video',
+  })));
+  detailNavIndex = computed(() => {
+    const cur = this.selectedFile();
+    return cur ? this.detailSiblings().findIndex(e => e.path === cur.path) : -1;
+  });
+  currentFolderName = computed(() => this.breadcrumbs().at(-1)?.label ?? null);
 
   breadcrumbs = computed(() => {
     const root = this.rootDir();
@@ -366,17 +379,21 @@ export class BrowserComponent implements OnInit {
     this.loadingDetails.set(false);
   }
 
-  // Step to the prev/next photo in the directory. Keeps the current panel
+  // Step to a neighbour of the open file (same kind). Keeps the current panel
   // visible until the new details arrive (avoids a flash); the panel's own
   // file-sync effect resets its HQ/zoom state when the input file changes.
-  navigatePhoto(dir: number) {
-    const list = this.photoFiles();
-    const target = list[this.photoNavIndex() + dir];
+  navigateDetail(dir: number) {
+    this.jumpDetail(this.detailNavIndex() + dir);
+  }
+
+  jumpDetail(index: number) {
+    const target = this.detailSiblings()[index];
     if (!target) return;
     this.api.getFileDetails(target.path).subscribe({
       next: info => this.selectedFile.set(info),
     });
   }
+
 
   onFileRenamed(updated: FileInfo) {
     this.selectedFile.set(updated);

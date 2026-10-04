@@ -1,10 +1,12 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { combineLatest } from 'rxjs';
 
 import { ApiService } from '../services/api.service';
-import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
+import { HeaderService } from '../services/header.service';
+import { IconComponent } from '../shared/icon/icon.component';
+import { FileDetailPanelComponent, DetailNavItem } from '../shared/file-detail-panel/file-detail-panel.component';
 import { ConfirmDialogComponent } from '../shared/confirm-dialog/confirm-dialog.component';
 import { MediaCardComponent, MediaCardKind } from '../shared/media-card/media-card.component';
 import { LoadMoreFooterComponent } from '../shared/load-more-footer/load-more-footer.component';
@@ -17,17 +19,26 @@ const SKELETON_CAP = 12;
 @Component({
   selector: 'app-list-detail',
   standalone: true,
-  imports: [FormsModule, RouterLink, FileDetailPanelComponent, ConfirmDialogComponent, MediaCardComponent, LoadMoreFooterComponent, InfiniteScrollDirective],
+  imports: [FormsModule, RouterLink, IconComponent, FileDetailPanelComponent, ConfirmDialogComponent, MediaCardComponent, LoadMoreFooterComponent, InfiniteScrollDirective],
   templateUrl: './list-detail.component.html',
   styleUrl: './list-detail.component.css',
+  host: { class: 'page-flush' },
 })
 export class ListDetailComponent implements OnInit {
   readonly api = inject(ApiService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
+  private header = inject(HeaderService);
 
   listId = NaN; // set from the route on the first paramMap emission
   list = signal<FileList | null>(null);
+  /** Topbar trail "Lists / <name>" (#45) replaces the old "← Back to Lists" link. */
+  private publishCrumbs = effect(() => {
+    this.header.setCrumbs([
+      { label: 'Lists', action: () => this.router.navigate(['/lists']) },
+      { label: this.list()?.name ?? '…' },
+    ]);
+  });
   listNotFound = signal(false);
   rootDir = signal('');
 
@@ -199,9 +210,28 @@ export class ListDetailComponent implements OnInit {
 
   // ── Detail panel ──
 
-  openItem(item: ListItem, replaceUrl = false): void {
+  /** Detail neighbours (#43): every loaded item of the list, in list order. */
+  detailNavItems = computed<DetailNavItem[]>(() => this.items().map(i => ({
+    key: i.md5_hash,
+    label: `${i.item_code} · ${i.file_name}`,
+    previewUrl: this.api.clipPreviewUrl(i.md5_hash),
+    video: this.cardKind(i) === 'video',
+  })));
+  detailNavIndex = computed(() => {
+    const cur = this.selectedItem();
+    return cur ? this.items().findIndex(i => i.md5_hash === cur.md5_hash) : -1;
+  });
+
+  jumpDetail(index: number): void {
+    const target = this.items()[index];
+    if (target) this.openItem(target, true, true);
+  }
+
+  /** `keep`: stepping between neighbours, so leave the current file up until
+      the next one has loaded (no flash). */
+  openItem(item: ListItem, replaceUrl = false, keep = false): void {
     this.selectedItem.set(item);
-    this.selectedFile.set(null);
+    if (!keep) this.selectedFile.set(null);
     this.loadingDetails.set(true);
     this.codeError.set(null);
     this.router.navigate([], {

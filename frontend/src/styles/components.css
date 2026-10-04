@@ -63,6 +63,8 @@
 }
 .btn:hover { background: var(--hover); }
 .btn:disabled { opacity: .5; cursor: default; pointer-events: none; }
+/* A disabled primary reads as neutral, not as a muddy half-transparent accent. */
+.btn-primary:disabled { opacity: 1; background: var(--hover); border-color: var(--line); color: var(--faint); }
 
 .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .btn-primary:hover { filter: brightness(1.08); background: var(--accent); }

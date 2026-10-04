@@ -9,5 +9,6 @@ import { PathConflictsComponent } from './path-conflicts/path-conflicts.componen
   imports: [PathConflictsComponent, MissingFilesComponent],
   templateUrl: './maintenance.component.html',
   styleUrl: './maintenance.component.css',
+  host: { class: 'page-flush' },
 })
 export class MaintenanceComponent {}

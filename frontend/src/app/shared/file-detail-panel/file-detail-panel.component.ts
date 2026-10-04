@@ -1,4 +1,4 @@
-import { Component, computed, effect, ElementRef, inject, OnDestroy, signal, untracked, ViewChild, viewChild, input, output } from '@angular/core';
+import { Component, computed, effect, ElementRef, HostListener, inject, OnDestroy, signal, untracked, ViewChild, viewChild, input, output } from '@angular/core';
 import { DatePipe, JsonPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { GoogleMap, MapAdvancedMarker, MapGeocoder } from '@angular/google-maps';
@@ -7,30 +7,52 @@ import { ModalComponent } from '../../modal/modal.component';
 import { ImageViewerComponent } from '../image-viewer/image-viewer.component';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { ListPickerComponent } from '../list-picker/list-picker.component';
+import { IconComponent } from '../icon/icon.component';
+import { PopoverComponent } from '../popover/popover.component';
+import { ToastService } from '../toast/toast.service';
+import { ThemeService } from '../../services/theme.service';
 import { ApiService } from '../../services/api.service';
 import { GoogleMapsLoaderService } from '../../services/google-maps-loader.service';
-import { ExifTag, FileInfo, FileList, FileListMembership, Location, ShotClassification, VIDEO_TYPES, PHOTO_TYPES } from '../../models';
+import { ExifTag, FileInfo, FileList, FileListMembership, Location, ShotClassification, VIDEO_TYPES, PHOTO_TYPES, formatDurationTc } from '../../models';
+
+/** One neighbour in the detail view's filmstrip (#43). */
+export interface DetailNavItem {
+  key: string;
+  label: string;
+  previewUrl: string | null;
+  video: boolean;
+}
+
+/** Clip previews hold 5 frames taken at 1/6 … 5/6 of the duration
+    (`ffmpeg.timestamp_for_keyframes`). */
+const STRIP_FRAMES = [1, 2, 3, 4, 5];
 
 @Component({
   selector: 'app-file-detail-panel',
   standalone: true,
-  imports: [DatePipe, JsonPipe, RouterLink, ModalComponent, ImageViewerComponent, ConfirmDialogComponent, ListPickerComponent, GoogleMap, MapAdvancedMarker],
+  imports: [DatePipe, JsonPipe, RouterLink, ModalComponent, ImageViewerComponent, ConfirmDialogComponent, ListPickerComponent, IconComponent, PopoverComponent, GoogleMap, MapAdvancedMarker],
   templateUrl: './file-detail-panel.component.html',
   styleUrl: './file-detail-panel.component.css',
 })
 export class FileDetailPanelComponent implements OnDestroy {
   private api = inject(ApiService);
+  private toast = inject(ToastService);
+  private host: ElementRef<HTMLElement> = inject(ElementRef);
   private loader = inject(GoogleMapsLoaderService);
   private geocoder = inject(MapGeocoder);
 
   // ── Inputs / Outputs ──
   file    = input<FileInfo | null>(null);
   loading = input<boolean>(false);
-  navIndex = input<number>(-1);   // position of this file within its navigable siblings
-  navCount = input<number>(0);    // total navigable siblings (photos in the directory)
+  /** Neighbours shown in the filmstrip and stepped through with ←/→ (#43). */
+  navItems = input<DetailNavItem[]>([]);
+  navIndex = input<number>(-1);   // position of this file within navItems
+  /** Where "Back" goes, e.g. the folder name ("Back to atami"). */
+  backLabel = input<string | null>(null);
   closed  = output<void>();
   renamed = output<FileInfo>();
   navigate = output<number>();    // emits -1 / +1 to step to the prev / next sibling
+  jump = output<number>();        // emits a navItems index (filmstrip click)
   listsChanged = output<void>();  // emitted after any list membership add/remove, so hosts can refresh
 
   // ── Internal file state (owns its own copy, updated by API calls) ──
@@ -42,6 +64,7 @@ export class FileDetailPanelComponent implements OnDestroy {
   renameError   = signal<string | null>(null);
 
   // ── Keywords ──
+  addingKeyword   = signal(false);
   newKeywordValue = signal('');
   allKeywords     = signal<string[]>([]);
   keywordSuggestions = computed(() => {
@@ -53,6 +76,7 @@ export class FileDetailPanelComponent implements OnDestroy {
   });
 
   // ── Lists ──
+  addingToList      = signal(false);
   listAddError      = signal<string | null>(null);
   pendingRemoveList = signal<FileListMembership | null>(null);
   /** Lists the current file already belongs to — excluded from the picker's suggestions. */
@@ -60,6 +84,14 @@ export class FileDetailPanelComponent implements OnDestroy {
 
   // ── Location ──
   allLocations       = signal<Location[]>([]);
+  /** "Change" popover: anchor element of the open location picker. */
+  locationPicker     = signal<HTMLElement | null>(null);
+  locationFilter     = signal('');
+  filteredLocations  = computed(() => {
+    const q = this.locationFilter().trim().toLowerCase();
+    const locs = this.allLocations();
+    return q ? locs.filter(l => this.formatLocation(l).toLowerCase().includes(q)) : locs;
+  });
   showCreateLocation = signal(false);
   newLocCountry      = signal('');
   newLocRegion       = signal('');
@@ -111,6 +143,33 @@ export class FileDetailPanelComponent implements OnDestroy {
       pillarbox). Re-measured on each load, so it adjusts when HQ swaps in. */
   viewerAspect = signal<number | null>(null);
 
+  // ── Kind / video frames ──
+  isVideo = computed(() => VIDEO_TYPES.includes(this.selectedFile()?.media_type as any));
+  typeLabel = computed(() => {
+    const f = this.selectedFile();
+    if (!f) return '';
+    const ext = (f.file_extension ?? '').replace(/^\./, '').toUpperCase();
+    if (this.isVideo()) return ['Video', ext, formatDurationTc(f.video_details?.duration_tc)].filter(Boolean).join(' · ');
+    if (this.isPhotoMediaType(f.media_type)) return ['Still', ext].filter(Boolean).join(' · ');
+    return ext || 'File';
+  });
+  /** The 5 frames of the clip preview, each with its timecode in the clip. */
+  videoFrames = computed(() => {
+    const secs = durationSeconds(this.selectedFile()?.video_details?.duration_tc);
+    return STRIP_FRAMES.map((k, i) => ({
+      pos: `${i * 25}% 0`,
+      time: secs == null ? null : formatSeconds(Math.floor(secs * k / 6)),
+    }));
+  });
+  hasNav = computed(() => this.navItems().length > 1);
+  /** "1/640 · f/2.8 · ISO 100" */
+  exposure = computed(() => {
+    const pd = this.selectedFile()?.photo_details;
+    if (!pd) return '';
+    return [pd.shutter_speed, pd.aperture ? `f/${pd.aperture}` : null, pd.iso ? `ISO ${pd.iso}` : null]
+      .filter(Boolean).join(' · ');
+  });
+
   // ── DOM refs ──
   @ViewChild('nameInput') nameInputRef?: ElementRef<HTMLInputElement>;
   private locMapRef = viewChild<GoogleMap>('locMapRef');
@@ -118,10 +177,14 @@ export class FileDetailPanelComponent implements OnDestroy {
   // ── Maps (Google) ──
   mapsReady = signal(false);
   mapId = signal('');
+  /** Google maps can't switch scheme after creation; follow the app theme at open time. */
+  private readonly colorScheme = inject(ThemeService).resolved() === 'light' ? 'LIGHT' : 'DARK';
   readonly detailMapOptions: google.maps.MapOptions = {
+    colorScheme: this.colorScheme,
     streetViewControl: false, fullscreenControl: false, mapTypeControl: false, clickableIcons: false,
   };
   readonly locMapOptions: google.maps.MapOptions = {
+    colorScheme: this.colorScheme,
     streetViewControl: false, fullscreenControl: false, mapTypeControl: true, clickableIcons: false,
   };
   /** Read-only detail-map coords: assigned-location coords first, raw GPS fallback. */
@@ -147,6 +210,9 @@ export class FileDetailPanelComponent implements OnDestroy {
       this.editingName.set(false);
       this.renameError.set(null);
       this.newKeywordValue.set('');
+      this.addingKeyword.set(false);
+      this.addingToList.set(false);
+      this.locationPicker.set(null);
       this.classificationResult.set(null);
       this.classificationError.set(null);
       this.classifying.set(false);
@@ -159,6 +225,14 @@ export class FileDetailPanelComponent implements OnDestroy {
         this.api.getAllKeywords().subscribe(kws => this.allKeywords.set(kws));
         this.api.getLocations().subscribe(locs => this.allLocations.set(locs));
       }
+    });
+
+    // Keep the current filmstrip thumbnail in view while stepping through.
+    effect(() => {
+      const i = this.navIndex();
+      if (i < 0) return;
+      setTimeout(() => this.host.nativeElement
+        .querySelector('.film .cur')?.scrollIntoView({ inline: 'center', block: 'nearest' }));
     });
 
     // Load the Google Maps JS API once (key + Map ID come from /config). The
@@ -180,6 +254,59 @@ export class FileDetailPanelComponent implements OnDestroy {
   // ── Actions ──
 
   close() { this.closed.emit(); }
+
+  step(dir: number) {
+    const i = this.navIndex() + dir;
+    if (i >= 0 && i < this.navItems().length) this.navigate.emit(dir);
+  }
+
+  /** ←/→ step through the neighbours; ignored while typing or a dialog is open.
+      (The image viewer's own arrow handling is off: it gets `showNav=false`.) */
+  @HostListener('document:keydown', ['$event'])
+  onKey(ev: Event) {
+    const e = ev as KeyboardEvent;
+    if (!this.selectedFile() || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (this.showCreateLocation() || this.showExif() || this.pendingRemoveList() || this.locationPicker()) return;
+    const t = e.target as HTMLElement | null;
+    if (t?.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if (e.key === 'ArrowLeft') { this.step(-1); e.preventDefault(); }
+    else if (e.key === 'ArrowRight') { this.step(1); e.preventDefault(); }
+  }
+
+  trackFile() {
+    const file = this.selectedFile();
+    if (!file) return;
+    this.api.trackFile(file.path).subscribe({
+      next: () => { this.api.taskRefresh$.next(); this.toast.show(`Tracking ${file.name}. It appears here once the scan is done.`); },
+      error: () => this.toast.show(`Couldn't start tracking ${file.name}.`),
+    });
+  }
+
+  startAddKeyword() {
+    this.addingKeyword.set(true);
+    setTimeout(() => this.host.nativeElement.querySelector<HTMLInputElement>('.kw-input')?.focus());
+  }
+
+  stopAddKeyword() {
+    this.addingKeyword.set(false);
+    this.newKeywordValue.set('');
+  }
+
+  openLocationPicker(anchor: HTMLElement) {
+    this.locationFilter.set('');
+    this.locationPicker.set(anchor);
+    setTimeout(() => document.querySelector<HTMLInputElement>('.loc-filter')?.focus());
+  }
+
+  pickLocation(id: number | null) {
+    this.locationPicker.set(null);
+    this.assignLocation(id);
+  }
+
+  newLocationFromPicker() {
+    this.locationPicker.set(null);
+    this.showCreateLocation.set(true);
+  }
 
   // ── High quality ──
 
@@ -310,6 +437,7 @@ export class FileDetailPanelComponent implements OnDestroy {
         const item = resp.added[0] ?? resp.existing[0];
         this.applyListMembership(list.id, list.name, item?.item_code ?? '');
         this.listsChanged.emit();
+        this.addingToList.set(false);
       },
       error: err => this.listAddError.set(err.error?.detail ?? 'Failed to add to list'),
     });
@@ -494,4 +622,16 @@ export class FileDetailPanelComponent implements OnDestroy {
     const geo = this.locationGeo(loc);
     return loc.name ? `${loc.name} — ${geo}` : geo;
   }
+}
+
+/** "HH:MM:SS:FF" → whole seconds (frames dropped). */
+function durationSeconds(tc: string | null | undefined): number | null {
+  const m = tc?.match(/^(\d+):(\d+):(\d+)/);
+  return m ? +m[1] * 3600 + +m[2] * 60 + +m[3] : null;
+}
+
+function formatSeconds(total: number): string {
+  const h = Math.floor(total / 3600), m = Math.floor(total / 60) % 60, sec = total % 60;
+  const mm = String(m).padStart(2, '0'), ss = String(sec).padStart(2, '0');
+  return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }

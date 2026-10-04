@@ -226,9 +226,11 @@
       <app-file-detail-panel
         [file]="selectedFile()"
         [loading]="loadingDetails()"
-        [navIndex]="photoNavIndex()"
-        [navCount]="photoNavCount()"
-        (navigate)="navigatePhoto($event)"
+        [navItems]="detailNavItems()"
+        [navIndex]="detailNavIndex()"
+        [backLabel]="currentFolderName()"
+        (navigate)="navigateDetail($event)"
+        (jump)="jumpDetail($event)"
         (closed)="closeDetails()"
         (renamed)="onFileRenamed($event)" />
     </div>

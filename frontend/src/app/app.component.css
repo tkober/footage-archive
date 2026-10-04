@@ -161,9 +161,9 @@
 
 /* Main content. Pages get a default inset; pages with their own full-bleed
    layout (toolbar under the header, e.g. the browser) opt out with the
-   host class `page-flush`. */
-.content > :not(router-outlet):not(.page-flush) { display: block; padding: var(--space-8); }
-.content > .page-flush { display: block; min-height: 100%; }
+   host class `page-flush`. The rules live in styles.css: routed pages are
+   inserted next to <router-outlet> and don't carry this component's
+   encapsulation attribute, so a rule here would never match them. */
 .content {
   flex: 1;
   padding: 0;
@@ -175,7 +175,6 @@
 @media (max-width: 760px) {
   .crumb-back { display: grid; }
   .crumb-item.early { display: none; }
-  .content > :not(router-outlet):not(.page-flush) { padding: var(--space-3); }
   .app {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr auto;
