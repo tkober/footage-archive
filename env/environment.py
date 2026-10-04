@@ -53,6 +53,19 @@ class Environment:
         raw = self.loadEnvironmentVariable("ROOT_DIR", "/mnt/user/footage")
         return str(Path(raw).resolve())
 
+    def get_trash_dir_name(self) -> str:
+        """Single folder name for the trash directory, created directly
+        under ROOT_DIR. Must not be empty, contain a path separator, or be
+        '.'/'..' — raises ValueError otherwise (validated at startup so a
+        bad value fails fast)."""
+        name = self.loadEnvironmentVariable("TRASH_DIR_NAME", ".trash")
+        if not name or '/' in name or '\\' in name or name in ('.', '..'):
+            raise ValueError(f'Invalid TRASH_DIR_NAME: {name!r}')
+        return name
+
+    def get_trash_dir(self) -> Path:
+        return Path(self.get_root_dir()) / self.get_trash_dir_name()
+
     def get_task_poll_interval_ms(self) -> int:
         return int(self.loadEnvironmentVariable("TASK_POLL_INTERVAL_MS", "5000"))
 

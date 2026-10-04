@@ -24,6 +24,7 @@ from alembic import command
 from alembic.config import Config
 from env.environment import Environment
 from fileops.service import recover_pending_operations
+from fileops.trash import ensure_trash_dir
 
 env = Environment()
 
@@ -37,6 +38,11 @@ logger = logging.getLogger(f'{__name__}')
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+    # Validates TRASH_DIR_NAME (raises ValueError on an invalid value, so a
+    # bad config fails fast instead of surfacing later on first delete) and
+    # creates the trash directory up front.
+    ensure_trash_dir()
+
     try:
         recover_pending_operations()
     except Exception:

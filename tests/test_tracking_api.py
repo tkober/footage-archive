@@ -26,3 +26,28 @@ def test_rediscover_non_directory_is_400(db, root_dir):
     file_path.write_bytes(b'x')
     resp = client.post('/tracking/rediscover', json={'path': str(file_path)})
     assert resp.status_code == 400
+
+
+def test_rediscover_inside_trash_is_400(db, root_dir):
+    client = _make_client()
+    trash_sub = root_dir / '.trash' / 'batch'
+    trash_sub.mkdir(parents=True)
+    resp = client.post('/tracking/rediscover', json={'path': str(trash_sub)})
+    assert resp.status_code == 400
+
+
+def test_scan_directory_inside_trash_is_400(db, root_dir):
+    client = _make_client()
+    trash_sub = root_dir / '.trash' / 'batch'
+    trash_sub.mkdir(parents=True)
+    resp = client.post('/tracking/scan-directory', json={'path': str(trash_sub)})
+    assert resp.status_code == 400
+
+
+def test_scan_file_inside_trash_is_400(db, root_dir):
+    client = _make_client()
+    trash_file = root_dir / '.trash' / 'batch' / 'x.jpg'
+    trash_file.parent.mkdir(parents=True)
+    trash_file.write_bytes(b'x')
+    resp = client.post('/tracking/scan-file', json={'path': str(trash_file)})
+    assert resp.status_code == 400

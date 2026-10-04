@@ -96,6 +96,7 @@ class ConfigResponse(BaseModel):
     browser_hidden_extensions: list[str]
     google_maps_api_key: str
     google_maps_map_id: str
+    trash_dir_name: str
 
 
 class VideoDetails(BaseModel):
@@ -234,6 +235,31 @@ class MkdirRequest(BaseModel):
 
 class MkdirResponse(BaseModel):
     path: str
+
+
+class DeleteRequest(BaseModel):
+    paths: List[StrictStr]
+
+
+class DeletePreviewResponse(BaseModel):
+    file_count: int
+    tracked_count: int
+    sidecars: list[str]
+    list_item_count: int
+    keyword_count: int
+
+
+class DeleteItemResult(BaseModel):
+    path: str
+    ok: bool
+    trash_path: Optional[str] = None
+    untracked_count: Optional[int] = None
+    error: Optional[str] = None
+
+
+class DeleteBatchResponse(BaseModel):
+    trash_batch: str
+    results: list[DeleteItemResult]
 
 
 class KeywordRequest(BaseModel):

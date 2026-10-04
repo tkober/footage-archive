@@ -998,12 +998,13 @@ class Database:
             rows = conn.execute(stmt).fetchall()
         return [row._asdict() for row in rows]
 
-    def delete_files(self, md5_hashes: list[str]) -> int:
-        """Remove the given hashes from the archive entirely: the Files row
-        plus everything keyed on it (details, keywords, list memberships,
-        clip preview, path conflicts). Locations and Keywords themselves are
-        shared and stay. One transaction; returns the number of Files rows
-        deleted."""
+    def delete_files_on_conn(self, conn, md5_hashes: list[str]) -> int:
+        """Remove the given hashes from the archive entirely, on a
+        caller-supplied connection (so it can share a transaction with a
+        physical rename — see fileops/service.py's trash flow): the Files
+        row plus everything keyed on it (details, keywords, list
+        memberships, clip preview, path conflicts). Locations and Keywords
+        themselves are shared and stay."""
         if not md5_hashes:
             return 0
         dependent_tables = (
@@ -1011,10 +1012,86 @@ class Database:
             clip_previews_table, video_details_table, photo_details_table,
             file_details_table,
         )
+        for table in dependent_tables:
+            conn.execute(delete(table).where(table.c.md5_hash.in_(md5_hashes)))
+        result = conn.execute(delete(files_table).where(files_table.c.md5_hash.in_(md5_hashes)))
+        return result.rowcount
+
+    def delete_files(self, md5_hashes: list[str]) -> int:
+        """Standalone (own-transaction) variant of delete_files_on_conn."""
+        if not md5_hashes:
+            return 0
         with get_engine().begin() as conn:
-            for table in dependent_tables:
-                conn.execute(delete(table).where(table.c.md5_hash.in_(md5_hashes)))
-            result = conn.execute(delete(files_table).where(files_table.c.md5_hash.in_(md5_hashes)))
+            return self.delete_files_on_conn(conn, md5_hashes)
+
+    def get_hash_by_path_on_conn(self, conn, directory: str, file_name: str) -> Optional[str]:
+        """md5_hash for a tracked (directory, file_name), or None if
+        untracked. Used inside a guarded-rename transaction (trash flow) to
+        find what to delete before the physical rename commits."""
+        stmt = (
+            select(files_table.c.md5_hash)
+            .where(files_table.c.directory == directory, files_table.c.file_name == file_name)
+        )
+        return conn.execute(stmt).scalar()
+
+    def get_hashes_under_directory_on_conn(self, conn, directory: str) -> list[str]:
+        """md5_hash values tracked at exactly ``directory`` or anywhere below
+        it (same escaped LIKE-prefix approach as count_tracked_files_under /
+        update_directory_prefix_on_conn — `/a/bc` is never matched by
+        `/a/b`). Used inside a guarded-rename transaction to find what to
+        delete before a directory's physical rename into the trash commits."""
+        like_pattern = self._escape_like(directory) + '/%'
+        stmt = (
+            select(files_table.c.md5_hash)
+            .where(
+                (files_table.c.directory == directory)
+                | files_table.c.directory.like(like_pattern, escape='\\')
+            )
+        )
+        return [row[0] for row in conn.execute(stmt).fetchall()]
+
+    def delete_path_conflicts_by_candidate_paths_on_conn(self, conn, candidate_paths: list[str]) -> int:
+        """Delete PathConflicts rows (for any hash) whose candidate_path is
+        exactly one of ``candidate_paths`` — used when those paths have just
+        moved into the trash, so a stale conflict never points there."""
+        if not candidate_paths:
+            return 0
+        result = conn.execute(
+            delete(path_conflicts_table)
+            .where(path_conflicts_table.c.candidate_path.in_(candidate_paths))
+        )
+        return result.rowcount
+
+    def finish_pending_trash_delete(self, kind: str, source_path: str) -> None:
+        """Idempotently remove tracking for a recovered ``file_trash``/
+        ``dir_trash`` journal row where the target was found on disk and the
+        source wasn't: the physical rename already happened, but the DB side
+        of that same transaction never committed before the crash. Safe to
+        call even if the DB is already up to date (nothing matches)."""
+        source = Path(source_path)
+        with get_engine().begin() as conn:
+            if kind == 'dir_trash':
+                hashes = self.get_hashes_under_directory_on_conn(conn, source_path)
+                self.delete_files_on_conn(conn, hashes)
+                self.delete_path_conflicts_under_on_conn(conn, source_path)
+            else:
+                md5 = self.get_hash_by_path_on_conn(conn, str(source.parent), source.name)
+                if md5:
+                    self.delete_files_on_conn(conn, [md5])
+                self.delete_path_conflicts_by_candidate_paths_on_conn(conn, [source_path])
+
+    def delete_path_conflicts_under_on_conn(self, conn, directory: str) -> int:
+        """Delete PathConflicts rows (for any hash) whose candidate_path is
+        ``directory`` itself or anywhere below it (escaped LIKE prefix, same
+        anchoring as get_hashes_under_directory_on_conn)."""
+        like_pattern = self._escape_like(directory) + '/%'
+        result = conn.execute(
+            delete(path_conflicts_table)
+            .where(
+                (path_conflicts_table.c.candidate_path == directory)
+                | path_conflicts_table.c.candidate_path.like(like_pattern, escape='\\')
+            )
+        )
         return result.rowcount
 
     # ------------------------------------------------------------------

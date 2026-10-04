@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from api.config import ConfigApi
 from api.files import FilesApi
 from db.engine import get_engine
 from db.models import files_table
@@ -99,3 +100,59 @@ def test_rename_directory_via_api(db, root_dir):
     assert body['tracked'] is False
     assert not src_dir.exists()
     assert (root_dir / 'renamed_folder').exists()
+
+
+def test_delete_preview_then_delete_via_api(db, root_dir):
+    client = _make_client()
+
+    src = root_dir / 'photo.jpg'
+    src.write_bytes(b'x')
+    _insert_file_row(str(root_dir), 'photo.jpg', 'h1')
+
+    preview = client.post('/files/delete/preview', json={'paths': [str(src)]})
+    assert preview.status_code == 200
+    body = preview.json()
+    assert body['file_count'] == 1
+    assert body['tracked_count'] == 1
+    assert body['list_item_count'] == 0
+    assert body['keyword_count'] == 0
+
+    deleted = client.post('/files/delete', json={'paths': [str(src)]})
+    assert deleted.status_code == 200
+    body = deleted.json()
+    assert len(body['results']) == 1
+    item = body['results'][0]
+    assert item['ok'] is True
+    assert item['trash_path'] == str(Path(body['trash_batch']) / 'photo.jpg')
+    assert Path(item['trash_path']).exists()
+    assert not src.exists()
+
+
+def test_delete_root_dir_itself_via_api_reports_error_not_500(db, root_dir):
+    client = _make_client()
+    resp = client.post('/files/delete', json={'paths': [str(root_dir)]})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body['results'][0]['ok'] is False
+
+
+def test_move_into_trash_is_rejected_via_api(db, root_dir):
+    client = _make_client()
+    trash_dir = root_dir / '.trash'
+    trash_dir.mkdir()
+    src = root_dir / 'a.jpg'
+    src.write_bytes(b'x')
+
+    resp = client.post('/files/move', json={'paths': [str(src)], 'target_directory': str(trash_dir)})
+    assert resp.status_code == 400
+
+
+def test_config_reports_trash_dir_name(root_dir, monkeypatch):
+    monkeypatch.setenv('TRASH_DIR_NAME', '.my-trash')
+    app = FastAPI()
+    app.include_router(ConfigApi)
+    client = TestClient(app)
+
+    resp = client.get('/config')
+    assert resp.status_code == 200
+    assert resp.json()['trash_dir_name'] == '.my-trash'

@@ -5,6 +5,7 @@ from pathlib import Path
 from pydantic import BaseModel, StrictStr
 
 from env.environment import Environment
+from fileops.trash import is_in_trash
 from tasks.workerpool import parallel_map
 
 
@@ -35,6 +36,8 @@ class Scanner:
         for f in files:
             f_path = Path(f)
             if f_path.name.startswith('._'):  # macOS AppleDouble sidecars, hidden in the browser too
+                continue
+            if is_in_trash(f_path):  # never (re)track anything inside the trash
                 continue
             if not f_path.is_dir() and f_path.exists() and f_path.suffix.lower() in considered_file_extensions:
                 candidates.append(f_path)
