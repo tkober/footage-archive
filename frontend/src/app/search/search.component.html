@@ -1,19 +1,16 @@
 <div class="search-page">
 
   <!-- ── Filter panel ── -->
-  <aside class="filter-panel">
+  <aside class="filter-panel" [class.open]="filtersOpen()">
 
     <!-- Media type -->
     <section class="filter-section">
       <h3 class="filter-label">Type</h3>
-      <div class="checkbox-group">
+      <div class="toggle-row" role="group" aria-label="Media type">
         @for (opt of mediaTypeOptions; track opt.value) {
-          <label class="checkbox-item">
-            <input type="checkbox"
-                   [checked]="selectedMediaTypes().has(opt.value)"
-                   (change)="toggleMediaType(opt.value)" />
-            {{ opt.label }}
-          </label>
+          <button type="button" class="toggle" [class.on]="selectedMediaTypes().has(opt.value)"
+                  [attr.aria-pressed]="selectedMediaTypes().has(opt.value)"
+                  (click)="toggleMediaType(opt.value)">{{ opt.label }}</button>
         }
       </div>
     </section>
@@ -23,11 +20,11 @@
       <h3 class="filter-label">Keywords</h3>
       <div class="chip-row">
         @for (kw of selectedKeywords(); track kw) {
-          <span class="chip">{{ kw }}<button class="chip-remove" (click)="removeKeyword(kw)">×</button></span>
+          <span class="chip">{{ kw }}<button type="button" class="chip-remove" (click)="removeKeyword(kw)" [attr.aria-label]="'Remove ' + kw"><app-icon name="x" [size]="12" /></button></span>
         }
       </div>
       <div class="facet-input-row">
-        <input class="facet-input"
+        <input class="input"
                list="kw-suggestions"
                placeholder="Add keyword…"
                [value]="keywordInput()"
@@ -45,10 +42,10 @@
     <section class="filter-section">
       <h3 class="filter-label">Country</h3>
       @if (country()) {
-        <span class="chip">{{ country() }}<button class="chip-remove" (click)="clearFacet('country')">×</button></span>
+        <span class="chip">{{ country() }}<button type="button" class="chip-remove" (click)="clearFacet('country')" aria-label="Clear"><app-icon name="x" [size]="12" /></button></span>
       } @else {
         <div class="facet-input-row">
-          <input class="facet-input"
+          <input class="input"
                  list="country-suggestions"
                  placeholder="Type to search…"
                  (input)="onFacetInput('country', $any($event.target).value)"
@@ -65,12 +62,14 @@
     <!-- Date range -->
     <section class="filter-section">
       <h3 class="filter-label">Date range</h3>
-      <input class="facet-input" type="date"
-             [value]="dateFrom()"
-             (change)="dateFrom.set($any($event.target).value); onFilterChange()" />
-      <input class="facet-input" type="date" style="margin-top: 4px"
-             [value]="dateTo()"
-             (change)="dateTo.set($any($event.target).value); onFilterChange()" />
+      <div class="date-range">
+        <label><span>From</span>
+          <input class="input" type="date" [value]="dateFrom()"
+                 (change)="dateFrom.set($any($event.target).value); onFilterChange()" /></label>
+        <label><span>To</span>
+          <input class="input" type="date" [value]="dateTo()"
+                 (change)="dateTo.set($any($event.target).value); onFilterChange()" /></label>
+      </div>
     </section>
 
     <!-- Camera (photo) -->
@@ -78,10 +77,10 @@
       <section class="filter-section">
         <h3 class="filter-label">Camera make</h3>
         @if (cameraMake()) {
-          <span class="chip">{{ cameraMake() }}<button class="chip-remove" (click)="clearFacet('cameraMake')">×</button></span>
+          <span class="chip">{{ cameraMake() }}<button type="button" class="chip-remove" (click)="clearFacet('cameraMake')" aria-label="Clear"><app-icon name="x" [size]="12" /></button></span>
         } @else {
           <div class="facet-input-row">
-            <input class="facet-input"
+            <input class="input"
                    list="make-suggestions"
                    placeholder="Type to search…"
                    (input)="onFacetInput('camera_make', $any($event.target).value)"
@@ -93,12 +92,12 @@
             </datalist>
           </div>
         }
-        <h3 class="filter-label" style="margin-top: 12px">Camera model</h3>
+        <h3 class="filter-label sub">Camera model</h3>
         @if (cameraModel()) {
-          <span class="chip">{{ cameraModel() }}<button class="chip-remove" (click)="clearFacet('cameraModel')">×</button></span>
+          <span class="chip">{{ cameraModel() }}<button type="button" class="chip-remove" (click)="clearFacet('cameraModel')" aria-label="Clear"><app-icon name="x" [size]="12" /></button></span>
         } @else {
           <div class="facet-input-row">
-            <input class="facet-input"
+            <input class="input"
                    list="model-suggestions"
                    placeholder="Type to search…"
                    (input)="onFacetInput('camera_model', $any($event.target).value)"
@@ -120,15 +119,15 @@
         <div class="chip-row">
           @for (list of allLists(); track list.id) {
             <button type="button"
-                    class="list-chip"
-                    [class.selected]="selectedListIds().has(list.id)"
+                    class="toggle"
+                    [class.on]="selectedListIds().has(list.id)"
                     (click)="toggleList(list.id)">
               {{ list.name }}
             </button>
           }
         </div>
         @if (showSingleListCode()) {
-          <input class="facet-input code-input"
+          <input class="input code-input"
                  placeholder="Code…"
                  [value]="listCode()"
                  (input)="onListCodeInput($any($event.target).value)" />
@@ -141,10 +140,10 @@
       <section class="filter-section">
         <h3 class="filter-label">Video codec</h3>
         @if (videoCodec()) {
-          <span class="chip">{{ videoCodec() }}<button class="chip-remove" (click)="clearFacet('videoCodec')">×</button></span>
+          <span class="chip">{{ videoCodec() }}<button type="button" class="chip-remove" (click)="clearFacet('videoCodec')" aria-label="Clear"><app-icon name="x" [size]="12" /></button></span>
         } @else {
           <div class="facet-input-row">
-            <input class="facet-input"
+            <input class="input"
                    list="codec-suggestions"
                    placeholder="Type to search…"
                    (input)="onFacetInput('video_codec', $any($event.target).value)"
@@ -165,40 +164,53 @@
 
   <div class="list-view">
 
-    <!-- Geographic filter (from the map's "open in search" link) -->
-    @if (bbox()) {
-      <div class="bbox-chip">
-        <span>📍 Filtered to a map location</span>
-        <button type="button" (click)="clearBbox()" title="Clear location filter">✕</button>
-      </div>
-    }
+    <!-- Result header: count + every active filter as a removable chip -->
+    <div class="results-head">
+      <button type="button" class="btn filters-toggle" (click)="filtersOpen.set(!filtersOpen())"
+              [attr.aria-expanded]="filtersOpen()">
+        <app-icon name="filter" [size]="14" />Filters
+        @if (activeFilters().length) { <span class="count">{{ activeFilters().length }}</span> }
+      </button>
+      @if (hasFilters()) {
+        <span class="results-count">
+          @if (loading() && results().length === 0) { Searching… }
+          @else { <b>{{ total() }}</b> result{{ total() === 1 ? '' : 's' }} }
+        </span>
+        <div class="active-filters">
+          @for (f of activeFilters(); track f.id) {
+            <span class="chip">{{ f.label }}
+              <button type="button" class="chip-remove" (click)="f.remove()" [attr.aria-label]="'Remove filter ' + f.label">
+                <app-icon name="x" [size]="12" />
+              </button>
+            </span>
+          }
+          <button type="button" class="btn btn-ghost btn-sm" (click)="clearAllFilters()">Clear all</button>
+        </div>
+      }
+    </div>
 
-    <!-- Status bar -->
-    @if (hasFilters()) {
-      <div class="results-status">
-        @if (loading() && results().length === 0) {
-          <span>Searching…</span>
-        } @else {
-          <span>{{ total() }} result{{ total() === 1 ? '' : 's' }}</span>
-        }
-      </div>
-    }
-
-    <!-- Empty prompt -->
     @if (!hasFilters()) {
       <div class="empty-state">
-        <p>Use the filters to search across the archive.</p>
+        <app-icon name="search" [size]="28" />
+        <b>Search the whole archive</b>
+        <p>Pick a type, keyword, place, date range, camera or list on the left. Results update as you go.</p>
+        <div class="quick-starts">
+          <button type="button" class="btn" (click)="toggleMediaType('video')"><app-icon name="film" [size]="14" />All videos</button>
+          <button type="button" class="btn" (click)="toggleMediaType('photo')"><app-icon name="image" [size]="14" />All photos</button>
+        </div>
       </div>
     } @else if (!loading() && results().length === 0) {
       <div class="empty-state">
-        <p>No files match your filters.</p>
+        <app-icon name="filter" [size]="28" />
+        <b>No files match these filters</b>
+        <p>Remove a filter above or widen the date range.</p>
       </div>
     }
 
     <!-- Videos grid -->
     @if (videoResults().length) {
       <div class="grid-section">
-        <span class="section-label">Videos</span>
+        <h2 class="sec-h">Videos</h2>
         <div class="grid videos">
           @for (result of videoResults(); track result.md5_hash) {
             <app-media-card
@@ -224,7 +236,7 @@
     <!-- Stills grid -->
     @if (photoResults().length) {
       <div class="grid-section">
-        <span class="section-label">Stills</span>
+        <h2 class="sec-h">Stills</h2>
         <div class="grid">
           @for (result of photoResults(); track result.md5_hash) {
             <app-media-card

@@ -9,6 +9,7 @@ import { DetailNavItem, FileDetailPanelComponent } from '../shared/file-detail-p
 import { MediaCardComponent, MediaCardKind } from '../shared/media-card/media-card.component';
 import { LoadMoreFooterComponent } from '../shared/load-more-footer/load-more-footer.component';
 import { InfiniteScrollDirective } from '../shared/infinite-scroll/infinite-scroll.directive';
+import { IconComponent } from '../shared/icon/icon.component';
 import { FileInfo, FileList, FileSearchQuery, SearchResponse, SearchResult, VIDEO_TYPES, PHOTO_TYPES } from '../models';
 
 const SKELETON_CAP = 12;
@@ -23,7 +24,8 @@ const MEDIA_TYPE_OPTIONS = [
 @Component({
   selector: 'app-search',
   standalone: true,
-  imports: [FormsModule, FileDetailPanelComponent, MediaCardComponent, LoadMoreFooterComponent, InfiniteScrollDirective],
+  imports: [FormsModule, FileDetailPanelComponent, MediaCardComponent, LoadMoreFooterComponent, InfiniteScrollDirective, IconComponent],
+  host: { class: 'page-flush' },
   templateUrl: './search.component.html',
   styleUrl: './search.component.css',
 })
@@ -70,6 +72,36 @@ export class SearchComponent implements OnInit, OnDestroy {
   loading        = signal(false);
   loadMoreError  = signal<string | null>(null);
   hasFilters     = signal(false);
+  /** Phone: the filter panel is a collapsible sheet above the results. */
+  filtersOpen    = signal(false);
+
+  /** Every active filter as a removable chip above the results (#44). */
+  activeFilters = computed<{ id: string; label: string; remove: () => void }[]>(() => {
+    const out: { id: string; label: string; remove: () => void }[] = [];
+    for (const t of this.selectedMediaTypes()) {
+      out.push({ id: 'type:' + t, label: MEDIA_TYPE_OPTIONS.find(o => o.value === t)?.label ?? t, remove: () => this.toggleMediaType(t) });
+    }
+    for (const kw of this.selectedKeywords()) out.push({ id: 'kw:' + kw, label: '#' + kw, remove: () => this.removeKeyword(kw) });
+    if (this.country()) out.push({ id: 'country', label: this.country(), remove: () => this.clearFacet('country') });
+    if (this.dateFrom() || this.dateTo()) {
+      out.push({
+        id: 'date',
+        label: this.dateFrom() && this.dateTo() ? `${this.dateFrom()} – ${this.dateTo()}`
+             : this.dateFrom() ? `from ${this.dateFrom()}` : `until ${this.dateTo()}`,
+        remove: () => { this.dateFrom.set(''); this.dateTo.set(''); this.onFilterChange(); },
+      });
+    }
+    if (this.cameraMake()) out.push({ id: 'make', label: this.cameraMake(), remove: () => this.clearFacet('cameraMake') });
+    if (this.cameraModel()) out.push({ id: 'model', label: this.cameraModel(), remove: () => this.clearFacet('cameraModel') });
+    if (this.videoCodec()) out.push({ id: 'codec', label: this.videoCodec(), remove: () => this.clearFacet('videoCodec') });
+    for (const id of this.selectedListIds()) {
+      const name = this.allLists().find(l => l.id === id)?.name ?? `List ${id}`;
+      out.push({ id: 'list:' + id, label: name, remove: () => this.toggleList(id) });
+    }
+    if (this.listCode()) out.push({ id: 'code', label: 'Code ' + this.listCode(), remove: () => this.onListCodeInput('') });
+    if (this.bbox()) out.push({ id: 'bbox', label: 'Map area', remove: () => this.clearBbox() });
+    return out;
+  });
   selectedFile   = signal<FileInfo | null>(null);
   loadingDetails = signal(false);
 
@@ -222,6 +254,21 @@ export class SearchComponent implements OnInit, OnDestroy {
 
   onFacetInput(field: string, q: string): void {
     this.facetInput$.next({ field, q });
+  }
+
+  clearAllFilters(): void {
+    this.selectedMediaTypes.set(new Set());
+    this.selectedKeywords.set([]);
+    this.country.set('');
+    this.dateFrom.set('');
+    this.dateTo.set('');
+    this.cameraMake.set('');
+    this.cameraModel.set('');
+    this.videoCodec.set('');
+    this.selectedListIds.set(new Set());
+    this.listCode.set('');
+    if (this.bbox()) this.clearBbox();
+    this.onFilterChange();
   }
 
   onFilterChange(): void {
