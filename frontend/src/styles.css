@@ -90,3 +90,11 @@ button { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* ── Routed page inset (#45) ──────────────────────────────────────
+   Pages get a default inset inside the shell's .content area; pages with
+   their own full-bleed layout opt out with the host class `page-flush`. */
+.content > :not(router-outlet):not(.page-flush) { display: block; padding: var(--space-8); }
+@media (max-width: 760px) {
+  .content > :not(router-outlet):not(.page-flush) { padding: var(--space-3); }
+}

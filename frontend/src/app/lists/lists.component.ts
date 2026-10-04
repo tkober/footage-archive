@@ -3,13 +3,16 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 
 import { ApiService } from '../services/api.service';
+import { IconComponent } from '../shared/icon/icon.component';
+import { MenuComponent, MenuItem } from '../shared/menu/menu.component';
 import { ConfirmDialogComponent } from '../shared/confirm-dialog/confirm-dialog.component';
 import { FileList } from '../models';
 
 @Component({
   selector: 'app-lists',
   standalone: true,
-  imports: [FormsModule, ConfirmDialogComponent],
+  imports: [FormsModule, ConfirmDialogComponent, IconComponent, MenuComponent],
+  host: { class: 'page-flush' },
   templateUrl: './lists.component.html',
   styleUrl: './lists.component.css',
 })
@@ -18,6 +21,14 @@ export class ListsComponent implements OnInit {
   private router = inject(Router);
 
   lists = signal<FileList[]>([]);
+  /** Up to four preview URLs per list for the tile mosaic (#45). */
+  previews = signal<Partial<Record<number, string[]>>>({});
+  readonly listMenuItems: MenuItem[] = [
+    { id: 'open', label: 'Open', icon: 'eye' },
+    { id: 'rename', label: 'Rename', icon: 'edit' },
+    { id: 'delete', label: 'Delete list…', icon: 'trash', danger: true, separatorBefore: true },
+  ];
+  menuFor = signal<{ list: FileList; anchor: HTMLElement } | null>(null);
   loading = signal(false);
 
   // ── Create ──
@@ -40,9 +51,33 @@ export class ListsComponent implements OnInit {
   private loadLists(): void {
     this.loading.set(true);
     this.api.getLists().subscribe({
-      next: lists => { this.lists.set(lists); this.loading.set(false); },
+      next: lists => { this.lists.set(lists); this.loading.set(false); lists.forEach(l => this.loadPreviews(l)); },
       error: () => this.loading.set(false),
     });
+  }
+
+  private loadPreviews(list: FileList): void {
+    if (!list.item_count) return;
+    this.api.getListItems(list.id, 1, 4).subscribe({
+      next: resp => this.previews.update(p => ({
+        ...p, [list.id]: resp.items.map(i => this.api.clipPreviewUrl(i.md5_hash)),
+      })),
+    });
+  }
+
+  openMenu(list: FileList, anchor: HTMLElement, event: Event): void {
+    event.stopPropagation();
+    this.menuFor.set({ list, anchor });
+  }
+
+  onMenuSelect(id: string): void {
+    const target = this.menuFor();
+    this.menuFor.set(null);
+    if (!target) return;
+    const ev = new Event('menu');
+    if (id === 'open') this.openList(target.list);
+    if (id === 'rename') this.startRename(target.list, ev);
+    if (id === 'delete') this.requestDelete(target.list, ev);
   }
 
   createList(): void {

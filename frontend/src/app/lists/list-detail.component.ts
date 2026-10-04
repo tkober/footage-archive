@@ -1,9 +1,11 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { combineLatest } from 'rxjs';
 
 import { ApiService } from '../services/api.service';
+import { HeaderService } from '../services/header.service';
+import { IconComponent } from '../shared/icon/icon.component';
 import { FileDetailPanelComponent, DetailNavItem } from '../shared/file-detail-panel/file-detail-panel.component';
 import { ConfirmDialogComponent } from '../shared/confirm-dialog/confirm-dialog.component';
 import { MediaCardComponent, MediaCardKind } from '../shared/media-card/media-card.component';
@@ -17,17 +19,26 @@ const SKELETON_CAP = 12;
 @Component({
   selector: 'app-list-detail',
   standalone: true,
-  imports: [FormsModule, RouterLink, FileDetailPanelComponent, ConfirmDialogComponent, MediaCardComponent, LoadMoreFooterComponent, InfiniteScrollDirective],
+  imports: [FormsModule, RouterLink, IconComponent, FileDetailPanelComponent, ConfirmDialogComponent, MediaCardComponent, LoadMoreFooterComponent, InfiniteScrollDirective],
   templateUrl: './list-detail.component.html',
   styleUrl: './list-detail.component.css',
+  host: { class: 'page-flush' },
 })
 export class ListDetailComponent implements OnInit {
   readonly api = inject(ApiService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
+  private header = inject(HeaderService);
 
   listId = NaN; // set from the route on the first paramMap emission
   list = signal<FileList | null>(null);
+  /** Topbar trail "Lists / <name>" (#45) replaces the old "← Back to Lists" link. */
+  private publishCrumbs = effect(() => {
+    this.header.setCrumbs([
+      { label: 'Lists', action: () => this.router.navigate(['/lists']) },
+      { label: this.list()?.name ?? '…' },
+    ]);
+  });
   listNotFound = signal(false);
   rootDir = signal('');
 

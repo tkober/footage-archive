@@ -1,6 +1,6 @@
 .path-conflicts-section {
-  background: #fff;
-  border: 1px solid #e4e4e7;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 16px 20px;
   margin-bottom: 20px;
@@ -16,7 +16,7 @@
 .section-title {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #18181b;
+  color: var(--text);
   margin: 0;
 }
 
@@ -27,17 +27,17 @@
 
 .action-btn {
   padding: 6px 12px;
-  border: 1px solid #d4d4d8;
+  border: 1px solid var(--line-strong);
   border-radius: 6px;
-  background: #fff;
-  color: #3f3f46;
+  background: var(--surface);
+  color: var(--text);
   font-size: 0.8rem;
   cursor: pointer;
 }
 
 .action-btn:hover:not(:disabled) {
-  background: #f4f4f5;
-  border-color: #a1a1aa;
+  background: var(--hover);
+  border-color: var(--line-strong);
 }
 
 .action-btn:disabled {
@@ -46,21 +46,21 @@
 }
 
 .explain-note {
-  color: #71717a;
+  color: var(--muted);
   font-size: 0.8rem;
   margin: 0 0 12px;
 }
 
 .form-error {
-  color: #dc2626;
+  color: var(--danger);
   font-size: 0.82rem;
   margin-top: 4px;
 }
 
 .batch-result {
-  color: #166534;
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  border: 1px solid var(--ok);
   border-radius: 6px;
   padding: 6px 10px;
   font-size: 0.8rem;
@@ -68,13 +68,13 @@
 }
 
 .loading-state {
-  color: #71717a;
+  color: var(--muted);
   font-size: 0.85rem;
   padding: 8px 0;
 }
 
 .empty-state {
-  color: #71717a;
+  color: var(--muted);
   font-size: 0.85rem;
   padding: 8px 0 2px;
 }
@@ -86,10 +86,10 @@
 }
 
 .conflict-card {
-  border: 1px solid #e4e4e7;
+  border: 1px solid var(--line);
   border-radius: 8px;
   overflow: hidden;
-  background: #fff;
+  background: var(--surface);
 }
 
 .card-main {
@@ -111,8 +111,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f4f4f5;
-  color: #d4d4d8;
+  background: var(--hover);
+  color: var(--muted);
 }
 
 .card-placeholder-thumb svg {
@@ -132,7 +132,7 @@
 .card-name {
   font-size: 0.85rem;
   font-weight: 600;
-  color: #18181b;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -148,8 +148,8 @@
   display: inline-block;
   padding: 2px 7px;
   border-radius: 999px;
-  background: #eff6ff;
-  color: #3b82f6;
+  background: var(--accent-soft);
+  color: var(--accent);
   font-size: 0.68rem;
   font-weight: 500;
   white-space: nowrap;
@@ -167,17 +167,17 @@
   align-items: flex-start;
   gap: 6px;
   font-size: 0.78rem;
-  color: #3f3f46;
+  color: var(--text);
   cursor: pointer;
 }
 
 .path-row.disabled {
-  color: #a1a1aa;
+  color: var(--faint);
   cursor: default;
 }
 
 .path-row input[type="radio"] {
-  accent-color: #3b82f6;
+  accent-color: var(--accent);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -196,8 +196,8 @@
 
 .path-tag {
   font-size: 0.65rem;
-  color: #3b82f6;
-  background: #eff6ff;
+  color: var(--accent);
+  background: var(--accent-soft);
   border-radius: 999px;
   padding: 1px 6px;
   flex-shrink: 0;
@@ -206,12 +206,12 @@
 
 .path-exists {
   font-size: 0.68rem;
-  color: #16a34a;
+  color: var(--ok);
   flex-shrink: 0;
 }
 
 .path-exists.missing {
-  color: #dc2626;
+  color: var(--danger);
 }
 
 .card-error {
@@ -228,14 +228,14 @@
   padding: 5px 14px;
   border: none;
   border-radius: 6px;
-  background: #3b82f6;
-  color: #fff;
+  background: var(--accent);
+  color: var(--accent-ink);
   font-size: 0.78rem;
   cursor: pointer;
 }
 
 .apply-btn:hover:not(:disabled) {
-  background: #2563eb;
+  background: var(--accent);
 }
 
 .apply-btn:disabled {

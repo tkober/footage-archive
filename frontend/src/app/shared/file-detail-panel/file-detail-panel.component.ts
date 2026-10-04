@@ -10,6 +10,7 @@ import { ListPickerComponent } from '../list-picker/list-picker.component';
 import { IconComponent } from '../icon/icon.component';
 import { PopoverComponent } from '../popover/popover.component';
 import { ToastService } from '../toast/toast.service';
+import { ThemeService } from '../../services/theme.service';
 import { ApiService } from '../../services/api.service';
 import { GoogleMapsLoaderService } from '../../services/google-maps-loader.service';
 import { ExifTag, FileInfo, FileList, FileListMembership, Location, ShotClassification, VIDEO_TYPES, PHOTO_TYPES, formatDurationTc } from '../../models';
@@ -176,10 +177,14 @@ export class FileDetailPanelComponent implements OnDestroy {
   // ── Maps (Google) ──
   mapsReady = signal(false);
   mapId = signal('');
+  /** Google maps can't switch scheme after creation; follow the app theme at open time. */
+  private readonly colorScheme = inject(ThemeService).resolved() === 'light' ? 'LIGHT' : 'DARK';
   readonly detailMapOptions: google.maps.MapOptions = {
+    colorScheme: this.colorScheme,
     streetViewControl: false, fullscreenControl: false, mapTypeControl: false, clickableIcons: false,
   };
   readonly locMapOptions: google.maps.MapOptions = {
+    colorScheme: this.colorScheme,
     streetViewControl: false, fullscreenControl: false, mapTypeControl: true, clickableIcons: false,
   };
   /** Read-only detail-map coords: assigned-location coords first, raw GPS fallback. */

@@ -1,6 +1,6 @@
 .missing-files-section {
-  background: #fff;
-  border: 1px solid #e4e4e7;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 16px 20px;
 }
@@ -15,7 +15,7 @@
 .section-title {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #18181b;
+  color: var(--text);
   margin: 0;
 }
 
@@ -24,17 +24,17 @@
   align-items: center;
   gap: 6px;
   padding: 6px 14px;
-  border: 1px solid #d4d4d8;
+  border: 1px solid var(--line-strong);
   border-radius: 6px;
-  background: #fff;
-  color: #3f3f46;
+  background: var(--surface);
+  color: var(--text);
   font-size: 0.8rem;
   cursor: pointer;
 }
 
 .check-btn:hover:not(:disabled) {
-  background: #f4f4f5;
-  border-color: #a1a1aa;
+  background: var(--hover);
+  border-color: var(--line-strong);
 }
 
 .check-btn:disabled {
@@ -45,8 +45,8 @@
 .spinner {
   width: 12px;
   height: 12px;
-  border: 2px solid #d4d4d8;
-  border-top-color: #3b82f6;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--accent);
   border-radius: 50%;
   display: inline-block;
   animation: spin 700ms linear infinite;
@@ -57,19 +57,19 @@
 }
 
 .form-error {
-  color: #dc2626;
+  color: var(--danger);
   font-size: 0.82rem;
   margin-top: 4px;
 }
 
 .empty-state {
-  color: #71717a;
+  color: var(--muted);
   font-size: 0.85rem;
   padding: 8px 0 2px;
 }
 
 .summary-line {
-  color: #3f3f46;
+  color: var(--text);
   font-size: 0.85rem;
   margin-bottom: 14px;
 }
@@ -89,14 +89,14 @@
   gap: 10px;
   margin-bottom: 8px;
   padding-bottom: 6px;
-  border-bottom: 1px solid #f4f4f5;
+  border-bottom: 1px solid var(--line);
 }
 
 .group-path {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.82rem;
   font-weight: 600;
-  color: #18181b;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -104,31 +104,31 @@
 
 .group-count {
   font-size: 0.75rem;
-  color: #9ca3af;
+  color: var(--faint);
   flex-shrink: 0;
 }
 
 .rediscover-btn {
   margin-left: auto;
   padding: 4px 10px;
-  border: 1px solid #d4d4d8;
+  border: 1px solid var(--line-strong);
   border-radius: 6px;
-  background: #fff;
-  color: #3f3f46;
+  background: var(--surface);
+  color: var(--text);
   font-size: 0.75rem;
   cursor: pointer;
   flex-shrink: 0;
 }
 
 .rediscover-btn:hover {
-  background: #f4f4f5;
-  border-color: #a1a1aa;
+  background: var(--hover);
+  border-color: var(--line-strong);
 }
 
 .rediscover-note {
-  color: #2563eb;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
   border-radius: 6px;
   padding: 6px 10px;
   font-size: 0.8rem;
@@ -143,8 +143,8 @@
 }
 
 .file-card {
-  background: #ffffff;
-  border: 1px solid #e4e4e7;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -162,8 +162,8 @@
   justify-content: center;
   width: 100%;
   height: 100px;
-  background: #f4f4f5;
-  color: #d4d4d8;
+  background: var(--hover);
+  color: var(--muted);
 }
 
 .placeholder-thumb svg {
@@ -176,13 +176,13 @@
   flex-direction: column;
   gap: 4px;
   padding: 8px 10px;
-  border-top: 1px solid #f4f4f5;
+  border-top: 1px solid var(--line);
   min-width: 0;
 }
 
 .file-name {
   font-size: 0.8rem;
-  color: #18181b;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -190,7 +190,7 @@
 
 .file-media-type {
   font-size: 0.7rem;
-  color: #9ca3af;
+  color: var(--faint);
   text-transform: capitalize;
 }
 
@@ -205,8 +205,8 @@
   display: inline-block;
   padding: 2px 7px;
   border-radius: 999px;
-  background: #eff6ff;
-  color: #3b82f6;
+  background: var(--accent-soft);
+  color: var(--accent);
   font-size: 0.68rem;
   font-weight: 500;
   white-space: nowrap;
