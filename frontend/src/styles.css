@@ -5,6 +5,9 @@
 @import '@fontsource/geist-mono/400.css';
 @import '@fontsource/geist-mono/500.css';
 
+/* ── UI building blocks (#37): buttons, inputs, chips, seg, kbd, skeleton */
+@import './styles/components.css';
+
 /* ── Design tokens ────────────────────────────────────────────────
    Dark is the default theme (no attribute, or data-theme="dark").
    There is deliberately no prefers-color-scheme block: the default

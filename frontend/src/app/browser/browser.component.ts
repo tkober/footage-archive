@@ -10,6 +10,7 @@ import { ConfirmDialogComponent } from '../shared/confirm-dialog/confirm-dialog.
 import { RediscoverDialogComponent } from '../shared/rediscover-dialog/rediscover-dialog.component';
 import { ComparisonComponent } from '../comparison/comparison.component';
 import { ApiService } from '../services/api.service';
+import { ToastService } from '../shared/toast/toast.service';
 import { FileInfo, FileList, Location, MoveItemResult, MovePreviewResponse, PathChild, RenameResponse, VIDEO_TYPES, PHOTO_TYPES } from '../models';
 
 const PAGE_SIZE = 50;
@@ -39,6 +40,7 @@ interface PendingMove {
 })
 export class BrowserComponent implements OnInit {
   private api = inject(ApiService);
+  private toast = inject(ToastService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
 
@@ -85,10 +87,6 @@ export class BrowserComponent implements OnInit {
   // Rediscover (context menu on a directory) — a single checkbox confirm,
   // the folder is already known.
   rediscoverPath = signal<string | null>(null);
-
-  // Transient feedback for rename/move results
-  fileOpMessage = signal<string | null>(null);
-  private fileOpMessageTimer?: ReturnType<typeof setTimeout>;
 
   dirs           = computed(() => this.entries().filter(e => e.type === 'directory'));
   videoFiles     = computed(() => this.entries().filter(e => e.type === 'file' && VIDEO_TYPES.includes(e.media_type as any)));
@@ -484,19 +482,7 @@ export class BrowserComponent implements OnInit {
   }
 
   private showFileOpMessage(message: string, sticky = false) {
-    this.fileOpMessage.set(message);
-    if (this.fileOpMessageTimer) clearTimeout(this.fileOpMessageTimer);
-    if (!sticky) {
-      this.fileOpMessageTimer = setTimeout(() => this.fileOpMessage.set(null), FILE_OP_RESULT_TIMEOUT_MS);
-    }
-  }
-
-  dismissFileOpMessage() {
-    this.fileOpMessage.set(null);
-    if (this.fileOpMessageTimer) {
-      clearTimeout(this.fileOpMessageTimer);
-      this.fileOpMessageTimer = undefined;
-    }
+    this.toast.show(message, { duration: sticky ? 0 : FILE_OP_RESULT_TIMEOUT_MS });
   }
 
   bulkMoveTo() {

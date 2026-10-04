@@ -541,29 +541,6 @@
   cursor: default;
 }
 
-/* File-op transient feedback (rename / move results) */
-.file-op-message {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  color: #1d4ed8;
-}
-
-.file-op-dismiss {
-  margin-left: auto;
-  background: none;
-  border: none;
-  color: #1d4ed8;
-  cursor: pointer;
-  font-size: 0.75rem;
-  padding: 2px 4px;
-}
-
 /* Inline rename — directory chip */
 .dir-chip.renaming {
   display: inline-flex;

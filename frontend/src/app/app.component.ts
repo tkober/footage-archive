@@ -6,12 +6,13 @@ import { ApiService } from './services/api.service';
 import { ThemeService } from './services/theme.service';
 import { TasksWidgetComponent } from './tasks-widget/tasks-widget.component';
 import { QuickJumpComponent } from './shared/quick-jump/quick-jump.component';
+import { ToastOutletComponent } from './shared/toast/toast-outlet.component';
 import { APP_VERSION } from '../version';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, TasksWidgetComponent, QuickJumpComponent],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, TasksWidgetComponent, QuickJumpComponent, ToastOutletComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css'
 })

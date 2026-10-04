@@ -1,0 +1,25 @@
+.popover-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+}
+
+.pop {
+  position: fixed;
+  z-index: 56;
+  border-radius: var(--r-lg);
+  background: var(--raised);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-2);
+  animation: fa-pop-pop var(--dur-fast) ease-out;
+  overflow: auto;
+  max-height: calc(100vh - 16px);
+  outline: none;
+}
+
+@keyframes fa-pop-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(-2px);
+  }
+}

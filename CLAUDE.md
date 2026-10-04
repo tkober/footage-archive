@@ -236,6 +236,10 @@ footage-archive/
         │   ├── lists.component.*        # GET/POST/PATCH/DELETE /lists — grid of lists with inline rename + confirm-dialog delete
         │   └── list-detail.component.*  # GET /lists/{id}/items — item grid (thumbnail + code + path), code quick-jump, deep-link ?code=, remove-from-list
         ├── shared/
+        │   ├── icon/                    # `IconComponent` (#37) — `<app-icon name="folder" [size]="16" />`, inline-SVG paths for a closed set of names, Lucide-like stroke (currentColor, width 1.7, round caps)
+        │   ├── menu/                    # `MenuComponent` (#37) — floating menu at a point or anchored to an element, clamped to the viewport; data-driven items (`MenuItem[]`: id/label/icon/shortcut/danger/disabled/separatorBefore), optional `[menuHeader]` projection, full keyboard nav (arrows/Home/End/Esc/Tab), closes on outside click/right-click
+        │   ├── popover/                 # `PopoverComponent` (#37) — anchored panel (below by default, flips above if no room, clamped horizontally), plain content projection, closes on outside click/Esc; same `.pop` visual as the menu container
+        │   ├── toast/                   # `ToastService` + `ToastOutletComponent` (#37) — `toastService.show(message, { action?, duration? })`; outlet renders bottom-left stacked, inverse colors (`--text` bg / `--bg` text); one `<app-toast-outlet />` lives in `app.component.html`. Replaced the browser's old local `file-op-message` banner.
         │   ├── file-detail-panel/       # Shared file detail panel (used by browser, search, lists)
         │   ├── image-viewer/            # Zoomable/pannable image viewer used by the detail panel
         │   ├── confirm-dialog/          # Generic confirm/cancel dialog on top of ModalComponent (reused by lists, rename/move, future callers)
@@ -249,6 +253,51 @@ footage-archive/
         │   └── missing-files/      # Missing-files section as its own embeddable component: auto-checks on page open, "Re-check" button, grouped-by-directory cards (thumbnail, keyword/location/list badges), "Rediscover…" button per group opens `app-rediscover-dialog` (#25)
         └── settings/               # Settings page — "Appearance" section (theme segmented control over `ThemeService`)
 ```
+
+---
+
+## UI Building Blocks (#37)
+
+Reusable pieces on top of the design tokens (#36, `frontend/src/styles.css`), so later pages don't
+bring their own button/menu/toast styles.
+
+- **Global utility classes** — `frontend/src/styles/components.css` (imported from `styles.css`,
+  documented in a comment block at its top). Buttons: `.btn` + `.btn-primary`/`.btn-ghost`/`.btn-danger`/
+  `.btn-on`, `.btn-sm`; `.icon-btn` (+ `.icon-btn-sm`). Segmented control: `.seg` / `.seg-btn.on` /
+  `.seg-count` (Settings' theme picker uses these directly — no local CSS anymore). Inputs: plain
+  `.input`/`.select`, or `.field` as an icon+input wrapper. Chips: `.chip` (+ `.chip-code`,
+  `.chip-remove`) and the dashed `.chip-add`. Misc: `.kbd` (shortcut hint), `.skeleton` (shimmer
+  placeholder, static under `prefers-reduced-motion`). Apply directly to native elements — no
+  component needed.
+- **`shared/icon/`** — `IconComponent`, `<app-icon name="folder" [size]="16" />`. Inline SVG, stroke
+  `currentColor`/width 1.7/round caps, matching the prototype. `name` is one of a closed, hand-picked
+  set (see `ICONS` in `icon.component.ts`) — never pass user-controlled text as `name`.
+- **`shared/menu/`** — `MenuComponent`. Opens at a viewport point (`[position]="{x,y}"`) or anchored
+  below-right of an element (`[anchor]`), always clamped inside the viewport (8px margin). Items are
+  data (`MenuItem[]`: `id, label, icon?, shortcut?, danger?, disabled?, separatorBefore?`); outputs
+  `select(id)` / `closed`. Optional header via `<div menuHeader>…</div>` projection. Keyboard: first
+  item focused on open, ArrowUp/Down cycle, Home/End, Enter/Space (native button activation), Esc/Tab
+  close. A transparent backdrop behind the menu closes it on outside click or right-click. Like
+  `ModalComponent`, it teleports itself to `<body>` on init and removes itself on destroy — the
+  caller owns visibility (`@if`) and reacts to `closed`/`select` to tear it down.
+- **`shared/popover/`** — `PopoverComponent`. Anchored to an element, opens below by default and
+  flips above when there isn't room, clamped horizontally. Plain `<ng-content>` projection (forms,
+  the tasks panel, …); closes on outside click or Esc. Same `.pop` visual/teleport convention as
+  `MenuComponent`.
+- **`shared/toast/`** — `ToastService` (`providedIn: 'root'`) + `ToastOutletComponent`. Call
+  `toastService.show('Renamed to "x.jpg"', { action: { label: 'Undo', run: () => … }, duration: 4000 })`
+  from anywhere; one `<app-toast-outlet />` in `app.component.html` renders the stack, bottom-left,
+  inverse colors (`--text` background / `--bg` text), auto-dismiss (default 4s, `duration: 0` = sticky
+  until the dismiss button is clicked). Replaced the browser page's old local `file-op-message`
+  signal/banner.
+- **Dialogs on tokens** — `modal/`, `shared/confirm-dialog/`, `shared/folder-picker/`,
+  `shared/rediscover-dialog/`, `shared/list-picker/` were converted off hardcoded hex colors onto the
+  design tokens and the classes above (`--raised` surface, `--r-lg`, `--shadow-2`, `rgba(5,6,8,.6)`
+  backdrop, `.btn`/`.btn-primary` footer actions, `.btn-danger` for the destructive confirm path).
+  Behaviour/structure unchanged.
+- **Not yet redesigned**: the shell/rail (`app.component.*`, #38), the browser's own context menu
+  (`browser/context-menu/`, #41) and card/grid styling (#39) — they still carry their pre-#37 local
+  styles and will move onto these blocks in their own tickets.
 
 ---
 
@@ -360,6 +409,7 @@ footage-archive/
 - [x] Lists in the shared file detail panel (browser/search/lists): "Lists" section below keywords showing `Name · CODE` pills (tracked files only), pill name links to `/lists/:id?code=`, × removes via `ConfirmDialogComponent` ("...code will be released"); add-to-list input with a custom keyboard-navigable dropdown (existing lists filtered by text, trailing "+ Create list" entry when no exact match) that creates the list ad hoc and adds the file in one step; `listsChanged` output lets `list-detail` reload its grid/count and close the panel when the open item's own list membership was removed; `list-detail` now subscribes to paramMap/queryParamMap (reading both from `route.snapshot` to stay atomic across a single navigation) instead of a one-time snapshot read, so a detail-panel pill can jump between two list-detail routes without a stale-list 404 or a missed reload
 - [x] Rename and move from the browser UI, on top of #21's `fileops/` service: context menu gained "Rename" and "Move to…" for both files and directories (kept "Scan directory"/"Track file"), emitting a typed `{ kind, entry }` action instead of overloading the old single-purpose emitter. Rename is an inline edit directly on the grid tile (dir chip or file card — mirrors the detail panel's pen-icon/input/Enter-save/Escape-cancel UX); a directory rename always confirms first via `ConfirmDialogComponent` with counts from a `POST /files/move/preview` dry run (`paths=[dir], target_directory=<parent>`), a file rename only confirms when sidecars (same-stem `BROWSER_HIDDEN_EXTENSIONS`) would move along too. "Move to…" opens the new `app-folder-picker` (breadcrumbs from ROOT_DIR, directories-only listing, inline "New folder" via `POST /files/mkdir` that navigates straight into the new folder, source/descendant/current-parent disabled as targets with a tooltip), then confirms via `ConfirmDialogComponent` with counts + sidecars + the target path relative to ROOT_DIR before calling `POST /files/move`. Bulk mode's action bar gained a "Move to…" button for the current (files-only — directories were already not selectable in bulk mode, so the backend's single-directory-path constraint is moot) selection. Both flows report results via a transient banner ("2 moved", or "0 moved · 1 failed: Target already exists: …" with the backend's `detail` inlined, dismissible, non-sticky on full success), then reload the current directory listing; if the viewed directory (or an ancestor of it) was itself renamed/moved the view follows it to its new path, and if the open detail panel was showing a moved/renamed file it re-fetches it at the new path (or closes if it's gone).
 - [x] UI redesign #36 — design tokens + base styles (dark/light): `frontend/src/styles.css` is now the single source of truth for the visual system — CSS custom properties on `:root` for color (`--bg --surface --raised --hover --line --line-strong --text --muted --faint --stage --accent --accent-ink --accent-soft --ok --danger --skeleton --skeleton-hi`), shadows (`--shadow-1/2`), type scale (`--fs-xs/sm/md/lg/xl`), radii (`--r-sm/md/lg`), spacing (`--space-1…8`, 4px grid) and motion (`--dur-fast/base`); values taken verbatim from the design prototype. Dark is the default (no `data-theme` attr, or `data-theme="dark"`); `:root[data-theme="light"]` carries the light palette. **No hex colors in component CSS** — every color comes from a token; only the shell (`app.component.css`) and `tasks-widget` were touched to use tokens so far, the rest of the component tree keeps its old hardcoded styling until its own redesign ticket lands. `services/theme.service.ts` (signal-based, `providedIn: 'root'`, injected once from `AppComponent`) owns the theme choice (`system`/`dark`/`light`, `localStorage` key `fa-theme`, default `dark`, all storage access wrapped in try/catch) and resolves `system` via `matchMedia('(prefers-color-scheme: light)')` (kept live via a change listener), writing `data-theme`/`color-scheme` onto `<html>`. A matching inline script in `index.html` applies the stored choice before Angular bootstraps, so there's no flash of the wrong theme. Settings gained an "Appearance" section with a small local segmented control (System/Dark/Light) — not the shared `app-ui` building blocks, those come with #37. Fonts: Geist + Geist Mono bundled locally via `@fontsource/geist`/`@fontsource/geist-mono` (weights 400/500/600, mono 400/500, imported from `styles.css`) so the app works offline on the NAS; `--font`/`--mono` fall back to system stacks.
+- [x] UI redesign #37 — building blocks on top of #36's tokens (see "UI Building Blocks" section above for the full rundown): global utility classes (`frontend/src/styles/components.css`) for buttons/icon-buttons/segmented-control/inputs/chips/kbd/skeleton; `shared/icon/` (`IconComponent`, inline-SVG Lucide-like icon set); `shared/menu/` (`MenuComponent` — point- or anchor-positioned, viewport-clamped, keyboard-navigable floating menu); `shared/popover/` (`PopoverComponent` — anchored, flips above when it doesn't fit below); `shared/toast/` (`ToastService` + `ToastOutletComponent`, bottom-left stacked, replaces the browser page's old local `file-op-message` banner). `modal/`, `shared/confirm-dialog/`, `shared/folder-picker/`, `shared/rediscover-dialog/`, `shared/list-picker/` converted to tokens + the new classes (no hex colors left, behaviour unchanged); Settings' theme picker now uses the global `.seg`/`.seg-btn` classes instead of a local copy. The browser's own context menu (`browser/context-menu/`) and card/grid styling are untouched here — they're #41/#39.
 
 ---
 

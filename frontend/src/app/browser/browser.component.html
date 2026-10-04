@@ -25,13 +25,6 @@
     }
   </nav>
 
-  @if (fileOpMessage(); as msg) {
-    <div class="file-op-message">
-      <span>{{ msg }}</span>
-      <button class="file-op-dismiss" (click)="dismissFileOpMessage()" title="Dismiss">✕</button>
-    </div>
-  }
-
   <div class="view-container" [class.detail-open]="showDetail()">
 
     <!-- Grid view -->

@@ -30,8 +30,8 @@
       }
 
       <div class="confirm-actions">
-        <button type="button" class="btn-cancel" [disabled]="starting()" (click)="onCancel()">Cancel</button>
-        <button type="button" class="btn-confirm" [disabled]="starting()" (click)="start()">
+        <button type="button" class="btn" [disabled]="starting()" (click)="onCancel()">Cancel</button>
+        <button type="button" class="btn btn-primary" [disabled]="starting()" (click)="start()">
           {{ starting() ? 'Starting…' : 'Start' }}
         </button>
       </div>
