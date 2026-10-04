@@ -3,6 +3,7 @@ import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } fro
 import { filter } from 'rxjs';
 
 import { ApiService } from './services/api.service';
+import { ThemeService } from './services/theme.service';
 import { TasksWidgetComponent } from './tasks-widget/tasks-widget.component';
 import { QuickJumpComponent } from './shared/quick-jump/quick-jump.component';
 import { APP_VERSION } from '../version';
@@ -16,6 +17,9 @@ import { APP_VERSION } from '../version';
 })
 export class AppComponent implements OnInit {
   private api = inject(ApiService);
+  // Injected (unused directly here) so the theme is applied/kept in sync as soon as the app
+  // bootstraps, not only once Settings is opened.
+  private theme = inject(ThemeService);
 
   sidebarOpen = true;
   pageTitle = signal('Footage Archive');

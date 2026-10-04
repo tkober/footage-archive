@@ -181,7 +181,7 @@
   margin-top: 4px;
 }
 
-..dot-pending   { background: #d4d4d8; }
+.dot-pending   { background: #d4d4d8; }
 .dot-queued    { background: #f59e0b; }
 .dot-running   { background: #3b82f6; animation: pulse 1.2s ease-in-out infinite; }
 .dot-completed { background: #22c55e; }

@@ -2,10 +2,29 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Frontend</title>
+  <title>Footage Archive</title>
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <script>
+    // Apply the saved theme before first paint, so there is no flash of the
+    // wrong theme. Kept in sync with ThemeService's logic (localStorage key
+    // "fa-theme", values "system"|"dark"|"light", default "dark").
+    (function () {
+      try {
+        var stored = localStorage.getItem('fa-theme');
+        var choice = (stored === 'system' || stored === 'dark' || stored === 'light') ? stored : 'dark';
+        var resolved = choice === 'system'
+          ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+          : choice;
+        var root = document.documentElement;
+        root.setAttribute('data-theme', resolved);
+        root.style.colorScheme = resolved;
+      } catch (e) {
+        /* localStorage/matchMedia unavailable — default dark styling from styles.css applies */
+      }
+    })();
+  </script>
 </head>
 <body>
   <app-root></app-root>
