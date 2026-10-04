@@ -7,7 +7,11 @@ import { debounceTime, distinctUntilChanged, map, switchMap } from 'rxjs/operato
 import { ApiService } from '../services/api.service';
 import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
 import { MediaCardComponent, MediaCardKind } from '../shared/media-card/media-card.component';
+import { LoadMoreFooterComponent } from '../shared/load-more-footer/load-more-footer.component';
+import { InfiniteScrollDirective } from '../shared/infinite-scroll/infinite-scroll.directive';
 import { FileInfo, FileList, FileSearchQuery, SearchResponse, SearchResult, VIDEO_TYPES, PHOTO_TYPES } from '../models';
+
+const SKELETON_CAP = 12;
 
 const MEDIA_TYPE_OPTIONS = [
   { value: 'video',       label: 'Video' },
@@ -19,7 +23,7 @@ const MEDIA_TYPE_OPTIONS = [
 @Component({
   selector: 'app-search',
   standalone: true,
-  imports: [FormsModule, FileDetailPanelComponent, MediaCardComponent],
+  imports: [FormsModule, FileDetailPanelComponent, MediaCardComponent, LoadMoreFooterComponent, InfiniteScrollDirective],
   templateUrl: './search.component.html',
   styleUrl: './search.component.css',
 })
@@ -64,11 +68,32 @@ export class SearchComponent implements OnInit, OnDestroy {
   total          = signal(0);
   currentPage    = signal(1);
   loading        = signal(false);
+  loadMoreError  = signal<string | null>(null);
   hasFilters     = signal(false);
   selectedFile   = signal<FileInfo | null>(null);
   loadingDetails = signal(false);
 
   readonly PAGE_SIZE = 50;
+
+  hasMore = computed(() => this.results().length < this.total());
+
+  /** `loading` covers both the initial search and a load-more fetch; it's a
+      load-more only once results are already non-empty, which is also when
+      skeleton tiles should appear (#40). */
+  skeletonCount = computed(() =>
+    this.loading() && this.results().length > 0
+      ? Math.min(SKELETON_CAP, this.PAGE_SIZE, this.total() - this.results().length)
+      : 0
+  );
+
+  /** Last loaded result's kind decides which grid gets the skeletons. */
+  skeletonTarget = computed<MediaCardKind | null>(() => {
+    if (!this.skeletonCount()) return null;
+    const last = this.results().at(-1);
+    return last ? this.cardKind(last) : null;
+  });
+
+  skeletons = computed(() => Array.from({ length: this.skeletonCount() }, (_, i) => i));
 
   // Keyword suggestions filtered from allKeywords
   keywordSuggestions = computed(() => {
@@ -213,6 +238,7 @@ export class SearchComponent implements OnInit, OnDestroy {
       this.selectedListIds().size > 0 ||
       !!this.listCode();
     this.hasFilters.set(hasAny);
+    this.loadMoreError.set(null);
     if (hasAny) this.filterChange$.next();
     else { this.results.set([]); this.total.set(0); }
   }
@@ -226,8 +252,16 @@ export class SearchComponent implements OnInit, OnDestroy {
   }
 
   loadMore(): void {
+    // Guards against a duplicate fetch of the same page, and keeps
+    // auto-loading paused while a previous load-more error awaits retry.
+    if (this.loading() || this.loadMoreError() || !this.hasMore()) return;
     this.currentPage.set(this.currentPage() + 1);
     this.runSearch(true);
+  }
+
+  retryLoadMore(): void {
+    this.loadMoreError.set(null);
+    this.loadMore();
   }
 
   private buildQuery(page: number): FileSearchQuery {
@@ -266,7 +300,13 @@ export class SearchComponent implements OnInit, OnDestroy {
           this.selectResult(resp.items[0]);
         }
       },
-      error: () => this.loading.set(false),
+      error: () => {
+        this.loading.set(false);
+        if (append) {
+          this.currentPage.update(p => p - 1);
+          this.loadMoreError.set('Failed to load more.');
+        }
+      },
     });
   }
 

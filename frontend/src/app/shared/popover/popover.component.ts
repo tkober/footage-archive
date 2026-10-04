@@ -32,6 +32,9 @@ export class PopoverComponent implements OnInit, AfterViewInit, OnDestroy {
   anchor = input.required<HTMLElement>();
   /** Preferred width in px; the panel still clamps to the viewport. */
   width = input(320);
+  /** Edge of the anchor the panel lines up with: `end` (right edges, the
+      default, for header buttons) or `start` (left edges, e.g. a grid tile). */
+  align = input<'start' | 'end'>('end');
 
   closed = output<void>();
 
@@ -63,7 +66,7 @@ export class PopoverComponent implements OnInit, AfterViewInit, OnDestroy {
     const fitsBelow = a.bottom + 6 + rect.height <= window.innerHeight - margin;
     const top = fitsBelow ? a.bottom + 6 : Math.max(margin, a.top - 6 - rect.height);
 
-    let left = a.right - rect.width;
+    let left = this.align() === 'start' ? a.left : a.right - rect.width;
     left = Math.max(margin, Math.min(left, window.innerWidth - rect.width - margin));
 
     this.top.set(top);

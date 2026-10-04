@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { combineLatest } from 'rxjs';
@@ -7,14 +7,17 @@ import { ApiService } from '../services/api.service';
 import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
 import { ConfirmDialogComponent } from '../shared/confirm-dialog/confirm-dialog.component';
 import { MediaCardComponent, MediaCardKind } from '../shared/media-card/media-card.component';
+import { LoadMoreFooterComponent } from '../shared/load-more-footer/load-more-footer.component';
+import { InfiniteScrollDirective } from '../shared/infinite-scroll/infinite-scroll.directive';
 import { FileInfo, FileList, ListItem, VIDEO_TYPES } from '../models';
 
 const PAGE_SIZE = 500;
+const SKELETON_CAP = 12;
 
 @Component({
   selector: 'app-list-detail',
   standalone: true,
-  imports: [FormsModule, RouterLink, FileDetailPanelComponent, ConfirmDialogComponent, MediaCardComponent],
+  imports: [FormsModule, RouterLink, FileDetailPanelComponent, ConfirmDialogComponent, MediaCardComponent, LoadMoreFooterComponent, InfiniteScrollDirective],
   templateUrl: './list-detail.component.html',
   styleUrl: './list-detail.component.css',
 })
@@ -32,6 +35,28 @@ export class ListDetailComponent implements OnInit {
   total = signal(0);
   page = signal(1);
   loading = signal(false);
+  loadMoreError = signal<string | null>(null);
+
+  readonly PAGE_SIZE = PAGE_SIZE;
+  hasMore = computed(() => this.items().length < this.total());
+
+  /** `loading` covers both the first page and a load-more fetch; it's a
+      load-more only once items are already loaded, which is also when
+      skeleton tiles should appear (#40). */
+  skeletonCount = computed(() =>
+    this.loading() && this.items().length > 0
+      ? Math.min(SKELETON_CAP, PAGE_SIZE, this.total() - this.items().length)
+      : 0
+  );
+
+  /** Last loaded item's kind decides the skeletons' aspect ratio — this
+      page has a single grid, so there's no section choice to make. */
+  skeletonKind = computed<MediaCardKind>(() => {
+    const last = this.items().at(-1);
+    return last ? this.cardKind(last) : 'photo';
+  });
+
+  skeletons = computed(() => Array.from({ length: this.skeletonCount() }, (_, i) => i));
 
   selectedItem = signal<ListItem | null>(null);
   selectedFile = signal<FileInfo | null>(null);
@@ -78,6 +103,7 @@ export class ListDetailComponent implements OnInit {
         this.loadingDetails.set(false);
         this.codeInput.set('');
         this.codeError.set(null);
+        this.loadMoreError.set(null);
         this.pendingCode = null;
         this.loadListMeta();
         this.loadItems(1, false);
@@ -110,12 +136,23 @@ export class ListDetailComponent implements OnInit {
         this.items.set(append ? [...this.items(), ...resp.items] : resp.items);
         this.loading.set(false);
       },
-      error: () => this.loading.set(false),
+      error: () => {
+        this.loading.set(false);
+        if (append) this.loadMoreError.set('Failed to load more.');
+      },
     });
   }
 
   loadMore(): void {
+    // Guards against a duplicate fetch of the same page, and keeps
+    // auto-loading paused while a previous load-more error awaits retry.
+    if (this.loading() || this.loadMoreError() || !this.hasMore()) return;
     this.loadItems(this.page() + 1, true);
+  }
+
+  retryLoadMore(): void {
+    this.loadMoreError.set(null);
+    this.loadMore();
   }
 
   // ── Path display ──

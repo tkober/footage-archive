@@ -31,55 +31,6 @@
     <!-- Grid view -->
     <div class="list-view" (contextmenu)="onBackgroundContextMenu($event)">
 
-      @if (bulkMode()) {
-        <div class="bulk-bar">
-          <span class="bulk-count">{{ bulkSelected().size }} selected</span>
-          <button class="bulk-select-all-btn" (click)="selectAllBulk()">All</button>
-          <button class="bulk-clear-btn" (click)="clearBulkSelection()">Clear</button>
-          <div class="bulk-actions">
-            <input class="bulk-keyword-input"
-                   list="bulk-keyword-suggestions"
-                   placeholder="Add keyword…"
-                   [value]="bulkKeyword()"
-                   (input)="bulkKeyword.set($any($event.target).value)"
-                   (keydown.enter)="bulkAddKeyword()" />
-            <datalist id="bulk-keyword-suggestions">
-              @for (kw of allKeywords(); track kw) { <option [value]="kw"></option> }
-            </datalist>
-            <button class="bulk-action-btn"
-                    (click)="bulkAddKeyword()"
-                    [disabled]="bulkApplying() || !bulkKeyword().trim() || !bulkSelected().size">Add tag</button>
-            <select class="bulk-loc-select"
-                    [value]="bulkLocationId()"
-                    (change)="bulkLocationId.set($any($event.target).value)">
-              <option value="">— location —</option>
-              @for (loc of allLocations(); track loc.id) {
-                <option [value]="loc.id">{{ formatLocation(loc) }}</option>
-              }
-            </select>
-            <button class="bulk-action-btn"
-                    (click)="bulkAssignLocation()"
-                    [disabled]="bulkApplying() || !bulkLocationId() || !bulkSelected().size">Assign</button>
-            <app-list-picker class="bulk-list-picker"
-                    placeholder="Add to list…"
-                    [disabled]="bulkApplying() || !bulkTrackedCount()"
-                    (picked)="bulkAddToList($event)" />
-            <button class="bulk-action-btn bulk-move-btn"
-                    (click)="bulkMoveTo()"
-                    [disabled]="bulkApplying() || !bulkSelected().size"
-                    title="Move the selected files to another folder">Move to…</button>
-            <button class="bulk-compare-btn"
-                    (click)="openComparison()"
-                    [disabled]="comparablePhotos().length < 2"
-                    title="Compare selected photos side by side">Compare</button>
-            <button class="bulk-done-btn" (click)="exitBulkMode()">Done</button>
-          </div>
-          @if (bulkListResult(); as msg) {
-            <div class="bulk-list-result">{{ msg }}</div>
-          }
-        </div>
-      }
-
       @if (loading()) {
         <div class="state-msg">Loading…</div>
       } @else if (error()) {
@@ -106,13 +57,14 @@
                 }
               } @else {
                 <button class="folder"
+                        [attr.data-path]="dir.path"
                         (click)="navigateTo(dir.path)"
                         (contextmenu)="onEntryContextMenu($event, dir)">
                   <app-icon name="folder" [size]="20" />
                   <span>
                     <span class="fn">{{ dir.name }}</span>
                     @if (dir.file_count != null) {
-                      <span class="fm">{{ dir.file_count }} files</span>
+                      <span class="fm">{{ dir.file_count }} {{ dir.file_count === 1 ? 'file' : 'files' }}</span>
                     }
                   </span>
                 </button>
@@ -128,6 +80,7 @@
               @for (entry of videoFiles(); track entry.path) {
                 <app-media-card
                     kind="video"
+                    [attr.data-path]="entry.path"
                     [name]="entry.name"
                     [extension]="entry.file_extension"
                     [previewUrl]="entryPreviewUrl(entry)"
@@ -137,8 +90,8 @@
                     [bulkSelected]="bulkMode() && isBulkSelected(entry)"
                     [selecting]="bulkMode()"
                     [renaming]="isRenaming(entry)"
-                    (open)="onEntryClick(entry)"
-                    (toggleSelect)="toggleBulkSelect(entry)"
+                    (open)="onCardOpen(entry, $event)"
+                    (toggleSelect)="onCardToggle(entry, $event)"
                     (contextMenu)="onEntryContextMenu($event, entry)"
                     (more)="onCardMore(entry, $event)">
                   <input #renameInputEl class="rename-input-file"
@@ -153,6 +106,11 @@
                     <div class="rename-error-file">{{ renameError() }}</div>
                   }
                 </app-media-card>
+              }
+              @if (skeletonTarget() === 'video') {
+                @for (i of skeletons(); track i) {
+                  <app-media-card kind="video" [skeleton]="true" />
+                }
               }
             </div>
           </section>
@@ -165,6 +123,7 @@
               @for (entry of photoFiles(); track entry.path) {
                 <app-media-card
                     kind="photo"
+                    [attr.data-path]="entry.path"
                     [name]="entry.name"
                     [extension]="entry.file_extension"
                     [previewUrl]="entryPreviewUrl(entry)"
@@ -174,8 +133,8 @@
                     [bulkSelected]="bulkMode() && isBulkSelected(entry)"
                     [selecting]="bulkMode()"
                     [renaming]="isRenaming(entry)"
-                    (open)="onEntryClick(entry)"
-                    (toggleSelect)="toggleBulkSelect(entry)"
+                    (open)="onCardOpen(entry, $event)"
+                    (toggleSelect)="onCardToggle(entry, $event)"
                     (contextMenu)="onEntryContextMenu($event, entry)"
                     (more)="onCardMore(entry, $event)">
                   <input #renameInputEl class="rename-input-file"
@@ -190,6 +149,11 @@
                     <div class="rename-error-file">{{ renameError() }}</div>
                   }
                 </app-media-card>
+              }
+              @if (skeletonTarget() === 'photo') {
+                @for (i of skeletons(); track i) {
+                  <app-media-card kind="photo" [skeleton]="true" />
+                }
               }
             </div>
           </section>
@@ -202,6 +166,7 @@
               @for (entry of untrackedFiles(); track entry.path) {
                 <app-media-card
                     [kind]="cardKind(entry)"
+                    [attr.data-path]="entry.path"
                     [name]="entry.name"
                     [extension]="entry.file_extension"
                     [previewUrl]="entryPreviewUrl(entry)"
@@ -210,8 +175,8 @@
                     [bulkSelected]="bulkMode() && isBulkSelected(entry)"
                     [selecting]="bulkMode()"
                     [renaming]="isRenaming(entry)"
-                    (open)="onEntryClick(entry)"
-                    (toggleSelect)="toggleBulkSelect(entry)"
+                    (open)="onCardOpen(entry, $event)"
+                    (toggleSelect)="onCardToggle(entry, $event)"
                     (contextMenu)="onEntryContextMenu($event, entry)"
                     (more)="onCardMore(entry, $event)">
                   <input #renameInputEl class="rename-input-file"
@@ -227,6 +192,11 @@
                   }
                 </app-media-card>
               }
+              @if (skeletonTarget() === 'untracked') {
+                @for (i of skeletons(); track i) {
+                  <app-media-card kind="other" [skeleton]="true" />
+                }
+              }
             </div>
           </section>
         }
@@ -235,18 +205,18 @@
           <div class="state-msg empty">This directory is empty.</div>
         }
 
-        @if (hasMore()) {
-          <div class="load-more">
-            <span class="count">Showing {{ entries().length }} of {{ total() }}</span>
-            <button class="btn" (click)="loadMore()" [disabled]="loadingMore()">
-              {{ loadingMore() ? 'Loading…' : 'Load more' }}
-            </button>
-          </div>
-        } @else if (total() > 0) {
-          <div class="load-more">
-            <span class="count">Showing all {{ total() }} items</span>
-          </div>
-        }
+        <app-load-more-footer
+            appInfiniteScroll
+            [disabled]="loadingMore() || !hasMore() || !!loadMoreError()"
+            (reached)="loadMore()"
+            [shown]="entries().length"
+            [total]="total()"
+            [loading]="loadingMore()"
+            [error]="loadMoreError()"
+            [pageSize]="PAGE_SIZE"
+            endLabel="end of folder"
+            (loadMore)="loadMore()"
+            (retry)="retryLoadMore()" />
 
       }
     </div>
@@ -267,13 +237,136 @@
 
 </div>
 
-@if (contextMenuEntry(); as ctxEntry) {
-  <app-context-menu
-    [entry]="ctxEntry"
-    [x]="contextMenuX()"
-    [y]="contextMenuY()"
-    (action)="onContextMenuAction($event)"
-    (close)="closeContextMenu()" />
+@if (bulkMode()) {
+  <div class="bulk" role="toolbar" aria-label="Selection">
+    <span class="bulk-count"><span class="n">{{ bulkSelected().size }}</span> selected</span>
+    <div class="bulk-acts">
+      <button #kwBtn type="button" class="btn" [disabled]="bulkApplying() || !bulkTrackedCount()"
+              (click)="openBulkPop('keyword', kwBtn)" title="Add a keyword to the selected files">
+        <app-icon name="tag" [size]="16" /><span class="lbl">Keyword</span>
+      </button>
+      <button #locBtn type="button" class="btn" [disabled]="bulkApplying() || !bulkTrackedCount()"
+              (click)="openBulkPop('location', locBtn)" title="Set the location of the selected files">
+        <app-icon name="pin" [size]="16" /><span class="lbl">Location</span>
+      </button>
+      <button #listBtn type="button" class="btn" [disabled]="bulkApplying() || !bulkTrackedCount()"
+              (click)="openBulkPop('list', listBtn)" title="Add the selected files to a list">
+        <app-icon name="list" [size]="16" /><span class="lbl">Add to list</span>
+      </button>
+      <button type="button" class="btn" [disabled]="bulkApplying() || !bulkSelected().size"
+              (click)="bulkMoveTo()" title="Move the selected files to another folder">
+        <app-icon name="move" [size]="16" /><span class="lbl">Move</span>
+      </button>
+      <button type="button" class="btn" [disabled]="comparablePhotos().length < 2"
+              (click)="openComparison()" title="Compare the selected photos side by side">
+        <app-icon name="compare" [size]="16" /><span class="lbl">Compare</span>
+      </button>
+    </div>
+    <span class="bulk-sep"></span>
+    @if (bulkSelected().size < orderedFiles().length) {
+      <button type="button" class="btn btn-ghost" (click)="selectAllBulk()">All</button>
+    } @else {
+      <button type="button" class="btn btn-ghost" (click)="clearBulkSelection()">None</button>
+    }
+    <button type="button" class="icon-btn" (click)="exitBulkMode()" title="Exit selection (Esc)">
+      <app-icon name="x" [size]="16" />
+    </button>
+  </div>
+}
+
+@if (bulkPop(); as bp) {
+  <app-popover [anchor]="bp.anchor" [width]="300" align="start" (closed)="closeBulkPop()">
+    @switch (bp.kind) {
+      @case ('keyword') {
+        <form class="quick-form" (submit)="$event.preventDefault(); bulkAddKeyword()">
+          <label class="quick-label" for="bulk-keyword">Add keyword to <b>{{ bulkTrackedCount() }} {{ bulkTrackedCount() === 1 ? 'file' : 'files' }}</b></label>
+          <div class="quick-row">
+            <input id="bulk-keyword" class="input" list="bulk-keyword-suggestions" autocomplete="off"
+                   placeholder="e.g. beach"
+                   [value]="bulkKeyword()"
+                   (input)="bulkKeyword.set($any($event.target).value)" />
+            <button type="submit" class="btn btn-primary" [disabled]="!bulkKeyword().trim()">Add</button>
+          </div>
+          <datalist id="bulk-keyword-suggestions">
+            @for (kw of allKeywords(); track kw) { <option [value]="kw"></option> }
+          </datalist>
+        </form>
+      }
+      @case ('location') {
+        <div class="quick-form">
+          <label class="quick-label" for="bulk-location">Set location for <b>{{ bulkTrackedCount() }} {{ bulkTrackedCount() === 1 ? 'file' : 'files' }}</b></label>
+          <input id="bulk-location" class="input" autocomplete="off" placeholder="Filter locations…"
+                 [value]="locationFilter()"
+                 (input)="locationFilter.set($any($event.target).value)"
+                 (keydown.enter)="filteredLocations()[0] && bulkAssignLocation(filteredLocations()[0].id)" />
+          <div class="loc-list" role="listbox">
+            @for (loc of filteredLocations(); track loc.id) {
+              <button type="button" class="loc-opt" role="option" (click)="bulkAssignLocation(loc.id)">
+                <app-icon name="pin" [size]="14" />
+                <span><b>{{ loc.name || loc.city || loc.region || loc.country }}</b><small>{{ locationGeo(loc) }}</small></span>
+              </button>
+            } @empty {
+              <span class="loc-empty">{{ allLocations().length ? 'No location matches.' : 'No locations yet. Create one in a file\'s detail view.' }}</span>
+            }
+          </div>
+        </div>
+      }
+      @case ('list') {
+        <div class="quick-form">
+          <span class="quick-label">Add <b>{{ bulkTrackedCount() }} {{ bulkTrackedCount() === 1 ? 'file' : 'files' }}</b> to a list</span>
+          <app-list-picker placeholder="Find or create a list…" (picked)="bulkAddToList($event)" />
+        </div>
+      }
+    }
+  </app-popover>
+}
+
+@if (menuEntry(); as m) {
+  <app-menu
+    [items]="menuItems()"
+    [position]="menuPoint()"
+    [anchor]="menuAnchor()"
+    (select)="onMenuSelect($event)"
+    (closed)="closeMenu()">
+    <div menuHeader class="ctx-head">
+      @if (m.type === 'directory') {
+        <span class="ctx-thumb ctx-icon"><app-icon name="folder" [size]="18" /></span>
+      } @else if (entryPreviewUrl(m); as url) {
+        <span class="ctx-thumb" [class.video]="cardKind(m) === 'video'" [style.background-image]="'url(' + url + ')'"></span>
+      } @else {
+        <span class="ctx-thumb ctx-icon"><app-icon name="image" [size]="16" /></span>
+      }
+      <span class="ctx-text">
+        <b>{{ m.name }}</b>
+        <small>{{ menuHeaderMeta() }}</small>
+      </span>
+    </div>
+  </app-menu>
+}
+
+@if (quickPop(); as qp) {
+  <app-popover [anchor]="qp.anchor" [width]="300" align="start" (closed)="closeQuickPop()">
+    @if (qp.kind === 'keyword') {
+      <form class="quick-form" (submit)="$event.preventDefault(); submitQuickKeyword()">
+        <label class="quick-label" for="quick-keyword">Add keyword to <b>{{ qp.entry.name }}</b></label>
+        <div class="quick-row">
+          <input id="quick-keyword" class="input" list="quick-keyword-suggestions" autocomplete="off"
+                 placeholder="e.g. beach"
+                 [value]="quickKeyword()"
+                 (input)="quickKeyword.set($any($event.target).value)" />
+          <button type="submit" class="btn btn-primary" [disabled]="!quickKeyword().trim()">Add</button>
+        </div>
+        <datalist id="quick-keyword-suggestions">
+          @for (kw of allKeywords(); track kw) { <option [value]="kw"></option> }
+        </datalist>
+      </form>
+    } @else {
+      <div class="quick-form">
+        <span class="quick-label">Add <b>{{ qp.entry.name }}</b> to a list</span>
+        <app-list-picker placeholder="Find or create a list…" (picked)="quickAddToList($event)" />
+      </div>
+    }
+  </app-popover>
 }
 
 @if (showComparison()) {

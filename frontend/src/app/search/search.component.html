@@ -212,6 +212,11 @@
                 [selected]="selectedFile()?.md5_hash === result.md5_hash"
                 (open)="selectResult(result)" />
           }
+          @if (skeletonTarget() === 'video') {
+            @for (i of skeletons(); track i) {
+              <app-media-card kind="video" [skeleton]="true" />
+            }
+          }
         </div>
       </div>
     }
@@ -233,17 +238,29 @@
                 [selected]="selectedFile()?.md5_hash === result.md5_hash"
                 (open)="selectResult(result)" />
           }
+          @if (skeletonTarget() === 'photo') {
+            @for (i of skeletons(); track i) {
+              <app-media-card kind="photo" [skeleton]="true" />
+            }
+          }
         </div>
       </div>
     }
 
-    <!-- Load more -->
-    @if (results().length > 0 && results().length < total()) {
-      <div class="load-more-row">
-        <button class="load-more-btn" [disabled]="loading()" (click)="loadMore()">
-          {{ loading() ? 'Loading…' : 'Load more' }}
-        </button>
-      </div>
+    <!-- Load more / progress / end-of-results -->
+    @if (results().length > 0) {
+      <app-load-more-footer
+          appInfiniteScroll
+          [disabled]="loading() || !hasMore() || !!loadMoreError()"
+          (reached)="loadMore()"
+          [shown]="results().length"
+          [total]="total()"
+          [loading]="loading()"
+          [error]="loadMoreError()"
+          [pageSize]="PAGE_SIZE"
+          endLabel="end of results"
+          (loadMore)="loadMore()"
+          (retry)="retryLoadMore()" />
     }
   </div><!-- /list-view -->
 

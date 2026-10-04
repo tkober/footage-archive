@@ -3,7 +3,8 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, switchMap, map, tap } from 'rxjs';
 
 import { HeaderService } from '../services/header.service';
-import { ContextMenuComponent, ContextMenuActionEvent } from './context-menu/context-menu.component';
+import { MenuComponent, MenuItem, MenuPoint } from '../shared/menu/menu.component';
+import { PopoverComponent } from '../shared/popover/popover.component';
 import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
 import { ListPickerComponent } from '../shared/list-picker/list-picker.component';
 import { FolderPickerComponent } from '../shared/folder-picker/folder-picker.component';
@@ -12,12 +13,19 @@ import { RediscoverDialogComponent } from '../shared/rediscover-dialog/rediscove
 import { ComparisonComponent } from '../comparison/comparison.component';
 import { IconComponent } from '../shared/icon/icon.component';
 import { MediaCardComponent } from '../shared/media-card/media-card.component';
+import { LoadMoreFooterComponent } from '../shared/load-more-footer/load-more-footer.component';
+import { InfiniteScrollDirective } from '../shared/infinite-scroll/infinite-scroll.directive';
 import { ApiService } from '../services/api.service';
 import { ToastService } from '../shared/toast/toast.service';
 import { DirectoryCounts, DirectoryKind, FileInfo, FileList, Location, MoveItemResult, MovePreviewResponse, PathChild, RenameResponse, VIDEO_TYPES, PHOTO_TYPES, formatDurationTc } from '../models';
 
 const PAGE_SIZE = 50;
-const BULK_RESULT_TIMEOUT_MS = 4000;
+const SKELETON_CAP = 12;
+
+/** Single-key shortcuts on a focused card / folder tile → menu item id (#41). */
+const SHORTCUTS: Record<string, string> = {
+  ' ': 'open', F2: 'rename', m: 'move', k: 'keyword', l: 'list', t: 'track',
+};
 const FILE_OP_RESULT_TIMEOUT_MS = 6000;
 const THUMB_STORAGE_KEY = 'fa-thumb';
 const THUMB_MIN = 140;
@@ -43,12 +51,13 @@ interface PendingMove {
 @Component({
   selector: 'app-browser',
   standalone: true,
-  imports: [ContextMenuComponent, FileDetailPanelComponent, ListPickerComponent, FolderPickerComponent, ConfirmDialogComponent, RediscoverDialogComponent, ComparisonComponent, IconComponent, MediaCardComponent],
+  imports: [MenuComponent, PopoverComponent, FileDetailPanelComponent, ListPickerComponent, FolderPickerComponent, ConfirmDialogComponent, RediscoverDialogComponent, ComparisonComponent, IconComponent, MediaCardComponent, LoadMoreFooterComponent, InfiniteScrollDirective],
   templateUrl: './browser.component.html',
   styleUrl: './browser.component.css',
   host: { class: 'page-flush' }
 })
 export class BrowserComponent implements OnInit {
+  readonly PAGE_SIZE = PAGE_SIZE;
   private api = inject(ApiService);
   private toast = inject(ToastService);
   private router = inject(Router);
@@ -64,12 +73,29 @@ export class BrowserComponent implements OnInit {
   thumbSize = signal(this.readStoredThumbSize());
   loading = signal(false);
   loadingMore = signal(false);
+  loadMoreError = signal<string | null>(null);
   error = signal<string | null>(null);
   selectedFile = signal<FileInfo | null>(null);
   loadingDetails = signal(false);
-  contextMenuEntry = signal<PathChild | null>(null);
-  contextMenuX = signal(0);
-  contextMenuY = signal(0);
+  // Context menu (#41): opened by right-click (at the pointer) or the card's
+  // "⋯" button (anchored to it). `menuSource` is the card / folder tile it
+  // belongs to, used to anchor the keyword/list popovers and to give focus back.
+  menuEntry  = signal<PathChild | null>(null);
+  menuPoint  = signal<MenuPoint | null>(null);
+  menuAnchor = signal<HTMLElement | null>(null);
+  private menuSource: HTMLElement | null = null;
+  menuItems  = computed(() => {
+    const entry = this.menuEntry();
+    return entry ? this.menuItemsFor(entry) : [];
+  });
+  menuHeaderMeta = computed(() => {
+    const entry = this.menuEntry();
+    return entry ? this.entryTypeLabel(entry) : '';
+  });
+
+  // "Add keyword…" / "Add to list…" popover anchored at the card (#41)
+  quickPop     = signal<{ kind: 'keyword' | 'list'; entry: PathChild; anchor: HTMLElement } | null>(null);
+  quickKeyword = signal('');
   private page = 1;
 
   // Bulk mode
@@ -80,8 +106,11 @@ export class BrowserComponent implements OnInit {
   bulkApplying   = signal(false);
   allKeywords    = signal<string[]>([]);
   allLocations   = signal<Location[]>([]);
-  bulkListResult = signal<string | null>(null);
-  private bulkListResultTimer?: ReturnType<typeof setTimeout>;
+  /** Last tile clicked in selection mode; Shift-click selects up to here. */
+  private selectionAnchor: string | null = null;
+  /** Keyword / location / list form above the floating bulk bar (#42). */
+  bulkPop        = signal<{ kind: 'keyword' | 'location' | 'list'; anchor: HTMLElement } | null>(null);
+  locationFilter = signal('');
 
   // Comparison view
   showComparison = signal(false);
@@ -109,7 +138,34 @@ export class BrowserComponent implements OnInit {
     e => e.type === 'file' && !VIDEO_TYPES.includes(e.media_type as any) && !PHOTO_TYPES.includes(e.media_type as any)
   ));
   hasMore    = computed(() => this.entries().length < this.total());
+  nextBatchSize = computed(() => Math.max(0, Math.min(PAGE_SIZE, this.total() - this.entries().length)));
+
+  /** Skeleton tiles (#40) while the next page loads — count = the expected
+      next page, capped at 12 for rendering. */
+  skeletonCount = computed(() => this.loadingMore() ? Math.min(SKELETON_CAP, this.nextBatchSize()) : 0);
+
+  /** Which grid the skeletons go in: obvious for a `kind`-filtered view;
+      for "All" it's the section the last loaded item belongs to — a simple
+      stand-in for knowing what the next page will actually contain. */
+  skeletonTarget = computed<'video' | 'photo' | 'untracked' | null>(() => {
+    if (!this.skeletonCount()) return null;
+    const f = this.filter();
+    if (f === 'video' || f === 'photo' || f === 'untracked') return f;
+    const last = this.entries().at(-1);
+    if (!last || last.type !== 'file') return null;
+    const kind = this.cardKind(last);
+    return kind === 'other' ? 'untracked' : kind;
+  });
+
+  skeletons = computed(() => Array.from({ length: this.skeletonCount() }, (_, i) => i));
   bulkTrackedCount = computed(() => this.bulkTrackedEntries().length);
+  /** Files in the order they're rendered (videos, stills, untracked): the range for Shift-click. */
+  orderedFiles = computed(() => [...this.videoFiles(), ...this.photoFiles(), ...this.untrackedFiles()]);
+  filteredLocations = computed(() => {
+    const q = this.locationFilter().trim().toLowerCase();
+    const locs = this.allLocations();
+    return q ? locs.filter(l => this.formatLocation(l).toLowerCase().includes(q)) : locs;
+  });
   showDetail = computed(() => this.loadingDetails() || !!this.selectedFile());
 
   /** Section-heading counts (#39) come from the server-side `counts` for the
@@ -196,6 +252,7 @@ export class BrowserComponent implements OnInit {
   private loadDirectory(path: string) {
     this.loading.set(true);
     this.error.set(null);
+    this.loadMoreError.set(null);
     this.currentPath.set(path);
     this.selectedFile.set(null);
     this.page = 1;
@@ -217,7 +274,9 @@ export class BrowserComponent implements OnInit {
 
   loadMore() {
     const path = this.currentPath();
-    if (!path || this.loadingMore()) return;
+    // Guards against a duplicate fetch of the same page: already in
+    // flight, or paused on a load-more error until the user retries.
+    if (!path || this.loadingMore() || this.loadMoreError() || !this.hasMore()) return;
 
     this.loadingMore.set(true);
     this.page++;
@@ -233,8 +292,14 @@ export class BrowserComponent implements OnInit {
       error: () => {
         this.page--;
         this.loadingMore.set(false);
+        this.loadMoreError.set('Failed to load more.');
       }
     });
+  }
+
+  retryLoadMore() {
+    this.loadMoreError.set(null);
+    this.loadMore();
   }
 
   /** Segmented filter (#39): reloads the directory listing scoped to `kind`. */
@@ -264,10 +329,7 @@ export class BrowserComponent implements OnInit {
   }
 
   onCardMore(entry: PathChild, anchor: HTMLElement) {
-    const rect = anchor.getBoundingClientRect();
-    this.contextMenuX.set(rect.right);
-    this.contextMenuY.set(rect.bottom);
-    this.contextMenuEntry.set(entry);
+    this.openMenu(entry, { anchor, source: anchor.closest('app-media-card') as HTMLElement | null });
   }
 
   onEntryClick(entry: PathChild) {
@@ -290,8 +352,10 @@ export class BrowserComponent implements OnInit {
     }
   }
 
-  @HostListener('document:keydown.escape')
-  onEscapeKey() {
+  @HostListener('document:keydown.escape', ['$event'])
+  onEscapeKey(event: Event) {
+    // A menu/popover handles its own Esc (and marks the event handled).
+    if (event.defaultPrevented || this.menuEntry() || this.quickPop()) return;
     if (this.showComparison()) this.closeComparison();
     else if (this.showDetail()) this.closeDetails();
     else if (this.bulkMode()) this.exitBulkMode();
@@ -333,33 +397,215 @@ export class BrowserComponent implements OnInit {
   onEntryContextMenu(event: MouseEvent, entry: PathChild) {
     event.preventDefault();
     event.stopPropagation();
-    this.contextMenuX.set(event.clientX);
-    this.contextMenuY.set(event.clientY);
-    this.contextMenuEntry.set(entry);
+    const source = (event.target as Element | null)?.closest('app-media-card, .folder') as HTMLElement | null;
+    this.openMenu(entry, { point: { x: event.clientX, y: event.clientY }, source });
   }
 
-  closeContextMenu() {
-    this.contextMenuEntry.set(null);
+  private openMenu(entry: PathChild, opts: { point?: MenuPoint; anchor?: HTMLElement; source?: HTMLElement | null }) {
+    this.quickPop.set(null);
+    this.menuSource = opts.source ?? opts.anchor ?? null;
+    this.menuPoint.set(opts.point ?? null);
+    this.menuAnchor.set(opts.anchor ?? null);
+    this.menuEntry.set(entry);
+  }
+
+  /** Closed without picking (Esc, click outside): give focus back to the card. */
+  closeMenu() {
+    const hadMenu = !!this.menuEntry();
+    this.menuEntry.set(null);
+    this.menuAnchor.set(null);
+    this.menuPoint.set(null);
+    if (hadMenu) this.focusSource(this.menuSource);
+  }
+
+  onMenuSelect(id: string) {
+    const entry = this.menuEntry();
+    const source = this.menuSource;
+    this.menuEntry.set(null);
+    if (entry) this.runEntryAction(id, entry, source);
+  }
+
+  /** Menu entries for a file or folder. The same ids drive the keyboard
+      shortcuts on a focused card (see `onShortcut`). */
+  menuItemsFor(entry: PathChild): MenuItem[] {
+    if (entry.type === 'directory') {
+      const isCurrent = entry.path === this.currentPath();
+      return [
+        ...(isCurrent ? [] : [{ id: 'open', label: 'Open', icon: 'folder', shortcut: 'Enter' }]),
+        { id: 'scan', label: 'Scan folder', icon: 'scan', separatorBefore: !isCurrent },
+        { id: 'rediscover', label: 'Rediscover…', icon: 'rediscover' },
+        { id: 'rename', label: 'Rename', icon: 'edit', shortcut: 'F2', separatorBefore: true },
+        { id: 'move', label: 'Move to…', icon: 'move', shortcut: 'M' },
+        { id: 'copy', label: 'Copy path', icon: 'copy' },
+      ];
+    }
+    const tracked = entry.tracked === true && !!entry.md5_hash;
+    return [
+      { id: 'open', label: 'Open', icon: 'eye', shortcut: 'Space' },
+      ...(tracked ? [] : [{ id: 'track', label: 'Track file', icon: 'plus', shortcut: 'T' }]),
+      { id: 'keyword', label: 'Add keyword…', icon: 'tag', shortcut: 'K', separatorBefore: true, disabled: !tracked },
+      { id: 'list', label: 'Add to list…', icon: 'list', shortcut: 'L', disabled: !tracked },
+      { id: 'rename', label: 'Rename', icon: 'edit', shortcut: 'F2', separatorBefore: true },
+      { id: 'move', label: 'Move to…', icon: 'move', shortcut: 'M' },
+      { id: 'copy', label: 'Copy path', icon: 'copy' },
+    ];
+  }
+
+  /** "Still · JPG", "Video · MOV · 00:12", "Not tracked yet", "Folder · 18 files". */
+  entryTypeLabel(entry: PathChild): string {
+    if (entry.type === 'directory') {
+      return entry.file_count != null ? `Folder · ${entry.file_count} file${entry.file_count === 1 ? '' : 's'}` : 'Folder';
+    }
+    if (entry.tracked !== true) return 'Not tracked yet';
+    const ext = (entry.file_extension ?? '').replace(/^\./, '').toUpperCase();
+    if (this.cardKind(entry) === 'video') {
+      return ['Video', ext, this.formatDuration(entry.duration_tc)].filter(Boolean).join(' · ');
+    }
+    return ['Still', ext].filter(Boolean).join(' · ');
+  }
+
+  private runEntryAction(id: string, entry: PathChild, source: HTMLElement | null) {
+    switch (id) {
+      case 'open':
+        this.openEntry(entry);
+        break;
+      case 'scan':
+        this.api.scanDirectory(entry.path).subscribe({
+          next: () => { this.api.taskRefresh$.next(); this.toast.show(`Scan started for ${entry.name}`); },
+        });
+        break;
+      case 'track':
+        this.api.trackFile(entry.path).subscribe({
+          next: () => { this.api.taskRefresh$.next(); this.toast.show(`Tracking ${entry.name}`); },
+        });
+        break;
+      case 'rediscover':
+        this.rediscoverPath.set(entry.path);
+        break;
+      case 'rename':
+        this.startRename(entry);
+        break;
+      case 'move':
+        this.openMovePicker([entry.path]);
+        break;
+      case 'copy':
+        this.copyPath(entry.path);
+        this.focusSource(source);
+        break;
+      case 'keyword':
+      case 'list':
+        this.openQuickPop(id, entry, source);
+        break;
+    }
+  }
+
+  /** Space / "Open" in the menu: unlike a click, never toggles bulk selection. */
+  private openEntry(entry: PathChild) {
+    if (entry.type === 'directory') { this.navigateTo(entry.path); return; }
+    this.loadingDetails.set(true);
+    this.selectedFile.set(null);
+    this.api.getFileDetails(entry.path).subscribe({
+      next: info => { this.selectedFile.set(info); this.loadingDetails.set(false); },
+      error: () => this.loadingDetails.set(false),
+    });
+  }
+
+  // ── Keyboard shortcuts on the focused card / folder tile (#41) ──
+
+  @HostListener('document:keydown', ['$event'])
+  onShortcut(ev: Event) {
+    const event = ev as KeyboardEvent;
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (this.menuEntry() || this.quickPop() || this.bulkPop() || this.showDetail() || this.showComparison() || this.renamingPath()
+        || this.pendingRename() || this.movePickerPaths() || this.pendingMove() || this.rediscoverPath()) return;
+    const target = event.target as HTMLElement | null;
+    if (!target || target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    const host = target.closest('[data-path]') as HTMLElement | null;
+    const entry = host && this.entries().find(e => e.path === host.dataset['path']);
+    if (!host || !entry) return;
+    const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+    const id = SHORTCUTS[key];
+    if (!id || !this.menuItemsFor(entry).some(i => i.id === id && !i.disabled)) return;
+    event.preventDefault();
+    this.runEntryAction(id, entry, host);
+  }
+
+  // ── Quick "Add keyword…" / "Add to list…" popover ──
+
+  private openQuickPop(kind: 'keyword' | 'list', entry: PathChild, source: HTMLElement | null) {
+    const host = source ?? (document.querySelector(`[data-path="${CSS.escape(entry.path)}"]`) as HTMLElement | null);
+    // app-media-card's host has no box of its own; anchor to the visible tile.
+    const anchor = host?.querySelector<HTMLElement>('.card') ?? host;
+    if (!anchor) return;
+    if (kind === 'keyword' && !this.allKeywords().length) {
+      this.api.getAllKeywords().subscribe({ next: kws => this.allKeywords.set(kws) });
+    }
+    this.quickKeyword.set('');
+    this.quickPop.set({ kind, entry, anchor });
+    setTimeout(() => document.querySelector<HTMLInputElement>('.quick-form input')?.focus());
+  }
+
+  closeQuickPop() {
+    const pop = this.quickPop();
+    this.quickPop.set(null);
+    if (pop) this.focusSource(pop.anchor);
+  }
+
+  submitQuickKeyword() {
+    const pop = this.quickPop();
+    const kw = this.quickKeyword().trim();
+    if (!pop || !kw || !pop.entry.md5_hash) return;
+    this.api.addKeyword(pop.entry.md5_hash, kw).subscribe({
+      next: () => {
+        this.toast.show(`Added “${kw}” to ${pop.entry.name}`);
+        if (!this.allKeywords().includes(kw)) this.allKeywords.update(list => [...list, kw]);
+      },
+      error: () => this.toast.show(`Couldn't add “${kw}” to ${pop.entry.name}`),
+    });
+    this.closeQuickPop();
+  }
+
+  quickAddToList(list: FileList) {
+    const pop = this.quickPop();
+    if (!pop?.entry.md5_hash) return;
+    this.api.addFilesToList(list.id, [pop.entry.md5_hash]).subscribe({
+      next: resp => this.toast.show(resp.added.length
+        ? `Added ${pop.entry.name} to ‘${list.name}’`
+        : `${pop.entry.name} is already in ‘${list.name}’`),
+      error: () => this.toast.show(`Couldn't add ${pop.entry.name} to ‘${list.name}’`),
+    });
+    this.closeQuickPop();
+  }
+
+  /** navigator.clipboard only exists in secure contexts; the NAS is usually
+      reached over plain http, so fall back to a hidden textarea. */
+  private copyPath(path: string) {
+    const ok = () => this.toast.show('Path copied');
+    const fallback = () => {
+      const ta = document.createElement('textarea');
+      ta.value = path;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const copied = document.execCommand('copy');
+      ta.remove();
+      copied ? ok() : this.toast.show(`Couldn't copy. Path: ${path}`, { duration: 8000 });
+    };
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(path).then(ok, fallback);
+    else fallback();
+  }
+
+  private focusSource(el: HTMLElement | null) {
+    if (!el || !el.isConnected) return;
+    (el.matches('[tabindex], button') ? el : el.querySelector<HTMLElement>('[tabindex], button'))?.focus();
   }
 
   scanCurrentDirectory() {
     const path = this.currentPath();
     if (!path) return;
     this.api.scanDirectory(path).subscribe({ next: () => this.api.taskRefresh$.next() });
-  }
-
-  onContextMenuAction(event: ContextMenuActionEvent) {
-    const { kind, entry } = event;
-    if (kind === 'scan' || kind === 'track') {
-      const call = kind === 'scan' ? this.api.scanDirectory(entry.path) : this.api.trackFile(entry.path);
-      call.subscribe({ next: () => this.api.taskRefresh$.next() });
-    } else if (kind === 'rename') {
-      this.startRename(entry);
-    } else if (kind === 'move') {
-      this.openMovePicker([entry.path]);
-    } else if (kind === 'rediscover') {
-      this.rediscoverPath.set(entry.path);
-    }
   }
 
   // ── Rediscover (context menu on a directory) ──
@@ -603,7 +849,56 @@ export class BrowserComponent implements OnInit {
     this.bulkSelected.set(new Set());
     this.bulkKeyword.set('');
     this.bulkLocationId.set('');
-    this.clearBulkListResult();
+    this.bulkPop.set(null);
+    this.selectionAnchor = null;
+  }
+
+  /** Click / Enter on a tile. In selection mode, or with Shift/Cmd/Ctrl, it
+      selects instead of opening; selection starts without pressing "Select". */
+  onCardOpen(entry: PathChild, event: MouseEvent | KeyboardEvent) {
+    const modifier = event.shiftKey || event.metaKey || event.ctrlKey;
+    if (entry.type === 'file' && (this.bulkMode() || modifier)) {
+      this.selectEntry(entry, event.shiftKey);
+      return;
+    }
+    this.onEntryClick(entry);
+  }
+
+  onCardToggle(entry: PathChild, event: MouseEvent) {
+    this.selectEntry(entry, event.shiftKey);
+  }
+
+  private selectEntry(entry: PathChild, range: boolean) {
+    if (!this.bulkMode()) this.enterBulkMode();
+    const order = this.orderedFiles().map(e => e.path);
+    const from = range && this.selectionAnchor ? order.indexOf(this.selectionAnchor) : -1;
+    const to = order.indexOf(entry.path);
+    if (from >= 0 && to >= 0) {
+      const [a, b] = from < to ? [from, to] : [to, from];
+      this.bulkSelected.update(sel => {
+        const next = new Set(sel);
+        order.slice(a, b + 1).forEach(p => next.add(p));
+        return next;
+      });
+    } else {
+      this.toggleBulkSelect(entry);
+    }
+    this.selectionAnchor = entry.path;
+  }
+
+  openBulkPop(kind: 'keyword' | 'location' | 'list', anchor: HTMLElement) {
+    if (this.bulkPop()?.kind === kind) { this.closeBulkPop(); return; }
+    this.locationFilter.set('');
+    this.bulkPop.set({ kind, anchor });
+    setTimeout(() => document.querySelector<HTMLInputElement>('.quick-form input')?.focus());
+  }
+
+  closeBulkPop() {
+    this.bulkPop.set(null);
+  }
+
+  locationGeo(loc: Location): string {
+    return [loc.city, loc.region, loc.country].filter(Boolean).join(', ');
   }
 
   toggleBulkSelect(entry: PathChild) {
@@ -652,11 +947,20 @@ export class BrowserComponent implements OnInit {
     const kw = this.bulkKeyword().trim();
     const targets = this.bulkTrackedEntries();
     if (!kw || !targets.length) return;
+    const skipped = this.bulkSelected().size - targets.length;
     this.bulkApplying.set(true);
     this.bulkKeyword.set('');
+    this.closeBulkPop();
     forkJoin(targets.map(e => this.api.addKeyword(e.md5_hash!, kw))).subscribe({
-      next: () => this.bulkApplying.set(false),
-      error: () => this.bulkApplying.set(false),
+      next: () => {
+        this.bulkApplying.set(false);
+        if (!this.allKeywords().includes(kw)) this.allKeywords.update(list => [...list, kw]);
+        this.toast.show(this.withSkipped(`Added “${kw}” to ${this.plural(targets.length, 'file')}`, skipped));
+      },
+      error: () => {
+        this.bulkApplying.set(false);
+        this.toast.show(`Couldn't add “${kw}” to every file. Try again.`);
+      },
     });
   }
 
@@ -665,10 +969,22 @@ export class BrowserComponent implements OnInit {
     if (!locationId) return;
     const targets = this.bulkTrackedEntries();
     if (!targets.length) return;
+    const skipped = this.bulkSelected().size - targets.length;
+    const loc = this.allLocations().find(l => l.id === locationId);
+    const label = loc ? (loc.name || loc.city || loc.region || loc.country) : 'location';
     this.bulkApplying.set(true);
+    this.closeBulkPop();
     forkJoin(targets.map(e => this.api.assignLocation(e.md5_hash!, locationId))).subscribe({
-      next: () => { this.bulkApplying.set(false); this.bulkLocationId.set(''); },
-      error: () => { this.bulkApplying.set(false); this.bulkLocationId.set(''); },
+      next: () => {
+        this.bulkApplying.set(false);
+        this.bulkLocationId.set('');
+        this.toast.show(this.withSkipped(`Set ${label} for ${this.plural(targets.length, 'file')}`, skipped));
+      },
+      error: () => {
+        this.bulkApplying.set(false);
+        this.bulkLocationId.set('');
+        this.toast.show(`Couldn't set the location for every file. Try again.`);
+      },
     });
   }
 
@@ -677,7 +993,7 @@ export class BrowserComponent implements OnInit {
     const untrackedCount = this.bulkSelected().size - targets.length;
     if (!targets.length) return;
     this.bulkApplying.set(true);
-    this.clearBulkListResult();
+    this.closeBulkPop();
     const md5s = targets.map(e => e.md5_hash!);
     this.api.addFilesToList(list.id, md5s).subscribe({
       next: resp => {
@@ -686,28 +1002,23 @@ export class BrowserComponent implements OnInit {
         if (resp.added.length) parts.push(`Added ${resp.added.length} to '${list.name}'`);
         if (resp.existing.length) parts.push(`${resp.existing.length} already in list`);
         if (untrackedCount > 0) parts.push(`${untrackedCount} untracked skipped`);
-        this.showBulkListResult(parts.join(' · ') || `Nothing added to '${list.name}'`);
+        this.toast.show(parts.join(' · ') || `Nothing added to '${list.name}'`);
       },
       error: () => {
         this.bulkApplying.set(false);
-        this.showBulkListResult(`Failed to add to '${list.name}'`);
+        this.toast.show(`Failed to add to '${list.name}'`);
       },
     });
   }
 
-  private showBulkListResult(message: string) {
-    this.bulkListResult.set(message);
-    if (this.bulkListResultTimer) clearTimeout(this.bulkListResultTimer);
-    this.bulkListResultTimer = setTimeout(() => this.bulkListResult.set(null), BULK_RESULT_TIMEOUT_MS);
+  private plural(n: number, word: string): string {
+    return `${n} ${word}${n === 1 ? '' : 's'}`;
   }
 
-  private clearBulkListResult() {
-    this.bulkListResult.set(null);
-    if (this.bulkListResultTimer) {
-      clearTimeout(this.bulkListResultTimer);
-      this.bulkListResultTimer = undefined;
-    }
+  private withSkipped(message: string, skipped: number): string {
+    return skipped > 0 ? `${message} · ${skipped} untracked skipped` : message;
   }
+
 
   cardKind(entry: PathChild): 'video' | 'photo' | 'other' {
     if (VIDEO_TYPES.includes(entry.media_type as any)) return 'video';

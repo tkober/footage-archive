@@ -45,9 +45,16 @@ export class MediaCardComponent {
   selecting = input(false);
   /** Caller is rendering an inline rename input in the projected slot. */
   renaming = input(false);
+  /** Renders a shimmering placeholder tile instead (#40) — used for the
+      "next page" preview while infinite-scroll is loading. `kind` still
+      controls the thumb's aspect ratio (video keeps the filmstrip shape);
+      every other input is ignored. */
+  skeleton = input(false);
 
-  open = output<void>();
-  toggleSelect = output<void>();
+  /** Click / Enter on the tile; the event carries Shift/Cmd/Ctrl for range
+      and multi selection (#42). */
+  open = output<MouseEvent | KeyboardEvent>();
+  toggleSelect = output<MouseEvent>();
   contextMenu = output<MouseEvent>();
   /** The "⋯" button element, so the caller can anchor its context menu. */
   more = output<HTMLElement>();
@@ -86,13 +93,13 @@ export class MediaCardComponent {
     this.imgError.set(true);
   }
 
-  onClick() {
-    this.open.emit();
+  onClick(event: MouseEvent | KeyboardEvent) {
+    this.open.emit(event);
   }
 
   onToggleSelect(event: MouseEvent) {
     event.stopPropagation();
-    this.toggleSelect.emit();
+    this.toggleSelect.emit(event);
   }
 
   onMore(event: MouseEvent) {

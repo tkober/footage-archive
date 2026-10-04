@@ -148,6 +148,17 @@
   flex-shrink: 0;
 }
 
+.crumb-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* Up-one-level button: only on small screens, where the trail is shortened
+   to "‹ parent / current". */
+.crumb-back { display: none; flex-shrink: 0; margin-left: -6px; }
+
 /* Main content. Pages get a default inset; pages with their own full-bleed
    layout (toolbar under the header, e.g. the browser) opt out with the
    host class `page-flush`. */
@@ -162,6 +173,8 @@
 
 /* ── Mobile ─────────────────────────────────────────────────────── */
 @media (max-width: 760px) {
+  .crumb-back { display: grid; }
+  .crumb-item.early { display: none; }
   .content > :not(router-outlet):not(.page-flush) { padding: var(--space-3); }
   .app {
     grid-template-columns: 1fr;

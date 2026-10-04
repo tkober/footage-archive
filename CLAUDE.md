@@ -250,7 +250,11 @@ footage-archive/
         │                           #   as `.folder` tiles (icon, name, `file_count`). Section headings use `counts`, not the loaded page
         │                           #   length. Grid/video-grid cards are `shared/media-card/` (ext-badge shown only when the loaded photos
         │                           #   mix formats); the inline rename `<input>`/save/cancel are projected into the card's slot
-        │   └── context-menu/       # Right-click context menu: scan/track, Rename (inline tile edit), Move to… (folder picker), for both files and directories
+        │   └── (context menu)      # #41: no own component anymore — the browser builds `MenuItem[]` (`menuItemsFor`) for `shared/menu/`:
+        │                           #   header (thumb, name, "Still · JPG" / "Video · MOV · 00:12" / "Folder · N files"), Open, Track,
+        │                           #   Add keyword… / Add to list… (popover at the tile), Rename, Move to…, Copy path; folders: Scan,
+        │                           #   Rediscover. Opens on right-click or the card's "⋯". Same ids = single-key shortcuts on the
+        │                           #   focused tile (Space, T, K, L, F2, M), via `data-path` on cards/folder tiles
         ├── search/                 # Faceted search page: filter panel + results grid + sliding detail panel
         ├── map/                    # Map page: Google Maps clustering, flyouts, "open in search"
         ├── lists/                  # Lists feature: overview (create/rename/delete) + list detail (item grid, code jump, remove)
@@ -261,6 +265,12 @@ footage-archive/
         │   ├── menu/                    # `MenuComponent` (#37) — floating menu at a point or anchored to an element, clamped to the viewport; data-driven items (`MenuItem[]`: id/label/icon/shortcut/danger/disabled/separatorBefore), optional `[menuHeader]` projection, full keyboard nav (arrows/Home/End/Esc/Tab), closes on outside click/right-click
         │   ├── popover/                 # `PopoverComponent` (#37) — anchored panel (below by default, flips above if no room, clamped horizontally), plain content projection, closes on outside click/Esc; same `.pop` visual as the menu container
         │   ├── toast/                   # `ToastService` + `ToastOutletComponent` (#37) — `toastService.show(message, { action?, duration? })`; outlet renders bottom-left stacked, inverse colors (`--text` bg / `--bg` text); one `<app-toast-outlet />` lives in `app.component.html`. Replaced the browser's old local `file-op-message` banner.
+        │   ├── infinite-scroll/         # `appInfiniteScroll` directive (#40): IntersectionObserver on a sentinel (300px lookahead, root =
+        │   │                           #   nearest overflow-y:auto ancestor), emits `reached`; re-observes whenever `disabled` turns false so
+        │   │                           #   a short page keeps loading until the viewport is filled. Callers guard against duplicate pages
+        │   ├── load-more-footer/        # `LoadMoreFooterComponent` (#40): progress bar + "N of M" + "Load X more" fallback button, error +
+        │   │                           #   Retry (pauses auto-load), "All N items · end of folder|results|list" when done. Doubles as the
+        │   │                           #   sentinel. Used by browser, search and list-detail; skeleton tiles via `<app-media-card [skeleton]>`
         │   ├── media-card/              # `MediaCardComponent` (#39) — `<app-media-card kind="video|photo|other" …>`, the one grid tile
         │   │                           #   used by browser, search results and list-detail. Photo: 3:2 cover crop, name without extension
         │   │                           #   below, ext badge on the image only when `[showExt]` (caller decides — browser sets it only when
@@ -334,9 +344,9 @@ bring their own button/menu/toast styles.
   design tokens and the classes above (`--raised` surface, `--r-lg`, `--shadow-2`, `rgba(5,6,8,.6)`
   backdrop, `.btn`/`.btn-primary` footer actions, `.btn-danger` for the destructive confirm path).
   Behaviour/structure unchanged.
-- **Not yet redesigned**: the browser's own context menu (`browser/context-menu/`, #41) and its floating
-  menu/anchor behaviour — it still carries its pre-#37 local styles. The shell/rail moved onto tokens +
-  these blocks in #38, card/grid styling onto `shared/media-card/` + tokens in #39 (see below).
+- **Not yet redesigned**: the detail view (#43), search (#44) and lists / health /
+  map / comparison (#45). Shell (#38), cards/grid (#39), infinite scroll (#40), the context menu (#41) and
+  selection/bulk bar (#42) are done (see below).
 
 ---
 
@@ -450,6 +460,18 @@ bring their own button/menu/toast styles.
 - [x] UI redesign #36 — design tokens + base styles (dark/light): `frontend/src/styles.css` is now the single source of truth for the visual system — CSS custom properties on `:root` for color (`--bg --surface --raised --hover --line --line-strong --text --muted --faint --stage --accent --accent-ink --accent-soft --ok --danger --skeleton --skeleton-hi`), shadows (`--shadow-1/2`), type scale (`--fs-xs/sm/md/lg/xl`), radii (`--r-sm/md/lg`), spacing (`--space-1…8`, 4px grid) and motion (`--dur-fast/base`); values taken verbatim from the design prototype. Dark is the default (no `data-theme` attr, or `data-theme="dark"`); `:root[data-theme="light"]` carries the light palette. **No hex colors in component CSS** — every color comes from a token; only the shell (`app.component.css`) and `tasks-widget` were touched to use tokens so far, the rest of the component tree keeps its old hardcoded styling until its own redesign ticket lands. `services/theme.service.ts` (signal-based, `providedIn: 'root'`, injected once from `AppComponent`) owns the theme choice (`system`/`dark`/`light`, `localStorage` key `fa-theme`, default `dark`, all storage access wrapped in try/catch) and resolves `system` via `matchMedia('(prefers-color-scheme: light)')` (kept live via a change listener), writing `data-theme`/`color-scheme` onto `<html>`. A matching inline script in `index.html` applies the stored choice before Angular bootstraps, so there's no flash of the wrong theme. Settings gained an "Appearance" section with a small local segmented control (System/Dark/Light) — not the shared `app-ui` building blocks, those come with #37. Fonts: Geist + Geist Mono bundled locally via `@fontsource/geist`/`@fontsource/geist-mono` (weights 400/500/600, mono 400/500, imported from `styles.css`) so the app works offline on the NAS; `--font`/`--mono` fall back to system stacks.
 - [x] UI redesign #37 — building blocks on top of #36's tokens (see "UI Building Blocks" section above for the full rundown): global utility classes (`frontend/src/styles/components.css`) for buttons/icon-buttons/segmented-control/inputs/chips/kbd/skeleton; `shared/icon/` (`IconComponent`, inline-SVG Lucide-like icon set); `shared/menu/` (`MenuComponent` — point- or anchor-positioned, viewport-clamped, keyboard-navigable floating menu); `shared/popover/` (`PopoverComponent` — anchored, flips above when it doesn't fit below); `shared/toast/` (`ToastService` + `ToastOutletComponent`, bottom-left stacked, replaces the browser page's old local `file-op-message` banner). `modal/`, `shared/confirm-dialog/`, `shared/folder-picker/`, `shared/rediscover-dialog/`, `shared/list-picker/` converted to tokens + the new classes (no hex colors left, behaviour unchanged); Settings' theme picker now uses the global `.seg`/`.seg-btn` classes instead of a local copy. The browser's own context menu (`browser/context-menu/`) and card/grid styling are untouched here — they're #41/#39.
 - [x] UI redesign #38 — app shell on top of #36/#37: `app.component.*` is now a 72px `.rail` (brand mark, `app-icon`-based nav items for Browse/Search/Lists/Map/Health/Settings, active item = `--hover` bg + 3px left accent bar, compact two-line mono version footer) over a `.main` column with a 52px `.topbar` (breadcrumb slot + `app-quick-jump` + `app-tasks-widget`); burger/`sidebarOpen`/collapsible-label logic is gone. New `services/header.service.ts` (`HeaderService`) lets a page publish `{label, action?}` breadcrumbs (last = bold/current) or a plain title; the shell falls back to the route's `title` (`app.routes.ts`) when a page sets nothing, clearing on every `NavigationStart` so the previous page's trail never flashes. The browser page publishes its path breadcrumbs through it via an `effect()` (its own `nav` now only holds the local Scan/Select buttons — #39 turns those into a proper toolbar); Lists/Maintenance/Search dropped their redundant H2/filter-panel heading now that the topbar is the single title. `shared/quick-jump/` gained a `MenuComponent`-backed list picker (replacing the native `<select>`) inside a prototype-style `.jump` field, plus a global Cmd/Ctrl+K `HostListener` and a mobile icon-button-to-overlay collapse. `tasks-widget/` gained the SVG progress ring (average fraction across running tasks' `progress` text, indeterminate spin with no numeric match), a failed-task red dot, and moved its popover onto `PopoverComponent`/full tokens; "Clear finished" calls `DELETE /tasks/completed` for COMPLETED tasks plus a per-id delete for FAILED ones (`ApiService.clearCompletedTasks()`), leaving running/queued tasks untouched — a more honest label than the old "Clear all", which deleted everything including in-flight scans. Below 760px the rail becomes a bottom tab bar (`.tabbar`, `env(safe-area-inset-bottom)`) with Health/Settings tucked behind a "More" `MenuComponent`, the quick-jump field collapses to an icon that expands as a fixed overlay, and the tasks popover goes full-width with 8px margins.
+- [x] UI redesign #42 — selection without a mode switch: the card's check circle, Cmd/Ctrl-click or
+  Shift-click (range over `orderedFiles`, anchored at the last clicked tile) starts it; a plain click opens
+  as before unless selection is active. The old top `bulk-bar` became a floating bar at the bottom (Keyword,
+  Location, Add to list, Move, Compare, All/None, ✕; Esc exits) whose inputs open as popovers above the
+  buttons. Results go to toasts (`… · N untracked skipped`). Selected tiles get an accent outline.
+- [x] UI redesign #41 — context menu on `shared/menu/` with header, icons, groups and shortcuts; viewport-
+  clamped, keyboard-navigable, reachable via "⋯" on touch. New: Add keyword…/Add to list… popovers anchored at
+  the tile, Copy path (clipboard API with a textarea fallback for plain-http NAS access). `PopoverComponent`
+  got `align="start|end"`; `list-picker` only swallows Esc while its suggestions are open.
+- [x] UI redesign #40 — infinite scroll in browser, search and list-detail: `shared/infinite-scroll/` +
+  `shared/load-more-footer/` replace the old "Load more" link and "Showing all N items" bar; skeleton cards
+  show where the next page lands. On mobile the header breadcrumbs shorten to "‹ parent / current".
 - [x] UI redesign #39 — shared media card + browser toolbar on top of #36/#37/#38: `shared/media-card/`
   (`MediaCardComponent`, see "UI Building Blocks" above) replaces the three hand-rolled card markups in
   browser/search/list-detail. Browser gained a `.toolbar` row below the topbar — `.seg`/`.seg-btn` filter

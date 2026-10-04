@@ -3,6 +3,7 @@
 .card {
   position: relative;
   display: block;
+  user-select: none; /* Shift-click selects a range of tiles, not text */
   width: 100%;
   border: 0;
   background: none;
@@ -122,3 +123,11 @@
 @media (hover: none) {
   .more { opacity: 1; }
 }
+
+/* Skeleton placeholder (#40) — next-page preview while infinite-scroll loads */
+.card.sk { cursor: default; }
+.card.sk .cap .name { height: 10px; border-radius: 3px; flex: 0 0 60%; }
+
+
+/* Ticked in selection mode (#42): accent outline around the image */
+.card.bulk-sel .thumb { outline: 2px solid var(--accent); outline-offset: 2px; }

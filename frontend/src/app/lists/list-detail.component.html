@@ -77,15 +77,25 @@
               <button type="button" class="remove-btn" title="Remove from list" (click)="requestRemove(item, $event)">✕</button>
             </div>
           }
+          @for (i of skeletons(); track i) {
+            <app-media-card [kind]="skeletonKind()" [skeleton]="true" />
+          }
         </div>
       }
 
-      @if (items().length > 0 && items().length < total()) {
-        <div class="load-more-row">
-          <button class="load-more-btn" [disabled]="loading()" (click)="loadMore()">
-            {{ loading() ? 'Loading…' : 'Load more' }}
-          </button>
-        </div>
+      @if (items().length > 0) {
+        <app-load-more-footer
+            appInfiniteScroll
+            [disabled]="loading() || !hasMore() || !!loadMoreError()"
+            (reached)="loadMore()"
+            [shown]="items().length"
+            [total]="total()"
+            [loading]="loading()"
+            [error]="loadMoreError()"
+            [pageSize]="PAGE_SIZE"
+            endLabel="end of list"
+            (loadMore)="loadMore()"
+            (retry)="retryLoadMore()" />
       }
     </div><!-- /list-view -->
 
