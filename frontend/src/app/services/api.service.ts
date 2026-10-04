@@ -4,7 +4,7 @@ import { Observable, Subject } from 'rxjs';
 import { shareReplay } from 'rxjs/operators';
 
 import { environment } from '../../environments/environment';
-import { AddFilesToListResponse, Config, ConflictEntry, DirectoryQuery, DirectoryResponse, ExifTag, FileInfo, FileList, FileSearchQuery, ListItem, ListItemsResponse, Location, MapPoint, MissingFile, MkdirResponse, MoveItemResult, MovePreviewResponse, RenameResponse, ResolveBatchResponse, ResolveBatchStrategy, SearchResponse, ShotClassification, Task } from '../models';
+import { AddFilesToListResponse, Config, ConflictEntry, DirectoryQuery, DirectoryResponse, ExifTag, FileInfo, FileList, FileSearchQuery, ListItem, ListItemsResponse, Location, MapPoint, MissingFile, MkdirResponse, MoveItemResult, MovePreviewResponse, RemoveMissingFilesResponse, RenameResponse, ResolveBatchResponse, ResolveBatchStrategy, SearchResponse, ShotClassification, Task } from '../models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -187,6 +187,12 @@ export class ApiService {
   getMissingFiles(path?: string): Observable<MissingFile[]> {
     return this.http.get<MissingFile[]>(`${this.base}/trouble-shooting/missing-files`, {
       params: path ? { path } : {}
+    });
+  }
+
+  removeMissingFiles(md5Hashes: string[]): Observable<RemoveMissingFilesResponse> {
+    return this.http.post<RemoveMissingFilesResponse>(`${this.base}/trouble-shooting/missing-files/remove`, {
+      md5_hashes: md5Hashes
     });
   }
 

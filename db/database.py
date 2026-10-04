@@ -998,6 +998,25 @@ class Database:
             rows = conn.execute(stmt).fetchall()
         return [row._asdict() for row in rows]
 
+    def delete_files(self, md5_hashes: list[str]) -> int:
+        """Remove the given hashes from the archive entirely: the Files row
+        plus everything keyed on it (details, keywords, list memberships,
+        clip preview, path conflicts). Locations and Keywords themselves are
+        shared and stay. One transaction; returns the number of Files rows
+        deleted."""
+        if not md5_hashes:
+            return 0
+        dependent_tables = (
+            file_keywords_table, list_items_table, path_conflicts_table,
+            clip_previews_table, video_details_table, photo_details_table,
+            file_details_table,
+        )
+        with get_engine().begin() as conn:
+            for table in dependent_tables:
+                conn.execute(delete(table).where(table.c.md5_hash.in_(md5_hashes)))
+            result = conn.execute(delete(files_table).where(files_table.c.md5_hash.in_(md5_hashes)))
+        return result.rowcount
+
     # ------------------------------------------------------------------
     # Rediscover (fileops/rediscover.py) + path conflicts
     # ------------------------------------------------------------------

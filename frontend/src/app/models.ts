@@ -300,6 +300,11 @@ export interface MissingFile {
   has_preview: boolean;
 }
 
+export interface RemoveMissingFilesResponse {
+  removed: number;
+  skipped: number;
+}
+
 export interface ConflictCandidate {
   path: string;
   exists: boolean;

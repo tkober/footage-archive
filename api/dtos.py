@@ -146,6 +146,15 @@ class MissingFile(BaseModel):
     has_preview: bool
 
 
+class RemoveMissingFilesRequest(BaseModel):
+    md5_hashes: List[StrictStr]
+
+
+class RemoveMissingFilesResponse(BaseModel):
+    removed: int
+    skipped: int
+
+
 class ConflictCandidate(BaseModel):
     path: StrictStr
     exists: bool

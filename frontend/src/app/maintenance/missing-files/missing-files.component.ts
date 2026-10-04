@@ -2,6 +2,7 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 
 import { ApiService } from '../../services/api.service';
 import { RediscoverDialogComponent } from '../../shared/rediscover-dialog/rediscover-dialog.component';
+import { TypeToConfirmDialogComponent } from '../../shared/type-to-confirm-dialog/type-to-confirm-dialog.component';
 import { MissingFile } from '../../models';
 
 export interface MissingFileGroup {
@@ -13,7 +14,7 @@ export interface MissingFileGroup {
 @Component({
   selector: 'app-missing-files',
   standalone: true,
-  imports: [RediscoverDialogComponent],
+  imports: [RediscoverDialogComponent, TypeToConfirmDialogComponent],
   templateUrl: './missing-files.component.html',
   styleUrl: './missing-files.component.css',
 })
@@ -29,6 +30,25 @@ export class MissingFilesComponent implements OnInit {
   rediscoverStartDir = signal<string | null>(null);
   showRediscover = signal(false);
   rediscoverNote = signal<string | null>(null);
+
+  /** Files queued for permanent removal; null = dialog closed. */
+  pendingRemove = signal<{ label: string; files: MissingFile[] } | null>(null);
+  removing = signal(false);
+  removeError = signal<string | null>(null);
+  removeNote = signal<string | null>(null);
+
+  removeMessage = computed(() => {
+    const pending = this.pendingRemove();
+    if (!pending) return '';
+    const n = pending.files.length;
+    const attached = pending.files.filter(f => f.keyword_count > 0 || f.has_location || f.list_count > 0).length;
+    let msg = `${n} missing file${n === 1 ? '' : 's'} in ${pending.label} will be removed from the archive, ` +
+      'including keywords, location, list memberships and previews.';
+    if (attached > 0) {
+      msg += ` ${attached} of them ${attached === 1 ? 'has' : 'have'} keywords, a location or list entries.`;
+    }
+    return msg + ' This cannot be undone. Nothing on disk is touched.';
+  });
 
   groups = computed<MissingFileGroup[]>(() => {
     const root = this.rootDir();
@@ -79,6 +99,46 @@ export class MissingFilesComponent implements OnInit {
   onRediscoverStarted(): void {
     this.showRediscover.set(false);
     this.rediscoverNote.set('Rediscover started — see tasks.');
+  }
+
+  openRemove(group: MissingFileGroup): void {
+    this.openRemoveFor(group.relativeDirectory, group.files);
+  }
+
+  openRemoveAll(): void {
+    this.openRemoveFor('all folders', this.files());
+  }
+
+  private openRemoveFor(label: string, files: MissingFile[]): void {
+    this.removeError.set(null);
+    this.pendingRemove.set({ label, files });
+  }
+
+  cancelRemove(): void {
+    this.pendingRemove.set(null);
+  }
+
+  confirmRemove(): void {
+    const pending = this.pendingRemove();
+    if (!pending) return;
+    this.removing.set(true);
+    this.removeError.set(null);
+    this.api.removeMissingFiles(pending.files.map(f => f.md5_hash)).subscribe({
+      next: res => {
+        this.removing.set(false);
+        this.pendingRemove.set(null);
+        let note = `Removed ${res.removed} file${res.removed === 1 ? '' : 's'}.`;
+        if (res.skipped > 0) {
+          note += ` ${res.skipped} skipped (found on disk again or no longer tracked).`;
+        }
+        this.removeNote.set(note);
+        this.check();
+      },
+      error: () => {
+        this.removing.set(false);
+        this.removeError.set('Failed to remove files.');
+      },
+    });
   }
 
   private relativize(directory: string, root: string): string {

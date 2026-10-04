@@ -69,6 +69,10 @@
 }
 
 .summary-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   color: var(--text);
   font-size: 0.85rem;
   margin-bottom: 14px;
@@ -123,6 +127,22 @@
 .rediscover-btn:hover {
   background: var(--hover);
   border-color: var(--line-strong);
+}
+
+.remove-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--danger);
+  font-size: 0.75rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.remove-btn:hover {
+  background: var(--danger);
+  color: #fff;
 }
 
 .rediscover-note {

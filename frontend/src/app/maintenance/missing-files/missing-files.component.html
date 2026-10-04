@@ -20,12 +20,17 @@
     <div class="rediscover-note">{{ rediscoverNote() }}</div>
   }
 
+  @if (removeNote()) {
+    <div class="rediscover-note">{{ removeNote() }}</div>
+  }
+
   @if (hasChecked() && !error()) {
     @if (files().length === 0) {
       <div class="empty-state">All tracked files are present on disk.</div>
     } @else {
       <div class="summary-line">
-        {{ files().length }} tracked file{{ files().length === 1 ? '' : 's' }} {{ files().length === 1 ? 'is' : 'are' }} missing on disk.
+        <span>{{ files().length }} tracked file{{ files().length === 1 ? '' : 's' }} {{ files().length === 1 ? 'is' : 'are' }} missing on disk.</span>
+        <button type="button" class="remove-btn" (click)="openRemoveAll()">Remove all…</button>
       </div>
 
       @for (group of groups(); track group.directory) {
@@ -35,6 +40,9 @@
             <span class="group-count">{{ group.files.length }} file{{ group.files.length === 1 ? '' : 's' }}</span>
             <button type="button" class="rediscover-btn" (click)="openRediscover(group)">
               Rediscover…
+            </button>
+            <button type="button" class="remove-btn" (click)="openRemove(group)">
+              Remove…
             </button>
           </div>
 
@@ -73,6 +81,19 @@
         </div>
       }
     }
+  }
+
+  @if (pendingRemove()) {
+    <app-type-to-confirm-dialog
+      title="Remove missing files"
+      [message]="removeMessage()"
+      confirmWord="remove"
+      confirmLabel="Remove permanently"
+      [busy]="removing()"
+      [error]="removeError()"
+      (confirmed)="confirmRemove()"
+      (cancelled)="cancelRemove()"
+    />
   }
 
   @if (showRediscover()) {
