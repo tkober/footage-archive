@@ -897,7 +897,7 @@ export class BrowserComponent implements OnInit {
     });
   }
 
-  private applyDeleteResults(results: DeleteItemResult[]) {
+  private applyDeleteResults(results: DeleteItemResult[], announce = true) {
     const ok = results.filter(r => r.ok);
     const failed = results.filter(r => !r.ok);
 
@@ -937,6 +937,7 @@ export class BrowserComponent implements OnInit {
       if (sel && ok.some(r => sel.path === r.path)) this.closeDetails();
     }
 
+    if (!announce) return;
     const okWord = ok.length === 1 ? 'item' : 'items';
     this.showFileOpMessage(`${ok.length} ${okWord} moved to trash`);
     if (failed.length) this.showDeleteFailures(failed);
@@ -949,10 +950,10 @@ export class BrowserComponent implements OnInit {
   }
 
   /** The file-detail-panel's own "Move to trash" (preview → confirm → delete
-      runs inside the panel; this just reconciles the grid, #61). */
+      runs inside the panel, which also shows the toast; this just reconciles the grid, #61). */
   onFileDeleted(path: string) {
     this.closeDetails();
-    this.applyDeleteResults([{ path, ok: true }]);
+    this.applyDeleteResults([{ path, ok: true }], false);
   }
 
   private parentOf(path: string): string {

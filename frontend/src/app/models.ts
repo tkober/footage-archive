@@ -284,7 +284,8 @@ export function formatDeletePreview(
   const fileWord = preview.file_count === 1 ? 'file' : 'files';
   let message = `${preview.file_count} ${fileWord}`;
   if (preview.sidecars.length) {
-    message += ` + ${preview.sidecars.length} sidecar${preview.sidecars.length === 1 ? '' : 's'}`;
+    // file_count already includes the sidecars
+    message += ` (incl. ${preview.sidecars.length} sidecar${preview.sidecars.length === 1 ? '' : 's'})`;
   }
   const dest = [rootDir, trashDirName].filter(Boolean).join('/');
   message += ` will be moved to "${dest}/…", where they can be restored manually (without tracking).`;
