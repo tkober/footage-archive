@@ -7,6 +7,8 @@
 
 /* ── Design tokens ────────────────────────────────────────────────
    Dark is the default theme (no attribute, or data-theme="dark").
+   There is deliberately no prefers-color-scheme block: the default
+   stays dark on a light OS unless "System" is chosen.
    data-theme="light" switches to the light palette; the "System"
    theme choice is resolved at runtime by ThemeService, which sets
    data-theme from matchMedia('(prefers-color-scheme: light)') and
@@ -47,16 +49,6 @@
   --dur-base: 180ms;
 }
 
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    color-scheme: light;
-    --bg: #eef0f2; --surface: #ffffff; --raised: #ffffff; --hover: #f1f2f4;
-    --line: #e1e4e8; --line-strong: #cdd2d8; --text: #15181b; --muted: #59616b; --faint: #8a919a;
-    --stage: #1a1c1f; --accent: #b46a00; --accent-ink: #ffffff; --accent-soft: rgba(180,106,0,.12);
-    --ok: #1f8f55; --danger: #c93a32; --skeleton: #e3e6ea; --skeleton-hi: #eef0f3;
-    --shadow-1: 0 1px 2px rgba(20,24,30,.08); --shadow-2: 0 12px 32px rgba(20,24,30,.16), 0 2px 6px rgba(20,24,30,.08);
-  }
-}
 :root[data-theme="light"] {
   color-scheme: light;
   --bg: #eef0f2; --surface: #ffffff; --raised: #ffffff; --hover: #f1f2f4;
