@@ -38,10 +38,12 @@ logger = logging.getLogger(f'{__name__}')
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
-    # Validates TRASH_DIR_NAME (raises ValueError on an invalid value, so a
-    # bad config fails fast instead of surfacing later on first delete) and
-    # creates the trash directory up front.
-    ensure_trash_dir()
+    # An invalid TRASH_DIR_NAME raises ValueError here, so a bad config fails
+    # fast. A missing ROOT_DIR only warns: deletes create the trash lazily.
+    try:
+        ensure_trash_dir()
+    except OSError:
+        logger.warning('Could not create the trash directory on startup', exc_info=True)
 
     try:
         recover_pending_operations()
