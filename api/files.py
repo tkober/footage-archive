@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -5,10 +6,10 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, Response
 
 from api.dtos import (
-    DirectoryQuery, DirectoryResponse, FileInfo, FileListMembership, FileQuery, PathChild,
-    PathType, FileDescriptor, SortField, SortOrder, VideoDetails, PhotoDetails, RenameRequest,
-    RenameResponse, AssignLocationRequest, LocationDto, ExifTag, MoveRequest, MoveItemResult,
-    MovePreviewResponse, MkdirRequest, MkdirResponse,
+    DirectoryCounts, DirectoryKind, DirectoryQuery, DirectoryResponse, FileInfo,
+    FileListMembership, FileQuery, PathChild, PathType, FileDescriptor, SortField, SortOrder,
+    VideoDetails, PhotoDetails, RenameRequest, RenameResponse, AssignLocationRequest, LocationDto,
+    ExifTag, MoveRequest, MoveItemResult, MovePreviewResponse, MkdirRequest, MkdirResponse,
 )
 from db.database import Database, UndoRenameFailedError
 from env.environment import Environment
@@ -25,6 +26,37 @@ _env = Environment()
 # their largest embedded preview JPEG. (.insp is JPEG-based → passthrough.)
 _FULL_IMAGE_JPEG_EXTS = {'.jpg', '.jpeg', '.insp'}
 _FULL_IMAGE_RAW_EXTS = {'.rw2', '.dng'}
+
+# Media-type classification mirroring the frontend's VIDEO_TYPES/PHOTO_TYPES
+# (frontend/src/app/models.ts), used both for the `counts` block and the
+# `kind` request filter on /files/directory.
+_VIDEO_MEDIA_TYPES = {'video', '360_video'}
+_PHOTO_MEDIA_TYPES = {'photo', '360_photo'}
+
+
+def _directory_kind(media_type: str | None) -> DirectoryKind:
+    if media_type in _VIDEO_MEDIA_TYPES:
+        return DirectoryKind.VIDEO
+    if media_type in _PHOTO_MEDIA_TYPES:
+        return DirectoryKind.PHOTO
+    return DirectoryKind.UNTRACKED
+
+
+def _count_direct_files(dir_path: Path, hidden: set[str]) -> int | None:
+    """Direct, non-hidden file count for a subdirectory (not recursive).
+    Cheap by design: os.scandir only, no hashing, no DB access. None if the
+    subdirectory can't be read (permissions, race with a delete, ...)."""
+    try:
+        count = 0
+        with os.scandir(dir_path) as it:
+            for entry in it:
+                if entry.name.startswith('._'):
+                    continue
+                if entry.is_file() and os.path.splitext(entry.name)[1].lower() not in hidden:
+                    count += 1
+        return count
+    except OSError:
+        return None
 
 
 @FilesApi.post('/directory')
@@ -51,11 +83,28 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
             tracked=e.name in tracked if e.is_file() else None,
             md5_hash=tracked[e.name]['md5_hash'] if e.is_file() and e.name in tracked else None,
             media_type=tracked[e.name]['media_type'] if e.is_file() and e.name in tracked else None,
+            file_count=_count_direct_files(e, hidden) if e.is_dir() else None,
         )
         for e in path.iterdir()
         if not e.name.startswith('._')
         and (e.is_dir() or e.suffix.lower() not in hidden)
     ]
+
+    # Counts for the whole directory — independent of pagination AND of any
+    # `kind` filter below, so the frontend's filter-segment labels stay
+    # correct no matter which subset is currently paginated/filtered.
+    counts = DirectoryCounts(
+        directories=sum(1 for e in entries if e.type == PathType.DIRECTORY),
+        video=sum(1 for e in entries if e.type == PathType.FILE
+                   and _directory_kind(e.media_type) == DirectoryKind.VIDEO),
+        photo=sum(1 for e in entries if e.type == PathType.FILE
+                   and _directory_kind(e.media_type) == DirectoryKind.PHOTO),
+        untracked=sum(1 for e in entries if e.type == PathType.FILE
+                      and _directory_kind(e.media_type) == DirectoryKind.UNTRACKED),
+    )
+
+    if query.kind is not None:
+        entries = [e for e in entries if e.type == PathType.FILE and _directory_kind(e.media_type) == query.kind]
 
     reverse = query.sort_order == SortOrder.DESC
 
@@ -73,7 +122,7 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
     start = (query.page - 1) * query.page_size
     items = entries[start:start + query.page_size]
 
-    return DirectoryResponse(total=total, page=query.page, page_size=query.page_size, items=items)
+    return DirectoryResponse(total=total, page=query.page, page_size=query.page_size, items=items, counts=counts)
 
 
 def _build_file_info(p: Path, db: Database) -> FileInfo:

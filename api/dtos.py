@@ -32,11 +32,23 @@ class SortOrder(str, Enum):
     DESC = 'desc'
 
 
+class DirectoryKind(str, Enum):
+    """Server-side counterpart of the frontend's video/photo/untracked
+    classification (`VIDEO_TYPES`/`PHOTO_TYPES` in `models.ts`, used by the
+    browser's filter segments). `video` = media_type in {video, 360_video},
+    `photo` = media_type in {photo, 360_photo}, `untracked` = everything else
+    (incl. files with no media_type, i.e. not tracked)."""
+    VIDEO = 'video'
+    PHOTO = 'photo'
+    UNTRACKED = 'untracked'
+
+
 class DirectoryQuery(BaseModel):
     path: StrictStr
     sort_by: SortField = SortField.NAME
     sort_order: SortOrder = SortOrder.ASC
     dirs_first: bool = True
+    kind: Optional[DirectoryKind] = None
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=50, ge=1, le=500)
 
@@ -49,6 +61,19 @@ class PathChild(BaseModel):
     tracked: Optional[bool] = None
     md5_hash: Optional[StrictStr] = None
     media_type: Optional[StrictStr] = None
+    # Directory entries only: number of direct, non-hidden files in that
+    # subdirectory (not recursive). None if the subdirectory couldn't be read.
+    file_count: Optional[int] = None
+
+
+class DirectoryCounts(BaseModel):
+    """Counts for the *whole* directory, independent of pagination and of any
+    `kind` filter on this request — same video/photo/untracked classification
+    as `DirectoryKind` (hidden extensions already excluded)."""
+    directories: int
+    video: int
+    photo: int
+    untracked: int
 
 
 class DirectoryResponse(BaseModel):
@@ -56,6 +81,7 @@ class DirectoryResponse(BaseModel):
     page: int
     page_size: int
     items: List[PathChild]
+    counts: DirectoryCounts
 
 
 class FileDescriptor(PathChild):
