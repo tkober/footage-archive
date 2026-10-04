@@ -1,0 +1,32 @@
+<app-modal [title]="title()" (close)="onCancel()">
+  <form class="type-confirm" (submit)="$event.preventDefault(); onConfirm()">
+    <p class="confirm-message">{{ message() }}</p>
+
+    <label class="word-label" for="type-confirm-word">
+      Type <span class="word">{{ confirmWord() }}</span> to confirm
+    </label>
+    <input
+      #wordInput
+      id="type-confirm-word"
+      class="input"
+      type="text"
+      autocomplete="off"
+      autocapitalize="off"
+      spellcheck="false"
+      [disabled]="busy()"
+      [value]="typed()"
+      (input)="onInput($event)"
+    />
+
+    @if (error()) {
+      <p class="form-error">{{ error() }}</p>
+    }
+
+    <div class="confirm-actions">
+      <button type="button" class="btn" [disabled]="busy()" (click)="onCancel()">Cancel</button>
+      <button type="submit" class="btn btn-danger" [disabled]="!matches() || busy()">
+        {{ busy() ? 'Working…' : confirmLabel() }}
+      </button>
+    </div>
+  </form>
+</app-modal>

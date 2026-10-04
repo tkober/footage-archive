@@ -4,7 +4,7 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
-from api.dtos import MissingFile
+from api.dtos import MissingFile, RemoveMissingFilesRequest, RemoveMissingFilesResponse
 from api.tracking import create_clip_preview
 from db.database import Database
 from env.environment import Environment
@@ -41,6 +41,24 @@ def get_missing_files(path: Optional[str] = None) -> list[MissingFile]:
     missing = [row for row in rows if not os.path.exists(os.path.join(row['directory'], row['file_name']))]
     missing.sort(key=lambda r: (r['directory'], r['file_name']))
     return [MissingFile(**row) for row in missing]
+
+
+@TroubleShootingApi.post('/missing-files/remove')
+def remove_missing_files(request: RemoveMissingFilesRequest) -> RemoveMissingFilesResponse:
+    """Permanently drop the given tracked files and all their metadata
+    (keywords, location, list memberships, preview). Only hashes that are
+    still tracked AND still missing on disk are removed — anything that
+    reappeared since the listing, or is no longer tracked, is skipped, so
+    this can never untrack a file that actually exists."""
+    db = Database()
+    requested = list(dict.fromkeys(request.md5_hashes))
+    tracked = db.get_tracked_paths_for_hashes(requested)
+    to_remove = [
+        md5_hash for md5_hash, row in tracked.items()
+        if not os.path.exists(os.path.join(row['directory'], row['file_name']))
+    ]
+    removed = db.delete_files(to_remove)
+    return RemoveMissingFilesResponse(removed=removed, skipped=len(requested) - removed)
 
 
 @TroubleShootingApi.post('/missing-preview/fix')
