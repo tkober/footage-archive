@@ -1,0 +1,49 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 420px;
+}
+
+.section-title {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.section-hint {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+/* Segmented control — a simple local implementation; shared building
+   blocks (incl. a reusable segmented control) land in #37. */
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  width: fit-content;
+}
+
+.seg-btn {
+  border: 0;
+  background: none;
+  padding: var(--space-1) var(--space-3);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+
+.seg-btn:hover {
+  color: var(--text);
+}
+
+.seg-btn.on {
+  background: var(--hover);
+  color: var(--text);
+  box-shadow: var(--shadow-1);
+}

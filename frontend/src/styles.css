@@ -1,11 +1,89 @@
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* ── Fonts (bundled via @fontsource, offline-capable) ───────────── */
+@import '@fontsource/geist/400.css';
+@import '@fontsource/geist/500.css';
+@import '@fontsource/geist/600.css';
+@import '@fontsource/geist-mono/400.css';
+@import '@fontsource/geist-mono/500.css';
+
+/* ── Design tokens ────────────────────────────────────────────────
+   Dark is the default theme (no attribute, or data-theme="dark").
+   There is deliberately no prefers-color-scheme block: the default
+   stays dark on a light OS unless "System" is chosen.
+   data-theme="light" switches to the light palette; the "System"
+   theme choice is resolved at runtime by ThemeService, which sets
+   data-theme from matchMedia('(prefers-color-scheme: light)') and
+   keeps it updated on change. Values taken verbatim from the
+   prototype's :root / :root[data-theme="light"] blocks. */
+:root {
+  color-scheme: dark;
+  --bg: #0f1114;
+  --surface: #15181c;
+  --raised: #1c2025;
+  --hover: #242930;
+  --line: #262b32;
+  --line-strong: #363c45;
+  --text: #e7e9ec;
+  --muted: #959ca6;
+  --faint: #656c76;
+  --stage: #08090b;
+  --accent: #e9a23b;
+  --accent-ink: #1b1306;
+  --accent-soft: rgba(233, 162, 59, .15);
+  --ok: #4cbf83;
+  --danger: #ec5f56;
+  --skeleton: #1f2329;
+  --skeleton-hi: #2a2f36;
+  --shadow-1: 0 1px 2px rgba(0,0,0,.4);
+  --shadow-2: 0 12px 32px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.35);
+
+  --font: 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --fs-xs: 11px; --fs-sm: 12px; --fs-md: 13px; --fs-lg: 15px; --fs-xl: 20px;
+  --r-sm: 4px; --r-md: 8px; --r-lg: 12px;
+
+  /* 4px spacing grid */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-7: 28px; --space-8: 32px;
+
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
 }
 
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #eef0f2; --surface: #ffffff; --raised: #ffffff; --hover: #f1f2f4;
+  --line: #e1e4e8; --line-strong: #cdd2d8; --text: #15181b; --muted: #59616b; --faint: #8a919a;
+  --stage: #1a1c1f; --accent: #b46a00; --accent-ink: #ffffff; --accent-soft: rgba(180,106,0,.12);
+  --ok: #1f8f55; --danger: #c93a32; --skeleton: #e3e6ea; --skeleton-hi: #eef0f3;
+  --shadow-1: 0 1px 2px rgba(20,24,30,.08); --shadow-2: 0 12px 32px rgba(20,24,30,.16), 0 2px 6px rgba(20,24,30,.08);
+}
+
+/* ── Base ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 14px;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 var(--fs-md)/1.45 var(--font);
   -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Scrollbars (WebKit + Firefox) */
+* { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: var(--r-sm);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--faint); background-clip: content-box; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }

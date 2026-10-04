@@ -1,0 +1,17 @@
+<section class="section">
+  <h2 class="section-title">Appearance</h2>
+  <p class="section-hint">Choose how Footage Archive looks. "System" follows your OS setting.</p>
+
+  <div class="seg" role="radiogroup" aria-label="Theme">
+    @for (opt of options; track opt.value) {
+      <button
+        type="button"
+        class="seg-btn"
+        [class.on]="choice() === opt.value"
+        role="radio"
+        [attr.aria-checked]="choice() === opt.value"
+        (click)="select(opt.value)"
+      >{{ opt.label }}</button>
+    }
+  </div>
+</section>
