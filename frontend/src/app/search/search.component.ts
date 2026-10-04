@@ -5,7 +5,7 @@ import { Subject, Subscription } from 'rxjs';
 import { debounceTime, distinctUntilChanged, map, switchMap } from 'rxjs/operators';
 
 import { ApiService } from '../services/api.service';
-import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
+import { DetailNavItem, FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
 import { MediaCardComponent, MediaCardKind } from '../shared/media-card/media-card.component';
 import { LoadMoreFooterComponent } from '../shared/load-more-footer/load-more-footer.component';
 import { InfiniteScrollDirective } from '../shared/infinite-scroll/infinite-scroll.directive';
@@ -310,9 +310,33 @@ export class SearchComponent implements OnInit, OnDestroy {
     });
   }
 
-  selectResult(result: SearchResult): void {
+  /** Detail neighbours (#43): loaded results of the same kind as the open file. */
+  private detailSiblings = computed(() => {
+    const cur = this.selectedFile();
+    if (!cur) return [];
+    return VIDEO_TYPES.includes(cur.media_type as any) ? this.videoResults() : this.photoResults();
+  });
+  detailNavItems = computed<DetailNavItem[]>(() => this.detailSiblings().map(r => ({
+    key: r.md5_hash ?? r.directory + '/' + r.file_name,
+    label: r.file_name,
+    previewUrl: r.md5_hash ? this.api.clipPreviewUrl(r.md5_hash) : null,
+    video: this.cardKind(r) === 'video',
+  })));
+  detailNavIndex = computed(() => {
+    const cur = this.selectedFile();
+    return cur ? this.detailSiblings().findIndex(r => r.md5_hash === cur.md5_hash) : -1;
+  });
+
+  jumpDetail(index: number): void {
+    const target = this.detailSiblings()[index];
+    if (target) this.selectResult(target, true);
+  }
+
+  /** `keep`: stepping between neighbours, so leave the current file up until
+      the next one has loaded (no flash). */
+  selectResult(result: SearchResult, keep = false): void {
     const path = result.directory + '/' + result.file_name;
-    this.selectedFile.set(null);
+    if (!keep) this.selectedFile.set(null);
     this.loadingDetails.set(true);
     this.api.getFileDetails(path).subscribe({
       next: info => { this.selectedFile.set(info); this.loadingDetails.set(false); },

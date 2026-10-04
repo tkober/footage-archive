@@ -103,6 +103,11 @@
       <app-file-detail-panel
         [file]="selectedFile()"
         [loading]="loadingDetails()"
+        [navItems]="detailNavItems()"
+        [navIndex]="detailNavIndex()"
+        [backLabel]="list()?.name ?? null"
+        (navigate)="jumpDetail(detailNavIndex() + $event)"
+        (jump)="jumpDetail($event)"
         (closed)="closeDetail()"
         (listsChanged)="onListsChanged()" />
     </div>

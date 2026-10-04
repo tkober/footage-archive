@@ -4,7 +4,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { combineLatest } from 'rxjs';
 
 import { ApiService } from '../services/api.service';
-import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
+import { FileDetailPanelComponent, DetailNavItem } from '../shared/file-detail-panel/file-detail-panel.component';
 import { ConfirmDialogComponent } from '../shared/confirm-dialog/confirm-dialog.component';
 import { MediaCardComponent, MediaCardKind } from '../shared/media-card/media-card.component';
 import { LoadMoreFooterComponent } from '../shared/load-more-footer/load-more-footer.component';
@@ -199,9 +199,28 @@ export class ListDetailComponent implements OnInit {
 
   // ── Detail panel ──
 
-  openItem(item: ListItem, replaceUrl = false): void {
+  /** Detail neighbours (#43): every loaded item of the list, in list order. */
+  detailNavItems = computed<DetailNavItem[]>(() => this.items().map(i => ({
+    key: i.md5_hash,
+    label: `${i.item_code} · ${i.file_name}`,
+    previewUrl: this.api.clipPreviewUrl(i.md5_hash),
+    video: this.cardKind(i) === 'video',
+  })));
+  detailNavIndex = computed(() => {
+    const cur = this.selectedItem();
+    return cur ? this.items().findIndex(i => i.md5_hash === cur.md5_hash) : -1;
+  });
+
+  jumpDetail(index: number): void {
+    const target = this.items()[index];
+    if (target) this.openItem(target, true, true);
+  }
+
+  /** `keep`: stepping between neighbours, so leave the current file up until
+      the next one has loaded (no flash). */
+  openItem(item: ListItem, replaceUrl = false, keep = false): void {
     this.selectedItem.set(item);
-    this.selectedFile.set(null);
+    if (!keep) this.selectedFile.set(null);
     this.loadingDetails.set(true);
     this.codeError.set(null);
     this.router.navigate([], {

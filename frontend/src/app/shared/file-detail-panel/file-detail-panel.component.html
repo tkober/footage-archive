@@ -1,422 +1,344 @@
-<div class="detail-nav">
-  <button class="back-btn" (click)="close()">← Back</button>
-  @if (selectedFile(); as f) {
-    @if (f.md5_hash && isPhotoMediaType(f.media_type)) {
-      <button class="hq-btn" [class.active]="!!hqUrl()"
-              [disabled]="hqFetching() || !!hqUrl()"
-              [title]="hqError() ? 'Fetch failed — click to retry' : 'Load the full-resolution image'"
-              (click)="fetchHighQuality()">
-        @if (hqFetching()) { Loading… }
-        @else if (hqUrl()) { High quality ✓ }
-        @else if (hqError()) { Retry HQ }
-        @else { Fetch high quality }
-      </button>
-    }
-  }
-</div>
+<div class="detail" [class.has-film]="hasNav()">
 
-@if (loading()) {
-  <div class="detail-loading-msg">Loading…</div>
-} @else if (selectedFile(); as file) {
-
-  @if (previewUrl()) {
-    @if (isPhotoMediaType(file.media_type)) {
-      <app-image-viewer
-        class="detail-viewer"
-        [style.aspect-ratio]="viewerAspect() ?? 1.5"
-        [src]="viewerUrl()"
-        [modifierZoom]="true"
-        [showNav]="navCount() > 1"
-        [index]="navIndex()"
-        [count]="navCount()"
-        (aspectChange)="viewerAspect.set($event)"
-        (prev)="navigate.emit(-1)"
-        (next)="navigate.emit(1)" />
-    } @else {
-      <div class="detail-strip-wrap">
-        <img class="detail-strip-img" [src]="previewUrl()!" alt="Clip preview" />
-      </div>
-    }
-  }
-
-  <div class="detail-content">
-
-    <!-- Filename header with tracking dot -->
-    <div class="filename-wrap">
-      <span class="detail-track-dot" [class.is-tracked]="file.tracked"></span>
-      @if (!editingName()) {
-        <h1 class="detail-filename">{{ file.name }}</h1>
-        @if (hqUrl()) { <span class="badge-hq" title="Full-resolution image loaded">HQ</span> }
-        <button class="edit-pen" (click)="startEditName()" title="Rename">
-          <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-            <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
-          </svg>
+  <!-- Top bar: back, position, full resolution -->
+  <div class="dbar">
+    <button type="button" class="btn btn-ghost back" (click)="close()" title="Back (Esc)">
+      <app-icon name="chevron-left" [size]="16" />
+      <span class="lbl">{{ backLabel() ? 'Back to ' + backLabel() : 'Back' }}</span>
+    </button>
+    @if (hasNav() && navIndex() >= 0) {
+      <span class="pos">{{ navIndex() + 1 }} / {{ navItems().length }}</span>
+      <!-- phone only: the stage arrows would cover the video frames -->
+      <span class="bar-nav">
+        <button type="button" class="icon-btn" (click)="step(-1)" [disabled]="navIndex() <= 0" aria-label="Previous">
+          <app-icon name="chevron-left" [size]="16" />
         </button>
-      } @else {
-        <div class="filename-edit-row">
-          <input #nameInput class="filename-input"
-                 [value]="editNameValue()"
-                 (input)="editNameValue.set($any($event.target).value)"
-                 (keydown.enter)="saveNameEdit()"
-                 (keydown.escape)="cancelNameEdit(); $event.stopPropagation()" />
-          <button class="save-name-btn" (click)="saveNameEdit()" title="Save">✓</button>
-          <button class="cancel-name-btn" (click)="cancelNameEdit()" title="Cancel">✕</button>
+        <button type="button" class="icon-btn" (click)="step(1)" [disabled]="navIndex() >= navItems().length - 1" aria-label="Next">
+          <app-icon name="chevron-right" [size]="16" />
+        </button>
+      </span>
+    }
+    <span class="grow"></span>
+    @if (selectedFile(); as f) {
+      @if (f.md5_hash && isPhotoMediaType(f.media_type)) {
+        <button type="button" class="btn btn-ghost" [class.btn-on]="!!hqUrl()"
+                [disabled]="hqFetching() || !!hqUrl()"
+                [title]="hqError() ? 'Loading failed. Click to try again.' : 'Load the full-resolution image'"
+                (click)="fetchHighQuality()">
+          <app-icon name="hq" [size]="16" />
+          <span class="lbl">
+            @if (hqFetching()) { Loading… }
+            @else if (hqUrl()) { Full resolution }
+            @else if (hqError()) { Retry full resolution }
+            @else { Load full resolution }
+          </span>
+        </button>
+      }
+    }
+  </div>
+
+  <!-- Stage: the photo, or all five frames of a video -->
+  <div class="stage" [class.video]="isVideo()">
+    @if (loading() && !selectedFile()) {
+      <div class="stage-msg">Loading…</div>
+    } @else if (selectedFile(); as file) {
+      @if (!previewUrl()) {
+        <div class="stage-msg">
+          <app-icon name="image" [size]="28" />
+          <span>{{ file.tracked ? 'No preview yet' : 'No preview for untracked files' }}</span>
         </div>
-        @if (renameError()) {
-          <div class="rename-error">{{ renameError() }}</div>
-        }
+      } @else if (isPhotoMediaType(file.media_type)) {
+        <app-image-viewer
+          class="viewer"
+          [src]="viewerUrl()"
+          [modifierZoom]="true"
+          [showNav]="false"
+          (aspectChange)="viewerAspect.set($event)" />
+      } @else {
+        <div class="frames">
+          @for (fr of videoFrames(); track $index) {
+            <div class="frame" [style.background-image]="'url(' + previewUrl() + ')'" [style.background-position]="fr.pos">
+              @if (fr.time) { <span class="tc">{{ fr.time }}</span> }
+            </div>
+          }
+        </div>
+      }
+      @if (hasNav()) {
+        <button type="button" class="nav-arrow prev" (click)="step(-1)" [disabled]="navIndex() <= 0" aria-label="Previous (←)">
+          <app-icon name="chevron-left" [size]="20" />
+        </button>
+        <button type="button" class="nav-arrow next" (click)="step(1)" [disabled]="navIndex() >= navItems().length - 1" aria-label="Next (→)">
+          <app-icon name="chevron-right" [size]="20" />
+        </button>
+      }
+    }
+  </div>
+
+  <!-- Filmstrip: neighbours in the folder / results / list -->
+  @if (hasNav()) {
+    <div class="film" role="listbox" aria-label="Neighbours">
+      @for (item of navItems(); track item.key; let i = $index) {
+        <button type="button" role="option" [class.cur]="i === navIndex()" [class.video]="item.video"
+                [attr.aria-selected]="i === navIndex()" [title]="item.label" (click)="jump.emit(i)">
+          @if (item.previewUrl) {
+            <span class="ft" [style.background-image]="'url(' + item.previewUrl + ')'"></span>
+          } @else {
+            <span class="ft empty"><app-icon name="image" [size]="14" /></span>
+          }
+        </button>
       }
     </div>
+  }
 
-    <!-- Keywords — directly below filename -->
-    @if (file.tracked && file.md5_hash) {
-      <div class="detail-keywords">
-        <div class="keyword-pills">
-          @for (kw of (file.keywords ?? []); track kw) {
-            <span class="keyword-pill">
-              {{ kw }}
-              <button class="keyword-remove" (click)="removeKeyword(kw)" title="Remove keyword">×</button>
-            </span>
+  <!-- Inspector -->
+  <aside class="insp">
+    @if (loading() && !selectedFile()) {
+      <div class="insp-msg">Loading…</div>
+    } @else if (selectedFile(); as file) {
+
+      <header class="ih">
+        @if (!editingName()) {
+          <h2>
+            <span class="fname">{{ file.name }}</span>
+            <button type="button" class="icon-btn icon-btn-sm" (click)="startEditName()" title="Rename">
+              <app-icon name="edit" [size]="14" />
+            </button>
+          </h2>
+        } @else {
+          <div class="rename-row">
+            <input #nameInput class="input"
+                   [value]="editNameValue()"
+                   (input)="editNameValue.set($any($event.target).value)"
+                   (keydown.enter)="saveNameEdit()"
+                   (keydown.escape)="cancelNameEdit(); $event.stopPropagation()" />
+            <button type="button" class="btn btn-primary btn-sm" (click)="saveNameEdit()">Save</button>
+            <button type="button" class="btn btn-ghost btn-sm" (click)="cancelNameEdit()">Cancel</button>
+          </div>
+          @if (renameError()) { <div class="err">{{ renameError() }}</div> }
+        }
+        <div class="sub">
+          @if (file.tracked) {
+            <span class="status ok">Tracked</span>
+          } @else {
+            <span class="status">Untracked</span>
           }
+          <span>{{ typeLabel() }}</span>
+          @if (hqUrl()) { <span class="status hq" title="Full-resolution image loaded">Full res</span> }
         </div>
-        <div class="keyword-add-row">
-          <input
-            class="keyword-input"
-            list="keyword-suggestions"
-            placeholder="Add keyword…"
-            [value]="newKeywordValue()"
-            (input)="newKeywordValue.set($any($event.target).value)"
-            (keydown.enter)="addKeyword()"
-            (keydown.escape)="$event.stopPropagation()" />
-          <datalist id="keyword-suggestions">
-            @for (kw of keywordSuggestions(); track kw) {
-              <option [value]="kw"></option>
-            }
-          </datalist>
-          <button class="keyword-add-btn" (click)="addKeyword()">Add</button>
-        </div>
-      </div>
-    }
+      </header>
 
-    <!-- Lists — directly below keywords -->
-    @if (file.tracked && file.md5_hash) {
-      <div class="detail-lists">
-        <div class="detail-lists-label">
-          <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-            <path d="M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h16v2H4v-2z"/>
-          </svg>
-          Lists
-        </div>
-        <div class="list-pills">
-          @for (membership of (file.lists ?? []); track membership.list_id) {
-            <span class="list-pill">
-              <a class="list-pill-link"
-                 [routerLink]="['/lists', membership.list_id]"
-                 [queryParams]="{ code: membership.item_code }">
-                {{ membership.name }} <span class="list-pill-code">· {{ membership.item_code }}</span>
-              </a>
-              <button class="list-remove" (click)="requestRemoveFromList(membership)" title="Remove from list">×</button>
-            </span>
+      @if (!file.tracked || !file.md5_hash) {
+        <section class="isec">
+          <p class="hint">Track this file to give it keywords, lists and a location.</p>
+          <button type="button" class="btn" (click)="trackFile()"><app-icon name="plus" [size]="14" />Track file</button>
+        </section>
+      } @else {
+
+        <section class="isec">
+          <h3>Keywords</h3>
+          <div class="chips">
+            @for (kw of (file.keywords ?? []); track kw) {
+              <span class="chip">{{ kw }}
+                <button type="button" class="chip-remove" (click)="removeKeyword(kw)" [attr.aria-label]="'Remove ' + kw">
+                  <app-icon name="x" [size]="12" />
+                </button>
+              </span>
+            }
+            @if (!addingKeyword()) {
+              <button type="button" class="chip chip-add" (click)="startAddKeyword()">+ Add</button>
+            }
+          </div>
+          @if (addingKeyword()) {
+            <form class="add-row" (submit)="$event.preventDefault(); addKeyword()">
+              <input class="input kw-input" list="keyword-suggestions" autocomplete="off" placeholder="e.g. beach"
+                     [value]="newKeywordValue()"
+                     (input)="newKeywordValue.set($any($event.target).value)"
+                     (keydown.escape)="stopAddKeyword(); $event.stopPropagation()" />
+              <datalist id="keyword-suggestions">
+                @for (kw of keywordSuggestions(); track kw) { <option [value]="kw"></option> }
+              </datalist>
+              <button type="submit" class="btn btn-primary btn-sm" [disabled]="!newKeywordValue().trim()">Add</button>
+              <button type="button" class="btn btn-ghost btn-sm" (click)="stopAddKeyword()">Done</button>
+            </form>
           }
-        </div>
-        <div class="list-add-row">
-          <app-list-picker
-            [excludeListIds]="memberListIds()"
-            (picked)="onListPicked($event)" />
-        </div>
-        @if (listAddError()) {
-          <div class="list-error">{{ listAddError() }}</div>
-        }
-      </div>
-    }
+        </section>
 
-    <!-- Two-column body: info left, location right -->
-    <div class="detail-body-cols" [class.two-col]="file.tracked && file.md5_hash">
-
-      <div class="detail-col-info">
-
-        <div class="detail-section">
-          <span class="detail-section-label">File</span>
-          <div class="detail-meta-grid">
-            <div class="detail-meta-item">
-              <span class="detail-label">Size</span>
-              <span class="detail-value">{{ formatBytes(file.size_bytes) }}</span>
-            </div>
-            <div class="detail-meta-item">
-              <span class="detail-label">Modified</span>
-              <span class="detail-value">{{ file.modified_at | date:'yyyy-MM-dd HH:mm' }}</span>
-            </div>
-            @if (file.media_type) {
-              <div class="detail-meta-item">
-                <span class="detail-label">Media type</span>
-                <span class="detail-value">{{ file.media_type }}</span>
-              </div>
+        <section class="isec">
+          <h3>Lists</h3>
+          <div class="chips">
+            @for (membership of (file.lists ?? []); track membership.list_id) {
+              <span class="chip">
+                <a class="chip-link" [routerLink]="['/lists', membership.list_id]" [queryParams]="{ code: membership.item_code }">
+                  {{ membership.name }} <span class="chip-code">{{ membership.item_code }}</span>
+                </a>
+                <button type="button" class="chip-remove" (click)="requestRemoveFromList(membership)" title="Remove from list">
+                  <app-icon name="x" [size]="12" />
+                </button>
+              </span>
             }
-            @if (file.file_extension) {
-              <div class="detail-meta-item">
-                <span class="detail-label">Extension</span>
-                <span class="detail-value detail-mono">{{ file.file_extension }}</span>
-              </div>
-            }
-            @if (file.last_indexed_at) {
-              <div class="detail-meta-item">
-                <span class="detail-label">Indexed</span>
-                <span class="detail-value">{{ file.last_indexed_at | date:'yyyy-MM-dd HH:mm' }}</span>
-              </div>
-            }
-            <div class="detail-meta-item detail-meta-wide">
-              <span class="detail-label">Path</span>
-              <span class="detail-value detail-path">{{ file.path }}</span>
-            </div>
-            @if (file.md5_hash) {
-              <div class="detail-meta-item detail-meta-wide">
-                <span class="detail-label">MD5</span>
-                <span class="detail-value detail-mono">{{ file.md5_hash }}</span>
-              </div>
+            @if (!addingToList()) {
+              <button type="button" class="chip chip-add" (click)="addingToList.set(true)">+ Add to list</button>
             }
           </div>
-          <button class="exif-open-btn" (click)="openExif()">Show all metadata</button>
-        </div>
-
-        @if (file.video_details; as vd) {
-          <div class="detail-section">
-            <span class="detail-section-label">Technical</span>
-            <div class="detail-meta-grid">
-              @if (vd.width && vd.height) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Resolution</span>
-                  <span class="detail-value">{{ vd.width }}×{{ vd.height }}</span>
-                </div>
-              }
-              @if (vd.duration_tc) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Duration</span>
-                  <span class="detail-value detail-mono">{{ vd.duration_tc }}</span>
-                </div>
-              }
-              @if (vd.frame_rate) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Frame rate</span>
-                  <span class="detail-value">{{ vd.frame_rate }} fps</span>
-                </div>
-              }
-              @if (vd.video_codec) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Video codec</span>
-                  <span class="detail-value detail-mono">{{ vd.video_codec }}</span>
-                </div>
-              }
-              @if (vd.bit_depth) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Bit depth</span>
-                  <span class="detail-value">{{ vd.bit_depth }}-bit</span>
-                </div>
-              }
-              @if (vd.audio_codec) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Audio codec</span>
-                  <span class="detail-value detail-mono">{{ vd.audio_codec }}</span>
-                </div>
-              }
-              @if (vd.audio_sample_rate) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Sample rate</span>
-                  <span class="detail-value">{{ vd.audio_sample_rate / 1000 }} kHz</span>
-                </div>
-              }
-              @if (vd.audio_channels) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Channels</span>
-                  <span class="detail-value">{{ vd.audio_channels }}</span>
-                </div>
-              }
+          @if (addingToList()) {
+            <div class="add-row">
+              <app-list-picker class="grow" placeholder="Find or create a list…"
+                               [excludeListIds]="memberListIds()" (picked)="onListPicked($event)" />
+              <button type="button" class="btn btn-ghost btn-sm" (click)="addingToList.set(false)">Done</button>
             </div>
-          </div>
-        }
+          }
+          @if (listAddError()) { <div class="err">{{ listAddError() }}</div> }
+        </section>
 
-        @if (file.video_details && file.tracked) {
-          <div class="detail-section">
-            <div class="detail-section-header">
-              <span class="detail-section-label">AI Shot Classification</span>
-              <button class="action-btn" (click)="classifyShot()" [disabled]="classifying()">
-                {{ classifying() ? 'Classifying…' : 'Classify' }}
-              </button>
+        <section class="isec">
+          <h3>Location
+            <button #locBtn type="button" class="link" (click)="openLocationPicker(locBtn)">{{ file.location ? 'Change' : 'Set' }}</button>
+          </h3>
+          @if (file.location; as loc) {
+            <div class="locbox">
+              <span class="pin"><app-icon name="pin" [size]="16" /></span>
+              <span class="loc-text">
+                <b>{{ locationName(loc) }}</b>
+                @if (loc.name && locationGeo(loc)) { <small>{{ locationGeo(loc) }}</small> }
+              </span>
             </div>
-            @if (classificationError()) {
-              <span class="detail-error">{{ classificationError() }}</span>
-            }
-            @if (classificationResult(); as result) {
-              <pre class="classification-json">{{ result | json }}</pre>
-            }
-          </div>
-        }
-
-        @if (file.photo_details; as pd) {
-          <div class="detail-section">
-            <span class="detail-section-label">Technical</span>
-            <div class="detail-meta-grid">
-              @if (pd.width && pd.height) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Resolution</span>
-                  <span class="detail-value">{{ pd.width }}×{{ pd.height }}</span>
-                </div>
-              }
-              @if (pd.camera_make || pd.camera_model) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Camera</span>
-                  <span class="detail-value">{{ pd.camera_make }} {{ pd.camera_model }}</span>
-                </div>
-              }
-              @if (pd.lens) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Lens</span>
-                  <span class="detail-value">{{ pd.lens }}</span>
-                </div>
-              }
-              @if (pd.iso) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">ISO</span>
-                  <span class="detail-value">{{ pd.iso }}</span>
-                </div>
-              }
-              @if (pd.aperture) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Aperture</span>
-                  <span class="detail-value">f/{{ pd.aperture }}</span>
-                </div>
-              }
-              @if (pd.shutter_speed) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Shutter</span>
-                  <span class="detail-value detail-mono">{{ pd.shutter_speed }}</span>
-                </div>
-              }
-              @if (pd.focal_length) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Focal length</span>
-                  <span class="detail-value">{{ pd.focal_length }} mm</span>
-                </div>
-              }
-              @if (pd.focal_length_35mm) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Focal length (35mm)</span>
-                  <span class="detail-value">{{ pd.focal_length_35mm }} mm</span>
-                </div>
-              }
-              @if (pd.scale_factor_35mm) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Crop factor</span>
-                  <span class="detail-value">{{ pd.scale_factor_35mm }}×</span>
-                </div>
-              }
-              @if (pd.field_of_view) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Field of view</span>
-                  <span class="detail-value">{{ pd.field_of_view }}°</span>
-                </div>
-              }
-              @if (pd.bit_depth) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Bit depth</span>
-                  <span class="detail-value">{{ pd.bit_depth }}-bit</span>
-                </div>
-              }
-              @if (pd.color_space) {
-                <div class="detail-meta-item">
-                  <span class="detail-label">Color space</span>
-                  <span class="detail-value">{{ pd.color_space }}</span>
-                </div>
-              }
-            </div>
-          </div>
-        }
-
-      </div><!-- /detail-col-info -->
-
-      @if (file.tracked && file.md5_hash) {
-        <div class="detail-col-location">
-          <div class="detail-section">
-            <span class="detail-section-label">Location</span>
-            @if (file.location) {
-              <div class="location-assigned">
-                <div class="location-pill">
-                  <span class="location-pill-name">{{ locationName(file.location) }}</span>
-                  @if (file.location.name && locationGeo(file.location)) {
-                    <span class="location-pill-geo">{{ locationGeo(file.location) }}</span>
-                  }
-                </div>
-                <button class="location-remove" (click)="assignLocation(null)" title="Remove location">✕</button>
-              </div>
-            }
-            @if (detailCoords(); as coords) {
-              @if (mapsReady()) {
-                <google-map
-                  class="detail-loc-map"
-                  width="100%"
-                  height="100%"
-                  [center]="coords"
-                  [zoom]="13"
-                  [mapId]="mapId()"
-                  [options]="detailMapOptions">
+          } @else {
+            <p class="hint">No location yet.</p>
+          }
+          @if (detailCoords(); as coords) {
+            @if (mapsReady()) {
+              <div class="mini-map">
+                <google-map width="100%" height="100%" [center]="coords" [zoom]="13" [mapId]="mapId()" [options]="detailMapOptions">
                   <map-advanced-marker [position]="coords" [content]="detailPinContent" />
                 </google-map>
-              }
-            }
-            @if (file.altitude != null) {
-              <div class="detail-meta-item">
-                <span class="detail-label">Altitude</span>
-                <span class="detail-value">{{ file.altitude }} m</span>
               </div>
             }
-            <div class="location-assign-row">
-              <select class="location-select"
-                      (change)="assignLocation(+$any($event.target).value || null)">
-                <option value="">— select location —</option>
-                @for (loc of allLocations(); track loc.id) {
-                  <option [value]="loc.id" [selected]="file.location?.id === loc.id">
-                    {{ formatLocation(loc) }}
-                  </option>
-                }
-              </select>
-              <button class="location-new-btn"
-                      (click)="showCreateLocation.set(true)">
-                + New
-              </button>
-            </div>
-          </div>
-        </div>
+          }
+        </section>
       }
 
-    </div><!-- /detail-body-cols -->
+      @if (file.photo_details; as pd) {
+        <section class="isec">
+          <h3>Capture</h3>
+          <dl class="kv">
+            @if (pd.camera_make || pd.camera_model) { <div><dt>Camera</dt><dd>{{ pd.camera_make }} {{ pd.camera_model }}</dd></div> }
+            @if (pd.lens) { <div><dt>Lens</dt><dd>{{ pd.lens }}</dd></div> }
+            @if (pd.aperture || pd.shutter_speed || pd.iso) {
+              <div class="full"><dt>Exposure</dt><dd class="m">
+                {{ exposure() }}
+              </dd></div>
+            }
+            @if (pd.focal_length) {
+              <div><dt>Focal length</dt><dd>{{ pd.focal_length }} mm
+                @if (pd.focal_length_35mm) { <span class="faint">({{ pd.focal_length_35mm }} mm eq.)</span> }
+              </dd></div>
+            }
+            @if (pd.width && pd.height) { <div><dt>Resolution</dt><dd>{{ pd.width }}×{{ pd.height }}</dd></div> }
+            @if (pd.field_of_view) { <div><dt>Field of view</dt><dd>{{ pd.field_of_view }}°</dd></div> }
+            @if (pd.scale_factor_35mm) { <div><dt>Crop factor</dt><dd>{{ pd.scale_factor_35mm }}×</dd></div> }
+            @if (pd.bit_depth) { <div><dt>Bit depth</dt><dd>{{ pd.bit_depth }}-bit</dd></div> }
+            @if (pd.color_space) { <div><dt>Color space</dt><dd>{{ pd.color_space }}</dd></div> }
+            @if (file.altitude != null) { <div><dt>Altitude</dt><dd>{{ file.altitude }} m</dd></div> }
+          </dl>
+        </section>
+      }
 
-  </div>
+      @if (file.video_details; as vd) {
+        <section class="isec">
+          <h3>Capture</h3>
+          <dl class="kv">
+            @if (vd.width && vd.height) { <div><dt>Resolution</dt><dd>{{ vd.width }}×{{ vd.height }}</dd></div> }
+            @if (vd.duration_tc) { <div><dt>Duration</dt><dd class="m">{{ vd.duration_tc }}</dd></div> }
+            @if (vd.frame_rate) { <div><dt>Frame rate</dt><dd>{{ vd.frame_rate }} fps</dd></div> }
+            @if (vd.video_codec) { <div><dt>Codec</dt><dd>{{ vd.video_codec }}@if (vd.bit_depth) { {{ ' ' + vd.bit_depth }}-bit }</dd></div> }
+            @if (vd.audio_codec) {
+              <div><dt>Audio</dt><dd>{{ vd.audio_codec }}@if (vd.audio_sample_rate) { · {{ vd.audio_sample_rate / 1000 }} kHz }@if (vd.audio_channels) { · {{ vd.audio_channels }} ch }</dd></div>
+            }
+            @if (file.altitude != null) { <div><dt>Altitude</dt><dd>{{ file.altitude }} m</dd></div> }
+          </dl>
+        </section>
+
+        @if (file.tracked) {
+          <section class="isec">
+            <h3>Shot classification
+              <button type="button" class="link" (click)="classifyShot()" [disabled]="classifying()">{{ classifying() ? 'Classifying…' : 'Classify' }}</button>
+            </h3>
+            @if (classificationError()) { <div class="err">{{ classificationError() }}</div> }
+            @if (classificationResult(); as result) {
+              <pre class="json">{{ result | json }}</pre>
+            }
+          </section>
+        }
+      }
+
+      <section class="isec">
+        <h3>File <button type="button" class="link" (click)="openExif()">All metadata</button></h3>
+        <dl class="kv">
+          <div><dt>Size</dt><dd>{{ formatBytes(file.size_bytes) }}</dd></div>
+          <div><dt>Modified</dt><dd>{{ file.modified_at | date:'yyyy-MM-dd HH:mm' }}</dd></div>
+          @if (file.last_indexed_at) { <div><dt>Indexed</dt><dd>{{ file.last_indexed_at | date:'yyyy-MM-dd HH:mm' }}</dd></div> }
+          @if (file.media_type) { <div><dt>Media type</dt><dd>{{ file.media_type }}</dd></div> }
+          <div class="full"><dt>Path</dt><dd class="m">{{ file.path }}</dd></div>
+          @if (file.md5_hash) { <div class="full"><dt>MD5</dt><dd class="m">{{ file.md5_hash }}</dd></div> }
+        </dl>
+      </section>
+    }
+  </aside>
+</div>
+
+@if (locationPicker(); as anchor) {
+  <app-popover [anchor]="anchor" [width]="300" (closed)="locationPicker.set(null)">
+    <div class="loc-pop">
+      <input class="input loc-filter" autocomplete="off" placeholder="Filter locations…"
+             [value]="locationFilter()"
+             (input)="locationFilter.set($any($event.target).value)"
+             (keydown.enter)="filteredLocations()[0] && pickLocation(filteredLocations()[0].id)" />
+      <div class="loc-list" role="listbox">
+        @for (loc of filteredLocations(); track loc.id) {
+          <button type="button" class="loc-opt" role="option" [class.cur]="selectedFile()?.location?.id === loc.id"
+                  (click)="pickLocation(loc.id)">
+            <app-icon name="pin" [size]="14" />
+            <span><b>{{ locationName(loc) }}</b><small>{{ locationGeo(loc) }}</small></span>
+          </button>
+        } @empty {
+          <span class="loc-empty">{{ allLocations().length ? 'No location matches.' : 'No locations yet.' }}</span>
+        }
+      </div>
+      <div class="loc-actions">
+        <button type="button" class="btn btn-sm" (click)="newLocationFromPicker()"><app-icon name="plus" [size]="14" />New location…</button>
+        @if (selectedFile()?.location) {
+          <button type="button" class="btn btn-ghost btn-sm" (click)="pickLocation(null)">Remove</button>
+        }
+      </div>
+    </div>
+  </app-popover>
 }
 
 @if (showCreateLocation()) {
   <app-modal title="New location" [wide]="true" (close)="cancelCreateLocation()">
     <div class="location-create-form">
-      <input class="loc-input loc-input-name" placeholder="Name / landmark"
+      <input class="input loc-input loc-input-name" placeholder="Name / landmark"
              [value]="newLocName()" (input)="newLocName.set($any($event.target).value)" />
 
       <span class="loc-section-label">Location</span>
       <div class="loc-section-grid">
-        <input class="loc-input" placeholder="Country"
+        <input class="input loc-input" placeholder="Country"
                [value]="newLocCountry()" (input)="newLocCountry.set($any($event.target).value)" />
-        <input class="loc-input" placeholder="Region"
+        <input class="input loc-input" placeholder="Region"
                [value]="newLocRegion()" (input)="newLocRegion.set($any($event.target).value)" />
-        <input class="loc-input" placeholder="City"
+        <input class="input loc-input" placeholder="City"
                [value]="newLocCity()" (input)="newLocCity.set($any($event.target).value)" />
       </div>
 
       <span class="loc-section-label">Coordinates</span>
       <div class="loc-coords-row">
         <div class="loc-section-grid">
-          <input class="loc-input" placeholder="Latitude" type="number"
+          <input class="input loc-input" placeholder="Latitude" type="number"
                  [value]="newLocLat()" (input)="newLocLat.set($any($event.target).value)" />
-          <input class="loc-input" placeholder="Longitude" type="number"
+          <input class="input loc-input" placeholder="Longitude" type="number"
                  [value]="newLocLon()" (input)="newLocLon.set($any($event.target).value)" />
         </div>
-        <button class="loc-geocode-btn" (click)="geocodeLocation()" [disabled]="geocoding()">
+        <button class="btn loc-geocode-btn" (click)="geocodeLocation()" [disabled]="geocoding()">
           {{ geocoding() ? '…' : 'Locate' }}
         </button>
       </div>
@@ -446,8 +368,8 @@
       }
 
       <div class="location-create-actions">
-        <button class="loc-save-btn" (click)="createLocation()">Save</button>
-        <button class="loc-cancel-btn" (click)="cancelCreateLocation()">Cancel</button>
+        <button class="btn btn-primary" (click)="createLocation()">Save</button>
+        <button class="btn btn-ghost" (click)="cancelCreateLocation()">Cancel</button>
       </div>
     </div>
   </app-modal>
@@ -469,7 +391,7 @@
             @for (t of g.items; track $index) {
               <div class="exif-row">
                 <span class="exif-tag">{{ t.tag }}</span>
-                <span class="exif-value detail-mono">{{ t.value }}</span>
+                <span class="exif-value m">{{ t.value }}</span>
               </div>
             }
           </div>

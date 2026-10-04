@@ -10,8 +10,7 @@
   position: absolute;
   inset: 0;
   overflow: hidden;
-  background:
-    repeating-conic-gradient(#1c1c1c 0% 25%, #232323 0% 50%) 0 / 24px 24px;
+  background: var(--stage);
   touch-action: none;
 }
 
@@ -63,8 +62,8 @@
   bottom: 12px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 0.78rem;
-  color: #e5e7eb;
+  font: 400 var(--fs-xs) var(--mono);
+  color: #e7e9ec;
   background: rgba(0, 0, 0, 0.55);
   padding: 4px 10px;
   border-radius: 999px;
@@ -78,9 +77,9 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  background: rgba(0, 0, 0, 0.62);
-  padding: 5px 8px;
-  border-radius: 10px;
+  background: rgba(8, 9, 11, .72);
+  padding: 3px;
+  border-radius: var(--r-md);
 }
 
 .zoom-cluster button {
@@ -88,16 +87,16 @@
   height: 26px;
   font-size: 1rem;
   line-height: 1;
-  background: #2a2a2a;
+  background: none;
   border: none;
   border-radius: 6px;
-  color: #e5e7eb;
+  color: #e7e9ec;
   cursor: pointer;
   transition: background 120ms ease;
 }
 
 .zoom-cluster button:hover:not(:disabled) {
-  background: #3a3a3a;
+  background: rgba(255, 255, 255, .12);
 }
 
 .zoom-cluster button:disabled {
@@ -110,8 +109,8 @@
 }
 
 .zoom-level {
-  font-size: 0.72rem;
-  color: #e5e7eb;
+  font: 500 var(--fs-xs) var(--mono);
+  color: #e7e9ec;
   min-width: 40px;
   text-align: center;
 }

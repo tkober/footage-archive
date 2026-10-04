@@ -269,6 +269,11 @@
     <app-file-detail-panel
       [file]="selectedFile()"
       [loading]="loadingDetails()"
+      [navItems]="detailNavItems()"
+      [navIndex]="detailNavIndex()"
+      backLabel="results"
+      (navigate)="jumpDetail(detailNavIndex() + $event)"
+      (jump)="jumpDetail($event)"
       (closed)="closeDetail()" />
   </div>
 
