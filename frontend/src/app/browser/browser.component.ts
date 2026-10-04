@@ -12,11 +12,14 @@ import { RediscoverDialogComponent } from '../shared/rediscover-dialog/rediscove
 import { ComparisonComponent } from '../comparison/comparison.component';
 import { IconComponent } from '../shared/icon/icon.component';
 import { MediaCardComponent } from '../shared/media-card/media-card.component';
+import { LoadMoreFooterComponent } from '../shared/load-more-footer/load-more-footer.component';
+import { InfiniteScrollDirective } from '../shared/infinite-scroll/infinite-scroll.directive';
 import { ApiService } from '../services/api.service';
 import { ToastService } from '../shared/toast/toast.service';
 import { DirectoryCounts, DirectoryKind, FileInfo, FileList, Location, MoveItemResult, MovePreviewResponse, PathChild, RenameResponse, VIDEO_TYPES, PHOTO_TYPES, formatDurationTc } from '../models';
 
 const PAGE_SIZE = 50;
+const SKELETON_CAP = 12;
 const BULK_RESULT_TIMEOUT_MS = 4000;
 const FILE_OP_RESULT_TIMEOUT_MS = 6000;
 const THUMB_STORAGE_KEY = 'fa-thumb';
@@ -43,12 +46,13 @@ interface PendingMove {
 @Component({
   selector: 'app-browser',
   standalone: true,
-  imports: [ContextMenuComponent, FileDetailPanelComponent, ListPickerComponent, FolderPickerComponent, ConfirmDialogComponent, RediscoverDialogComponent, ComparisonComponent, IconComponent, MediaCardComponent],
+  imports: [ContextMenuComponent, FileDetailPanelComponent, ListPickerComponent, FolderPickerComponent, ConfirmDialogComponent, RediscoverDialogComponent, ComparisonComponent, IconComponent, MediaCardComponent, LoadMoreFooterComponent, InfiniteScrollDirective],
   templateUrl: './browser.component.html',
   styleUrl: './browser.component.css',
   host: { class: 'page-flush' }
 })
 export class BrowserComponent implements OnInit {
+  readonly PAGE_SIZE = PAGE_SIZE;
   private api = inject(ApiService);
   private toast = inject(ToastService);
   private router = inject(Router);
@@ -64,6 +68,7 @@ export class BrowserComponent implements OnInit {
   thumbSize = signal(this.readStoredThumbSize());
   loading = signal(false);
   loadingMore = signal(false);
+  loadMoreError = signal<string | null>(null);
   error = signal<string | null>(null);
   selectedFile = signal<FileInfo | null>(null);
   loadingDetails = signal(false);
@@ -109,6 +114,26 @@ export class BrowserComponent implements OnInit {
     e => e.type === 'file' && !VIDEO_TYPES.includes(e.media_type as any) && !PHOTO_TYPES.includes(e.media_type as any)
   ));
   hasMore    = computed(() => this.entries().length < this.total());
+  nextBatchSize = computed(() => Math.max(0, Math.min(PAGE_SIZE, this.total() - this.entries().length)));
+
+  /** Skeleton tiles (#40) while the next page loads — count = the expected
+      next page, capped at 12 for rendering. */
+  skeletonCount = computed(() => this.loadingMore() ? Math.min(SKELETON_CAP, this.nextBatchSize()) : 0);
+
+  /** Which grid the skeletons go in: obvious for a `kind`-filtered view;
+      for "All" it's the section the last loaded item belongs to — a simple
+      stand-in for knowing what the next page will actually contain. */
+  skeletonTarget = computed<'video' | 'photo' | 'untracked' | null>(() => {
+    if (!this.skeletonCount()) return null;
+    const f = this.filter();
+    if (f === 'video' || f === 'photo' || f === 'untracked') return f;
+    const last = this.entries().at(-1);
+    if (!last || last.type !== 'file') return null;
+    const kind = this.cardKind(last);
+    return kind === 'other' ? 'untracked' : kind;
+  });
+
+  skeletons = computed(() => Array.from({ length: this.skeletonCount() }, (_, i) => i));
   bulkTrackedCount = computed(() => this.bulkTrackedEntries().length);
   showDetail = computed(() => this.loadingDetails() || !!this.selectedFile());
 
@@ -196,6 +221,7 @@ export class BrowserComponent implements OnInit {
   private loadDirectory(path: string) {
     this.loading.set(true);
     this.error.set(null);
+    this.loadMoreError.set(null);
     this.currentPath.set(path);
     this.selectedFile.set(null);
     this.page = 1;
@@ -217,7 +243,9 @@ export class BrowserComponent implements OnInit {
 
   loadMore() {
     const path = this.currentPath();
-    if (!path || this.loadingMore()) return;
+    // Guards against a duplicate fetch of the same page: already in
+    // flight, or paused on a load-more error until the user retries.
+    if (!path || this.loadingMore() || this.loadMoreError() || !this.hasMore()) return;
 
     this.loadingMore.set(true);
     this.page++;
@@ -233,8 +261,14 @@ export class BrowserComponent implements OnInit {
       error: () => {
         this.page--;
         this.loadingMore.set(false);
+        this.loadMoreError.set('Failed to load more.');
       }
     });
+  }
+
+  retryLoadMore() {
+    this.loadMoreError.set(null);
+    this.loadMore();
   }
 
   /** Segmented filter (#39): reloads the directory listing scoped to `kind`. */

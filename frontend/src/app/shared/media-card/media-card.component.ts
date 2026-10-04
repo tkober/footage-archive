@@ -45,6 +45,11 @@ export class MediaCardComponent {
   selecting = input(false);
   /** Caller is rendering an inline rename input in the projected slot. */
   renaming = input(false);
+  /** Renders a shimmering placeholder tile instead (#40) — used for the
+      "next page" preview while infinite-scroll is loading. `kind` still
+      controls the thumb's aspect ratio (video keeps the filmstrip shape);
+      every other input is ignored. */
+  skeleton = input(false);
 
   open = output<void>();
   toggleSelect = output<void>();

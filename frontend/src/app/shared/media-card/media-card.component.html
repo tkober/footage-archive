@@ -1,3 +1,9 @@
+@if (skeleton()) {
+  <div class="card sk">
+    <div class="thumb shimmer" [class.video]="kind() === 'video'"></div>
+    <div class="cap"><span class="name shimmer"></span></div>
+  </div>
+} @else {
 <div class="card"
      [class.sel]="selected()"
      [class.untracked]="tracked() === false"
@@ -60,3 +66,4 @@
     </div>
   }
 </div>
+}

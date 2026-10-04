@@ -1,0 +1,18 @@
+@if (total() > 0) {
+  <div class="loadfoot">
+    @if (error(); as msg) {
+      <div class="error-row">
+        <span class="msg">{{ msg }}</span>
+        <button type="button" class="btn btn-sm" (click)="retry.emit()">Retry</button>
+      </div>
+    } @else if (hasMore()) {
+      <div class="progress"><i [style.width.%]="pct()"></i></div>
+      <span class="cnt">{{ shown() }} of {{ total() }}</span>
+      <button type="button" class="btn" [disabled]="loading()" (click)="loadMore.emit()">
+        {{ loading() ? 'Loading…' : 'Load ' + nextCount() + ' more' }}
+      </button>
+    } @else {
+      <div class="endmark">All {{ total() }} item{{ total() === 1 ? '' : 's' }} · {{ endLabel() }}</div>
+    }
+  </div>
+}

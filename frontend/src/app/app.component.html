@@ -52,14 +52,21 @@
   <div class="main">
     <header class="topbar">
       <div class="crumbs">
-        @for (crumb of crumbs(); track $index; let last = $last) {
+        @if (crumbs().length > 1 && crumbs()[crumbs().length - 2].action; as back) {
+          <button type="button" class="crumb-back icon-btn icon-btn-sm" (click)="back()" title="Up one level">
+            <app-icon name="chevron-left" [size]="16" />
+          </button>
+        }
+        @for (crumb of crumbs(); track $index; let last = $last; let i = $index) {
           @if (!last) {
-            @if (crumb.action) {
-              <button type="button" class="crumb" (click)="crumb.action!()">{{ crumb.label }}</button>
-            } @else {
-              <span class="crumb">{{ crumb.label }}</span>
-            }
-            <span class="crumb-sep">/</span>
+            <span class="crumb-item" [class.early]="i < crumbs().length - 2">
+              @if (crumb.action) {
+                <button type="button" class="crumb" (click)="crumb.action!()">{{ crumb.label }}</button>
+              } @else {
+                <span class="crumb">{{ crumb.label }}</span>
+              }
+              <span class="crumb-sep">/</span>
+            </span>
           } @else {
             <span class="crumb cur">{{ crumb.label }}</span>
           }

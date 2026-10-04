@@ -122,3 +122,8 @@
 @media (hover: none) {
   .more { opacity: 1; }
 }
+
+/* Skeleton placeholder (#40) — next-page preview while infinite-scroll loads */
+.card.sk { cursor: default; }
+.card.sk .cap .name { height: 10px; border-radius: 3px; flex: 0 0 60%; }
+

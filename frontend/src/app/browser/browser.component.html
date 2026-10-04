@@ -154,6 +154,11 @@
                   }
                 </app-media-card>
               }
+              @if (skeletonTarget() === 'video') {
+                @for (i of skeletons(); track i) {
+                  <app-media-card kind="video" [skeleton]="true" />
+                }
+              }
             </div>
           </section>
         }
@@ -191,6 +196,11 @@
                   }
                 </app-media-card>
               }
+              @if (skeletonTarget() === 'photo') {
+                @for (i of skeletons(); track i) {
+                  <app-media-card kind="photo" [skeleton]="true" />
+                }
+              }
             </div>
           </section>
         }
@@ -227,6 +237,11 @@
                   }
                 </app-media-card>
               }
+              @if (skeletonTarget() === 'untracked') {
+                @for (i of skeletons(); track i) {
+                  <app-media-card kind="other" [skeleton]="true" />
+                }
+              }
             </div>
           </section>
         }
@@ -235,18 +250,18 @@
           <div class="state-msg empty">This directory is empty.</div>
         }
 
-        @if (hasMore()) {
-          <div class="load-more">
-            <span class="count">Showing {{ entries().length }} of {{ total() }}</span>
-            <button class="btn" (click)="loadMore()" [disabled]="loadingMore()">
-              {{ loadingMore() ? 'Loading…' : 'Load more' }}
-            </button>
-          </div>
-        } @else if (total() > 0) {
-          <div class="load-more">
-            <span class="count">Showing all {{ total() }} items</span>
-          </div>
-        }
+        <app-load-more-footer
+            appInfiniteScroll
+            [disabled]="loadingMore() || !hasMore() || !!loadMoreError()"
+            (reached)="loadMore()"
+            [shown]="entries().length"
+            [total]="total()"
+            [loading]="loadingMore()"
+            [error]="loadMoreError()"
+            [pageSize]="PAGE_SIZE"
+            endLabel="end of folder"
+            (loadMore)="loadMore()"
+            (retry)="retryLoadMore()" />
 
       }
     </div>

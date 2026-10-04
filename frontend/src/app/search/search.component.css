@@ -231,22 +231,3 @@
   gap: 16px 14px;
 }
 
-/* Load more */
-.load-more-row {
-  display: flex;
-  justify-content: center;
-  padding: var(--space-3) 0;
-}
-
-.load-more-btn {
-  padding: 8px 24px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-md);
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-  font-size: var(--fs-sm);
-}
-
-.load-more-btn:hover:not(:disabled) { background: var(--hover); }
-.load-more-btn:disabled { opacity: 0.5; cursor: default; }
