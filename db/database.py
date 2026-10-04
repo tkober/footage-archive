@@ -143,12 +143,24 @@ class Database:
 
     def get_tracked_files_in_directory(self, directory: str) -> dict:
         stmt = (
-            select(files_table.c.file_name, files_table.c.md5_hash, files_table.c.media_type)
+            select(
+                files_table.c.file_name, files_table.c.md5_hash, files_table.c.media_type,
+                video_details_table.c.duration_tc,
+            )
+            .select_from(
+                files_table.outerjoin(
+                    video_details_table,
+                    files_table.c.md5_hash == video_details_table.c.md5_hash,
+                )
+            )
             .where(files_table.c.directory == directory)
         )
         with get_engine().connect() as conn:
             rows = conn.execute(stmt).fetchall()
-        return {row[0]: {'md5_hash': row[1], 'media_type': row[2]} for row in rows}
+        return {
+            row[0]: {'md5_hash': row[1], 'media_type': row[2], 'duration_tc': row[3]}
+            for row in rows
+        }
 
     def get_file_by_hash(self, md5_hash: str) -> Optional[dict]:
         stmt = select(files_table).where(files_table.c.md5_hash == md5_hash)

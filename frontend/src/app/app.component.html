@@ -1,77 +1,74 @@
-<div class="shell" [class.sidebar-open]="sidebarOpen">
+<div class="app">
 
-  <header class="header">
-    <button class="burger" (click)="toggleSidebar()" aria-label="Toggle navigation">
-      <span></span>
-      <span></span>
-      <span></span>
-    </button>
-    <span class="page-title">{{ pageTitle() }}</span>
-    <div class="header-actions">
-      <app-quick-jump />
-      <app-tasks-widget [pollIntervalMs]="taskPollIntervalMs()" />
-    </div>
-  </header>
+  <nav class="rail" aria-label="Main">
+    <div class="brand" title="Footage Archive">FA</div>
 
-  <div class="body">
-    <nav class="sidebar">
-      <a routerLink="/browser" routerLinkActive="active" class="nav-item">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="7" height="7" rx="1"/>
-          <rect x="14" y="3" width="7" height="7" rx="1"/>
-          <rect x="3" y="14" width="7" height="7" rx="1"/>
-          <rect x="14" y="14" width="7" height="7" rx="1"/>
-        </svg>
-        <span class="nav-label">Browser</span>
+    @for (entry of mainNavEntries; track entry.path) {
+      <a class="nav" [routerLink]="entry.path" routerLinkActive="active">
+        <app-icon [name]="entry.icon" [size]="20" />
+        {{ entry.label }}
       </a>
-      <a routerLink="/search" routerLinkActive="active" class="nav-item">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="11" cy="11" r="8"/>
-          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
-        <span class="nav-label">Search</span>
-      </a>
-      <a routerLink="/lists" routerLinkActive="active" class="nav-item">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="8" y1="6" x2="21" y2="6"/>
-          <line x1="8" y1="12" x2="21" y2="12"/>
-          <line x1="8" y1="18" x2="21" y2="18"/>
-          <line x1="3" y1="6" x2="3.01" y2="6"/>
-          <line x1="3" y1="12" x2="3.01" y2="12"/>
-          <line x1="3" y1="18" x2="3.01" y2="18"/>
-        </svg>
-        <span class="nav-label">Lists</span>
-      </a>
-      <a routerLink="/map" routerLinkActive="active" class="nav-item">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-          <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/>
-          <line x1="9" y1="3" x2="9" y2="18"/>
-          <line x1="15" y1="6" x2="15" y2="21"/>
-        </svg>
-        <span class="nav-label">Map</span>
-      </a>
-      <a routerLink="/maintenance" routerLinkActive="active" class="nav-item">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-        </svg>
-        <span class="nav-label">Maintenance</span>
-        @if (conflictsCount() > 0) {
-          <span class="nav-badge">{{ conflictsCount() }}</span>
+    }
+
+    <div class="spacer"></div>
+
+    @for (entry of moreNavEntries; track entry.path) {
+      <a class="nav extra" [routerLink]="entry.path" routerLinkActive="active">
+        <app-icon [name]="entry.icon" [size]="20" />
+        {{ entry.label }}
+        @if (entry.path === '/maintenance' && conflictsCount() > 0) {
+          <span class="dot">{{ conflictsCount() }}</span>
         }
       </a>
-      <a routerLink="/settings" routerLinkActive="active" class="nav-item">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-        </svg>
-        <span class="nav-label">Settings</span>
-      </a>
+    }
 
-      <div class="version-footer">
-        <span class="version-row">Frontend <span class="version-value">{{ frontendVersion }}</span></span>
-        <span class="version-row">Backend <span class="version-value">{{ backendVersion() }}</span></span>
+    <div class="ver" [title]="'Frontend ' + frontendVersion + ' · Backend ' + backendVersion()">
+      <div>fe {{ frontendVersion }}</div>
+      <div>be {{ backendVersion() }}</div>
+    </div>
+  </nav>
+
+  <!-- Mobile bottom tab bar: same routes, no brand/spacer/version; Health + Settings move into "More". -->
+  <nav class="tabbar" aria-label="Main">
+    @for (entry of mainNavEntries; track entry.path) {
+      <a class="nav" [routerLink]="entry.path" routerLinkActive="active">
+        <app-icon [name]="entry.icon" [size]="20" />
+        {{ entry.label }}
+      </a>
+    }
+    <button type="button" class="nav" #moreBtn (click)="openMore(moreBtn)">
+      <app-icon name="more-vertical" [size]="20" />
+      More
+      @if (conflictsCount() > 0) {
+        <span class="dot">{{ conflictsCount() }}</span>
+      }
+    </button>
+  </nav>
+
+  @if (moreOpen()) {
+    <app-menu [anchor]="moreAnchor()" [items]="moreMenuItems()" (select)="onMoreSelect($event)" (closed)="closeMore()" />
+  }
+
+  <div class="main">
+    <header class="topbar">
+      <div class="crumbs">
+        @for (crumb of crumbs(); track $index; let last = $last) {
+          @if (!last) {
+            @if (crumb.action) {
+              <button type="button" class="crumb" (click)="crumb.action!()">{{ crumb.label }}</button>
+            } @else {
+              <span class="crumb">{{ crumb.label }}</span>
+            }
+            <span class="crumb-sep">/</span>
+          } @else {
+            <span class="crumb cur">{{ crumb.label }}</span>
+          }
+        }
       </div>
-    </nav>
+
+      <app-quick-jump />
+      <app-tasks-widget [pollIntervalMs]="taskPollIntervalMs()" />
+    </header>
 
     <main class="content">
       <router-outlet />

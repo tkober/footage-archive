@@ -1,37 +1,82 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
-import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { NavigationEnd, NavigationStart, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs';
 
 import { ApiService } from './services/api.service';
 import { ThemeService } from './services/theme.service';
+import { HeaderService, HeaderCrumb } from './services/header.service';
 import { TasksWidgetComponent } from './tasks-widget/tasks-widget.component';
 import { QuickJumpComponent } from './shared/quick-jump/quick-jump.component';
 import { ToastOutletComponent } from './shared/toast/toast-outlet.component';
+import { MenuComponent, MenuItem } from './shared/menu/menu.component';
+import { IconComponent } from './shared/icon/icon.component';
 import { APP_VERSION } from '../version';
+
+/** Rail / bottom-tab-bar entries, in display order. `extra` marks the ones
+    that disappear from the mobile tab bar into the "More" menu. */
+interface NavEntry {
+  path: string;
+  label: string;
+  icon: string;
+  extra?: boolean;
+}
+
+const NAV_ENTRIES: NavEntry[] = [
+  { path: '/browser', label: 'Browse', icon: 'grid' },
+  { path: '/search', label: 'Search', icon: 'search' },
+  { path: '/lists', label: 'Lists', icon: 'list' },
+  { path: '/map', label: 'Map', icon: 'map' },
+  { path: '/maintenance', label: 'Health', icon: 'wrench', extra: true },
+  { path: '/settings', label: 'Settings', icon: 'cog', extra: true },
+];
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, TasksWidgetComponent, QuickJumpComponent, ToastOutletComponent],
+  imports: [
+    RouterOutlet, RouterLink, RouterLinkActive,
+    TasksWidgetComponent, QuickJumpComponent, ToastOutletComponent,
+    MenuComponent, IconComponent,
+  ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css'
 })
 export class AppComponent implements OnInit {
   private api = inject(ApiService);
+  private header = inject(HeaderService);
   // Injected (unused directly here) so the theme is applied/kept in sync as soon as the app
   // bootstraps, not only once Settings is opened.
   private theme = inject(ThemeService);
 
-  sidebarOpen = true;
+  readonly navEntries = NAV_ENTRIES;
+  readonly mainNavEntries = NAV_ENTRIES.filter(e => !e.extra);
+  readonly moreNavEntries = NAV_ENTRIES.filter(e => e.extra);
+
+  moreOpen = signal(false);
+  moreAnchor = signal<HTMLElement | null>(null);
+
   pageTitle = signal('Footage Archive');
   taskPollIntervalMs = signal(5000);
   frontendVersion = APP_VERSION;
   backendVersion = signal('…');
   conflictsCount = signal(0);
 
+  /** What the topbar actually renders: the page's own breadcrumbs when it
+      published any, otherwise a single "current page" crumb from the
+      route title. */
+  crumbs = computed<HeaderCrumb[]>(() => this.header.crumbs() ?? [{ label: this.pageTitle() }]);
+
   constructor(private router: Router) {}
 
   ngOnInit() {
+    // Clear before the next page's component (re)runs ngOnInit, so a page that
+    // doesn't publish its own crumbs falls back to the route title instead of
+    // showing the previous page's trail for a moment. The route isn't resolved
+    // yet at NavigationStart, so the title itself is set below, on NavigationEnd.
+    this.router.events.pipe(
+      filter(e => e instanceof NavigationStart)
+    ).subscribe(() => this.header.clear());
+
     this.router.events.pipe(
       filter(e => e instanceof NavigationEnd)
     ).subscribe(() => {
@@ -60,7 +105,20 @@ export class AppComponent implements OnInit {
     });
   }
 
-  toggleSidebar() {
-    this.sidebarOpen = !this.sidebarOpen;
+  openMore(anchor: HTMLElement) {
+    this.moreAnchor.set(anchor);
+    this.moreOpen.set(true);
+  }
+
+  closeMore() {
+    this.moreOpen.set(false);
+  }
+
+  moreMenuItems(): MenuItem[] {
+    return this.moreNavEntries.map(e => ({ id: e.path, label: e.label, icon: e.icon }));
+  }
+
+  onMoreSelect(path: string) {
+    this.router.navigateByUrl(path);
   }
 }

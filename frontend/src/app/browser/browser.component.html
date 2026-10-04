@@ -1,31 +1,32 @@
 <div class="browser">
 
-  <nav class="breadcrumbs">
-    @for (crumb of breadcrumbs(); track crumb.path; let last = $last) {
-      @if (!last) {
-        <button class="crumb" (click)="navigateTo(crumb.path)">{{ crumb.label }}</button>
-        <span class="sep">›</span>
-      } @else {
-        <span class="crumb active">{{ crumb.label }}</span>
-      }
-    }
-    @if (!showDetail()) {
-    <button class="scan-current-btn" title="Scan this directory" (click)="scanCurrentDirectory()">
-      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-        <polyline points="17 8 12 3 7 8"/>
-        <line x1="12" y1="3" x2="12" y2="15"/>
-      </svg>
-      Scan
-    </button>
-    <button class="select-mode-btn" [class.active]="bulkMode()"
-            (click)="bulkMode() ? exitBulkMode() : enterBulkMode()">
-      Select
-    </button>
-    }
-  </nav>
+  @if (!showDetail()) {
+    <div class="toolbar">
+      <div class="seg" role="tablist">
+        @for (opt of segments(); track opt.key) {
+          <button type="button" class="seg-btn" role="tab" [class.on]="filter() === opt.key" (click)="setFilter(opt.key)">
+            {{ opt.label }}<span class="seg-count">{{ opt.count }}</span>
+          </button>
+        }
+      </div>
+      <div class="grow"></div>
+      <label class="size" title="Thumbnail size">
+        <app-icon name="grid" [size]="16" />
+        <input type="range" [min]="140" [max]="320" [value]="thumbSize()"
+               (input)="setThumbSize(+$any($event.target).value)" />
+      </label>
+      <button class="btn btn-ghost" title="Scan this folder for new and changed files"
+              (click)="scanCurrentDirectory()">
+        <app-icon name="scan" [size]="16" />
+        Scan folder
+      </button>
+      <button class="btn" [class.btn-on]="bulkMode()" (click)="bulkMode() ? exitBulkMode() : enterBulkMode()">
+        {{ bulkMode() ? 'Done' : 'Select' }}
+      </button>
+    </div>
+  }
 
-  <div class="view-container" [class.detail-open]="showDetail()">
+  <div class="view-container" [class.detail-open]="showDetail()" [style.--thumb.px]="thumbSize()">
 
     <!-- Grid view -->
     <div class="list-view" (contextmenu)="onBackgroundContextMenu($event)">
@@ -86,13 +87,11 @@
       } @else {
 
         @if (dirs().length) {
-          <div class="dirs-row">
+          <div class="folders">
             @for (dir of dirs(); track dir.path) {
               @if (isRenaming(dir)) {
-                <span class="dir-chip renaming">
-                  <svg class="chip-icon" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>
-                  </svg>
+                <span class="folder renaming">
+                  <app-icon name="folder" [size]="20" />
                   <input #renameInputEl class="rename-input"
                          [value]="renameValue()"
                          (click)="$event.stopPropagation()"
@@ -102,17 +101,20 @@
                   <button class="rename-save" (click)="commitRename(dir)" title="Save">✓</button>
                   <button class="rename-cancel" (click)="cancelRename()" title="Cancel">✕</button>
                 </span>
-                @if (renameError()) {
+                @if (renameError() && isRenaming(dir)) {
                   <div class="rename-error-chip">{{ renameError() }}</div>
                 }
               } @else {
-                <button class="dir-chip"
+                <button class="folder"
                         (click)="navigateTo(dir.path)"
                         (contextmenu)="onEntryContextMenu($event, dir)">
-                  <svg class="chip-icon" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>
-                  </svg>
-                  {{ dir.name }}
+                  <app-icon name="folder" [size]="20" />
+                  <span>
+                    <span class="fn">{{ dir.name }}</span>
+                    @if (dir.file_count != null) {
+                      <span class="fm">{{ dir.file_count }} files</span>
+                    }
+                  </span>
                 </button>
               }
             }
@@ -120,176 +122,113 @@
         }
 
         @if (videoFiles().length) {
-          <div class="grid-section">
-            <span class="section-label">Videos</span>
-            <div class="file-grid video-grid">
+          <section class="section">
+            <h2 class="sec-h">Videos <span class="n">{{ videoCount() }}</span></h2>
+            <div class="grid videos">
               @for (entry of videoFiles(); track entry.path) {
-                @if (entryPreviewUrl(entry); as thumbUrl) {
-                  <div class="file-card"
-                       [class.selected]="!bulkMode() && selectedFile()?.path === entry.path"
-                       [class.bulk-selected]="bulkMode() && isBulkSelected(entry)"
-                       (click)="onEntryClick(entry)"
-                       (contextmenu)="onEntryContextMenu($event, entry)">
-                    @if (bulkMode()) {
-                      <span class="bulk-check" [class.checked]="isBulkSelected(entry)"></span>
-                    }
-                    <img class="card-strip" [src]="thumbUrl" alt="" />
-                    <div class="card-footer">
-                      <span class="tracked-dot" [class.is-tracked]="entry.tracked === true"></span>
-                      @if (isRenaming(entry)) {
-                        <input #renameInputEl class="rename-input-file"
-                               [value]="renameValue()"
-                               (click)="$event.stopPropagation()"
-                               (input)="renameValue.set($any($event.target).value)"
-                               (keydown.enter)="commitRename(entry)"
-                               (keydown.escape)="cancelRename(); $event.stopPropagation()" />
-                        <button class="rename-save" (click)="commitRename(entry); $event.stopPropagation()" title="Save">✓</button>
-                        <button class="rename-cancel" (click)="cancelRename(); $event.stopPropagation()" title="Cancel">✕</button>
-                      } @else {
-                        <span class="card-name">{{ entry.name }}</span>
-                        @if (entry.file_extension) {
-                          <span class="ext">{{ entry.file_extension }}</span>
-                        }
-                      }
-                    </div>
-                    @if (renameError() && isRenaming(entry)) {
-                      <div class="rename-error-file">{{ renameError() }}</div>
-                    }
-                  </div>
-                } @else {
-                  <div class="file-card"
-                       [class.selected]="!bulkMode() && selectedFile()?.path === entry.path"
-                       [class.bulk-selected]="bulkMode() && isBulkSelected(entry)"
-                       (click)="onEntryClick(entry)"
-                       (contextmenu)="onEntryContextMenu($event, entry)">
-                    @if (bulkMode()) {
-                      <span class="bulk-check" [class.checked]="isBulkSelected(entry)"></span>
-                    }
-                    <div class="placeholder-thumb video-thumb">
-                      <svg viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
-                      </svg>
-                    </div>
-                    <div class="card-footer">
-                      <span class="tracked-dot" [class.is-tracked]="entry.tracked === true"></span>
-                      @if (isRenaming(entry)) {
-                        <input #renameInputEl class="rename-input-file"
-                               [value]="renameValue()"
-                               (click)="$event.stopPropagation()"
-                               (input)="renameValue.set($any($event.target).value)"
-                               (keydown.enter)="commitRename(entry)"
-                               (keydown.escape)="cancelRename(); $event.stopPropagation()" />
-                        <button class="rename-save" (click)="commitRename(entry); $event.stopPropagation()" title="Save">✓</button>
-                        <button class="rename-cancel" (click)="cancelRename(); $event.stopPropagation()" title="Cancel">✕</button>
-                      } @else {
-                        <span class="card-name">{{ entry.name }}</span>
-                        @if (entry.file_extension) {
-                          <span class="ext">{{ entry.file_extension }}</span>
-                        }
-                      }
-                    </div>
-                    @if (renameError() && isRenaming(entry)) {
-                      <div class="rename-error-file">{{ renameError() }}</div>
-                    }
-                  </div>
-                }
+                <app-media-card
+                    kind="video"
+                    [name]="entry.name"
+                    [extension]="entry.file_extension"
+                    [previewUrl]="entryPreviewUrl(entry)"
+                    [tracked]="entry.tracked"
+                    [duration]="formatDuration(entry.duration_tc)"
+                    [selected]="!bulkMode() && selectedFile()?.path === entry.path"
+                    [bulkSelected]="bulkMode() && isBulkSelected(entry)"
+                    [selecting]="bulkMode()"
+                    [renaming]="isRenaming(entry)"
+                    (open)="onEntryClick(entry)"
+                    (toggleSelect)="toggleBulkSelect(entry)"
+                    (contextMenu)="onEntryContextMenu($event, entry)"
+                    (more)="onCardMore(entry, $event)">
+                  <input #renameInputEl class="rename-input-file"
+                         [value]="renameValue()"
+                         (click)="$event.stopPropagation()"
+                         (input)="renameValue.set($any($event.target).value)"
+                         (keydown.enter)="commitRename(entry)"
+                         (keydown.escape)="cancelRename(); $event.stopPropagation()" />
+                  <button class="rename-save" (click)="commitRename(entry); $event.stopPropagation()" title="Save">✓</button>
+                  <button class="rename-cancel" (click)="cancelRename(); $event.stopPropagation()" title="Cancel">✕</button>
+                  @if (renameError() && isRenaming(entry)) {
+                    <div class="rename-error-file">{{ renameError() }}</div>
+                  }
+                </app-media-card>
               }
             </div>
-          </div>
+          </section>
         }
 
         @if (photoFiles().length) {
-          <div class="grid-section">
-            <span class="section-label">Stills</span>
-            <div class="file-grid stills-grid">
+          <section class="section">
+            <h2 class="sec-h">Stills <span class="n">{{ photoCount() }}</span></h2>
+            <div class="grid">
               @for (entry of photoFiles(); track entry.path) {
-                <div class="file-card"
-                     [class.selected]="!bulkMode() && selectedFile()?.path === entry.path"
-                     [class.bulk-selected]="bulkMode() && isBulkSelected(entry)"
-                     (click)="onEntryClick(entry)"
-                     (contextmenu)="onEntryContextMenu($event, entry)">
-                  @if (bulkMode()) {
-                    <span class="bulk-check" [class.checked]="isBulkSelected(entry)"></span>
-                  }
-                  @if (entryPreviewUrl(entry); as thumbUrl) {
-                    <img class="card-thumb" [src]="thumbUrl" alt="" />
-                  } @else {
-                    <div class="placeholder-thumb photo-thumb">
-                      <svg viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
-                      </svg>
-                    </div>
-                  }
-                  <div class="card-footer">
-                    <span class="tracked-dot" [class.is-tracked]="entry.tracked === true"></span>
-                    @if (isRenaming(entry)) {
-                      <input #renameInputEl class="rename-input-file"
-                             [value]="renameValue()"
-                             (click)="$event.stopPropagation()"
-                             (input)="renameValue.set($any($event.target).value)"
-                             (keydown.enter)="commitRename(entry)"
-                             (keydown.escape)="cancelRename(); $event.stopPropagation()" />
-                      <button class="rename-save" (click)="commitRename(entry); $event.stopPropagation()" title="Save">✓</button>
-                      <button class="rename-cancel" (click)="cancelRename(); $event.stopPropagation()" title="Cancel">✕</button>
-                    } @else {
-                      <span class="card-name">{{ entry.name }}</span>
-                      @if (entry.file_extension) {
-                        <span class="ext">{{ entry.file_extension }}</span>
-                      }
-                    }
-                  </div>
+                <app-media-card
+                    kind="photo"
+                    [name]="entry.name"
+                    [extension]="entry.file_extension"
+                    [previewUrl]="entryPreviewUrl(entry)"
+                    [tracked]="entry.tracked"
+                    [showExt]="mixedPhotoExt()"
+                    [selected]="!bulkMode() && selectedFile()?.path === entry.path"
+                    [bulkSelected]="bulkMode() && isBulkSelected(entry)"
+                    [selecting]="bulkMode()"
+                    [renaming]="isRenaming(entry)"
+                    (open)="onEntryClick(entry)"
+                    (toggleSelect)="toggleBulkSelect(entry)"
+                    (contextMenu)="onEntryContextMenu($event, entry)"
+                    (more)="onCardMore(entry, $event)">
+                  <input #renameInputEl class="rename-input-file"
+                         [value]="renameValue()"
+                         (click)="$event.stopPropagation()"
+                         (input)="renameValue.set($any($event.target).value)"
+                         (keydown.enter)="commitRename(entry)"
+                         (keydown.escape)="cancelRename(); $event.stopPropagation()" />
+                  <button class="rename-save" (click)="commitRename(entry); $event.stopPropagation()" title="Save">✓</button>
+                  <button class="rename-cancel" (click)="cancelRename(); $event.stopPropagation()" title="Cancel">✕</button>
                   @if (renameError() && isRenaming(entry)) {
                     <div class="rename-error-file">{{ renameError() }}</div>
                   }
-                </div>
+                </app-media-card>
               }
             </div>
-          </div>
+          </section>
         }
 
         @if (untrackedFiles().length) {
-          <div class="grid-section">
-            <span class="section-label">Untracked</span>
-            <div class="file-grid stills-grid">
+          <section class="section">
+            <h2 class="sec-h">Untracked <span class="n">{{ untrackedCount() }}</span></h2>
+            <div class="grid">
               @for (entry of untrackedFiles(); track entry.path) {
-                <div class="file-card"
-                     [class.selected]="!bulkMode() && selectedFile()?.path === entry.path"
-                     [class.bulk-selected]="bulkMode() && isBulkSelected(entry)"
-                     (click)="onEntryClick(entry)"
-                     (contextmenu)="onEntryContextMenu($event, entry)">
-                  @if (bulkMode()) {
-                    <span class="bulk-check" [class.checked]="isBulkSelected(entry)"></span>
-                  }
-                  <div class="placeholder-thumb">
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
-                    </svg>
-                  </div>
-                  <div class="card-footer">
-                    <span class="tracked-dot" [class.is-tracked]="entry.tracked === true"></span>
-                    @if (isRenaming(entry)) {
-                      <input #renameInputEl class="rename-input-file"
-                             [value]="renameValue()"
-                             (click)="$event.stopPropagation()"
-                             (input)="renameValue.set($any($event.target).value)"
-                             (keydown.enter)="commitRename(entry)"
-                             (keydown.escape)="cancelRename(); $event.stopPropagation()" />
-                      <button class="rename-save" (click)="commitRename(entry); $event.stopPropagation()" title="Save">✓</button>
-                      <button class="rename-cancel" (click)="cancelRename(); $event.stopPropagation()" title="Cancel">✕</button>
-                    } @else {
-                      <span class="card-name">{{ entry.name }}</span>
-                      @if (entry.file_extension) {
-                        <span class="ext">{{ entry.file_extension }}</span>
-                      }
-                    }
-                  </div>
+                <app-media-card
+                    [kind]="cardKind(entry)"
+                    [name]="entry.name"
+                    [extension]="entry.file_extension"
+                    [previewUrl]="entryPreviewUrl(entry)"
+                    [tracked]="false"
+                    [selected]="!bulkMode() && selectedFile()?.path === entry.path"
+                    [bulkSelected]="bulkMode() && isBulkSelected(entry)"
+                    [selecting]="bulkMode()"
+                    [renaming]="isRenaming(entry)"
+                    (open)="onEntryClick(entry)"
+                    (toggleSelect)="toggleBulkSelect(entry)"
+                    (contextMenu)="onEntryContextMenu($event, entry)"
+                    (more)="onCardMore(entry, $event)">
+                  <input #renameInputEl class="rename-input-file"
+                         [value]="renameValue()"
+                         (click)="$event.stopPropagation()"
+                         (input)="renameValue.set($any($event.target).value)"
+                         (keydown.enter)="commitRename(entry)"
+                         (keydown.escape)="cancelRename(); $event.stopPropagation()" />
+                  <button class="rename-save" (click)="commitRename(entry); $event.stopPropagation()" title="Save">✓</button>
+                  <button class="rename-cancel" (click)="cancelRename(); $event.stopPropagation()" title="Cancel">✕</button>
                   @if (renameError() && isRenaming(entry)) {
                     <div class="rename-error-file">{{ renameError() }}</div>
                   }
-                </div>
+                </app-media-card>
               }
             </div>
-          </div>
+          </section>
         }
 
         @if (!dirs().length && !videoFiles().length && !photoFiles().length && !untrackedFiles().length) {
@@ -299,7 +238,7 @@
         @if (hasMore()) {
           <div class="load-more">
             <span class="count">Showing {{ entries().length }} of {{ total() }}</span>
-            <button class="load-more-btn" (click)="loadMore()" [disabled]="loadingMore()">
+            <button class="btn" (click)="loadMore()" [disabled]="loadingMore()">
               {{ loadingMore() ? 'Loading…' : 'Load more' }}
             </button>
           </div>

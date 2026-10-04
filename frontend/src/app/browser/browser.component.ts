@@ -1,7 +1,8 @@
-import { Component, computed, ElementRef, HostListener, inject, OnInit, signal, ViewChild } from '@angular/core';
+import { Component, computed, effect, ElementRef, HostListener, inject, OnInit, signal, ViewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, switchMap, map, tap } from 'rxjs';
 
+import { HeaderService } from '../services/header.service';
 import { ContextMenuComponent, ContextMenuActionEvent } from './context-menu/context-menu.component';
 import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
 import { ListPickerComponent } from '../shared/list-picker/list-picker.component';
@@ -9,13 +10,21 @@ import { FolderPickerComponent } from '../shared/folder-picker/folder-picker.com
 import { ConfirmDialogComponent } from '../shared/confirm-dialog/confirm-dialog.component';
 import { RediscoverDialogComponent } from '../shared/rediscover-dialog/rediscover-dialog.component';
 import { ComparisonComponent } from '../comparison/comparison.component';
+import { IconComponent } from '../shared/icon/icon.component';
+import { MediaCardComponent } from '../shared/media-card/media-card.component';
 import { ApiService } from '../services/api.service';
 import { ToastService } from '../shared/toast/toast.service';
-import { FileInfo, FileList, Location, MoveItemResult, MovePreviewResponse, PathChild, RenameResponse, VIDEO_TYPES, PHOTO_TYPES } from '../models';
+import { DirectoryCounts, DirectoryKind, FileInfo, FileList, Location, MoveItemResult, MovePreviewResponse, PathChild, RenameResponse, VIDEO_TYPES, PHOTO_TYPES, formatDurationTc } from '../models';
 
 const PAGE_SIZE = 50;
 const BULK_RESULT_TIMEOUT_MS = 4000;
 const FILE_OP_RESULT_TIMEOUT_MS = 6000;
+const THUMB_STORAGE_KEY = 'fa-thumb';
+const THUMB_MIN = 140;
+const THUMB_MAX = 320;
+const THUMB_DEFAULT = 200;
+
+type SegmentFilter = 'all' | DirectoryKind;
 
 /** Pending rename awaiting confirmation (directory rename, or a file rename whose sidecars move along). */
 interface PendingRename {
@@ -34,20 +43,25 @@ interface PendingMove {
 @Component({
   selector: 'app-browser',
   standalone: true,
-  imports: [ContextMenuComponent, FileDetailPanelComponent, ListPickerComponent, FolderPickerComponent, ConfirmDialogComponent, RediscoverDialogComponent, ComparisonComponent],
+  imports: [ContextMenuComponent, FileDetailPanelComponent, ListPickerComponent, FolderPickerComponent, ConfirmDialogComponent, RediscoverDialogComponent, ComparisonComponent, IconComponent, MediaCardComponent],
   templateUrl: './browser.component.html',
-  styleUrl: './browser.component.css'
+  styleUrl: './browser.component.css',
+  host: { class: 'page-flush' }
 })
 export class BrowserComponent implements OnInit {
   private api = inject(ApiService);
   private toast = inject(ToastService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
+  private header = inject(HeaderService);
 
   rootDir = signal<string | null>(null);
   currentPath = signal<string | null>(null);
   entries = signal<PathChild[]>([]);
   total = signal(0);
+  counts = signal<DirectoryCounts | null>(null);
+  filter = signal<SegmentFilter>('all');
+  thumbSize = signal(this.readStoredThumbSize());
   loading = signal(false);
   loadingMore = signal(false);
   error = signal<string | null>(null);
@@ -88,7 +102,7 @@ export class BrowserComponent implements OnInit {
   // the folder is already known.
   rediscoverPath = signal<string | null>(null);
 
-  dirs           = computed(() => this.entries().filter(e => e.type === 'directory'));
+  dirs           = computed(() => this.filter() === 'all' ? this.entries().filter(e => e.type === 'directory') : []);
   videoFiles     = computed(() => this.entries().filter(e => e.type === 'file' && VIDEO_TYPES.includes(e.media_type as any)));
   photoFiles     = computed(() => this.entries().filter(e => e.type === 'file' && PHOTO_TYPES.includes(e.media_type as any)));
   untrackedFiles = computed(() => this.entries().filter(
@@ -97,6 +111,33 @@ export class BrowserComponent implements OnInit {
   hasMore    = computed(() => this.entries().length < this.total());
   bulkTrackedCount = computed(() => this.bulkTrackedEntries().length);
   showDetail = computed(() => this.loadingDetails() || !!this.selectedFile());
+
+  /** Section-heading counts (#39) come from the server-side `counts` for the
+      whole directory, not from however many rows happen to be loaded/paged. */
+  videoCount     = computed(() => this.counts()?.video ?? this.videoFiles().length);
+  photoCount     = computed(() => this.counts()?.photo ?? this.photoFiles().length);
+  untrackedCount = computed(() => this.counts()?.untracked ?? this.untrackedFiles().length);
+
+  /** Filter segments: All / Videos / Stills / Untracked, hiding any
+      zero-count segment except All. */
+  segments = computed(() => {
+    const c = this.counts();
+    const all = (c?.video ?? 0) + (c?.photo ?? 0) + (c?.untracked ?? 0);
+    const options: { key: SegmentFilter; label: string; count: number }[] = [
+      { key: 'all', label: 'All', count: all },
+      { key: 'video', label: 'Videos', count: c?.video ?? 0 },
+      { key: 'photo', label: 'Stills', count: c?.photo ?? 0 },
+      { key: 'untracked', label: 'Untracked', count: c?.untracked ?? 0 },
+    ];
+    return options.filter(o => o.key === 'all' || o.count > 0);
+  });
+
+  /** Ext badge rule (#39): only when the loaded photo entries actually mix
+      formats (e.g. JPG + RW2) — otherwise it's noise. */
+  mixedPhotoExt = computed(() => {
+    const exts = new Set(this.photoFiles().map(e => e.file_extension?.toLowerCase()).filter(Boolean));
+    return exts.size > 1;
+  });
 
   // Detail-panel sibling navigation (photos only — matches the photo viewer).
   photoNavCount = computed(() => this.photoFiles().length);
@@ -118,6 +159,16 @@ export class BrowserComponent implements OnInit {
       label,
       path: '/' + currentParts.slice(0, rootParts.length - 1 + i + 1).join('/')
     }));
+  });
+
+  /** Publishes this page's breadcrumbs into the shell's topbar (#38) instead
+      of rendering its own `<nav>` — Scan/Select stay local (see template),
+      only the path trail moves. */
+  private publishCrumbs = effect(() => {
+    this.header.setCrumbs(this.breadcrumbs().map(c => ({
+      label: c.label,
+      action: () => this.navigateTo(c.path),
+    })));
   });
 
   ngOnInit() {
@@ -149,10 +200,12 @@ export class BrowserComponent implements OnInit {
     this.selectedFile.set(null);
     this.page = 1;
 
-    this.api.listDirectory({ path, page: 1, page_size: PAGE_SIZE }).subscribe({
+    const f = this.filter(); const kind: DirectoryKind | undefined = f === 'all' ? undefined : f;
+    this.api.listDirectory({ path, page: 1, page_size: PAGE_SIZE, kind }).subscribe({
       next: response => {
         this.entries.set(response.items);
         this.total.set(response.total);
+        this.counts.set(response.counts);
         this.loading.set(false);
       },
       error: () => {
@@ -169,10 +222,12 @@ export class BrowserComponent implements OnInit {
     this.loadingMore.set(true);
     this.page++;
 
-    this.api.listDirectory({ path, page: this.page, page_size: PAGE_SIZE }).subscribe({
+    const f = this.filter(); const kind: DirectoryKind | undefined = f === 'all' ? undefined : f;
+    this.api.listDirectory({ path, page: this.page, page_size: PAGE_SIZE, kind }).subscribe({
       next: response => {
         this.entries.update(existing => [...existing, ...response.items]);
         this.total.set(response.total);
+        this.counts.set(response.counts);
         this.loadingMore.set(false);
       },
       error: () => {
@@ -180,6 +235,39 @@ export class BrowserComponent implements OnInit {
         this.loadingMore.set(false);
       }
     });
+  }
+
+  /** Segmented filter (#39): reloads the directory listing scoped to `kind`. */
+  setFilter(key: SegmentFilter) {
+    if (this.filter() === key) return;
+    this.filter.set(key);
+    const path = this.currentPath();
+    if (path) this.loadDirectory(path);
+  }
+
+  private readStoredThumbSize(): number {
+    try {
+      const raw = localStorage.getItem(THUMB_STORAGE_KEY);
+      const n = raw ? parseInt(raw, 10) : NaN;
+      if (Number.isFinite(n)) return Math.min(THUMB_MAX, Math.max(THUMB_MIN, n));
+    } catch { /* localStorage unavailable — fall back to default */ }
+    return THUMB_DEFAULT;
+  }
+
+  setThumbSize(value: number) {
+    this.thumbSize.set(value);
+    try { localStorage.setItem(THUMB_STORAGE_KEY, String(value)); } catch { /* ignore */ }
+  }
+
+  formatDuration(tc: string | null | undefined): string | null {
+    return formatDurationTc(tc);
+  }
+
+  onCardMore(entry: PathChild, anchor: HTMLElement) {
+    const rect = anchor.getBoundingClientRect();
+    this.contextMenuX.set(rect.right);
+    this.contextMenuY.set(rect.bottom);
+    this.contextMenuEntry.set(entry);
   }
 
   onEntryClick(entry: PathChild) {
@@ -619,6 +707,12 @@ export class BrowserComponent implements OnInit {
       clearTimeout(this.bulkListResultTimer);
       this.bulkListResultTimer = undefined;
     }
+  }
+
+  cardKind(entry: PathChild): 'video' | 'photo' | 'other' {
+    if (VIDEO_TYPES.includes(entry.media_type as any)) return 'video';
+    if (PHOTO_TYPES.includes(entry.media_type as any)) return 'photo';
+    return 'other';
   }
 
   entryPreviewUrl(entry: PathChild): string | null {

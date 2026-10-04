@@ -1,68 +1,76 @@
-<div class="widget" [class.open]="open()">
-
-  <button class="trigger" (click)="toggle()" [class.has-running]="runningCount() > 0" [class.has-failed]="failedCount() > 0" title="Tasks">
-    <svg class="trigger-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="9 11 12 14 22 4"/>
-      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+<button #triggerBtn type="button" class="trigger icon-btn" (click)="toggle()" title="Tasks">
+  @if (runningCount() > 0) {
+    <svg class="ring" viewBox="0 0 26 26" [class.indeterminate]="ringProgress() === null" aria-hidden="true">
+      <circle cx="13" cy="13" r="11.5" fill="none" stroke="var(--line-strong)" stroke-width="1.5" />
+      <circle
+        class="ring-arc"
+        cx="13" cy="13" r="11.5"
+        fill="none" stroke="var(--accent)" stroke-width="1.5"
+        stroke-linecap="round"
+        transform="rotate(-90 13 13)"
+        [attr.stroke-dasharray]="ringCircumference"
+        [attr.stroke-dashoffset]="ringDashOffset()"
+      />
     </svg>
-    @if (failedCount() > 0) {
-      <span class="badge badge-failed">{{ failedCount() }}</span>
-    } @else if (runningCount() > 0) {
-      <span class="badge">{{ runningCount() }}</span>
-    }
-  </button>
-
-  @if (open()) {
-    <div class="backdrop" (click)="close()"></div>
-    <div class="panel">
-      <div class="panel-header">
-        <span class="panel-title">Tasks</span>
-        <div class="panel-actions">
-          <button class="panel-action" (click)="refresh()" title="Refresh">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="23 4 23 10 17 10"/>
-              <polyline points="1 20 1 14 7 14"/>
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-            </svg>
-          </button>
-          @if (tasks().length > 0) {
-            <button class="panel-clear" (click)="clearAll()">Clear all</button>
-          }
-        </div>
-      </div>
-
-      @if (tasks().length === 0) {
-        <div class="empty">No tasks yet.</div>
-      } @else {
-        <ul class="task-list">
-          @for (task of tasks(); track task.id) {
-            <li class="task-item" [class.completed]="task.status === 'COMPLETED'" [class.failed]="task.status === 'FAILED'">
-              <div class="task-main">
-                <span class="task-status-dot" [class]="'dot-' + task.status.toLowerCase()"></span>
-                <div class="task-info">
-                  <span class="task-name">{{ task.name }}</span>
-                  <span class="task-desc">{{ task.description }}</span>
-                  <span class="task-meta">
-                    {{ statusLabel(task.status) }}
-                    @if (task.started_at) { · started {{ task.started_at | date:'HH:mm:ss' }} }
-                  </span>
-                  @if (task.progress && (task.status === 'RUNNING' || task.status === 'COMPLETED')) {
-                    <span class="task-progress">{{ task.progress }}</span>
-                  }
-                  @if (conflictCount(task) > 0) {
-                    <a class="task-review-link" routerLink="/maintenance" (click)="close()">Review conflicts</a>
-                  }
-                  @if (task.error) {
-                    <span class="task-error">{{ task.error }}</span>
-                  }
-                </div>
-              </div>
-              <button class="task-remove" (click)="remove(task)" title="Remove">✕</button>
-            </li>
-          }
-        </ul>
-      }
-    </div>
   }
+  <app-icon name="check" [size]="16" />
+  @if (failedCount() > 0) {
+    <span class="dot" aria-hidden="true"></span>
+  }
+  @if (runningCount() > 0) {
+    <span class="badge">{{ runningCount() }}</span>
+  } @else if (failedCount() > 0) {
+    <span class="badge badge-failed">{{ failedCount() }}</span>
+  }
+</button>
 
-</div>
+@if (open() && triggerBtnRef) {
+  <app-popover [anchor]="triggerBtnRef.nativeElement" [width]="panelWidth()" (closed)="close()">
+    <header class="pop-header">
+      <span>Tasks</span>
+      <div class="pop-header-actions">
+        <button type="button" class="icon-btn icon-btn-sm" (click)="refresh()" title="Refresh">
+          <app-icon name="rediscover" [size]="14" />
+        </button>
+        @if (hasFinished()) {
+          <button type="button" class="btn btn-ghost btn-sm" (click)="clearFinished()">Clear finished</button>
+        }
+      </div>
+    </header>
+
+    @if (tasks().length === 0) {
+      <div class="empty">No tasks yet.</div>
+    } @else {
+      <div class="task-list">
+        @for (task of tasks(); track task.id) {
+          <div class="task" [class.done]="task.status === 'COMPLETED'" [class.failed]="task.status === 'FAILED'">
+            <div class="t1">
+              <b>{{ task.name }}</b>
+              @if (task.started_at) {
+                <small>{{ task.started_at | date:'HH:mm:ss' }}</small>
+              }
+            </div>
+            <div class="t2">{{ task.description }}</div>
+            @if (task.status === 'RUNNING' || task.status === 'COMPLETED') {
+              <div class="progress" [class.indeterminate]="task.status === 'RUNNING' && taskProgressFraction(task) === null">
+                <i [style.width.%]="task.status === 'COMPLETED' || taskProgressFraction(task) === null ? 100 : (taskProgressFraction(task)! * 100)"></i>
+              </div>
+            }
+            <div class="t3">
+              <span>{{ statusLabel(task.status) }}@if (task.progress) {<span> · {{ task.progress }}</span>}</span>
+              @if (conflictCount(task) > 0) {
+                <a routerLink="/maintenance" (click)="close()">{{ conflictCount(task) }} conflicts to review →</a>
+              }
+            </div>
+            @if (task.error) {
+              <div class="task-error">{{ task.error }}</div>
+            }
+            <button type="button" class="task-remove icon-btn icon-btn-sm" (click)="remove(task)" title="Remove">
+              <app-icon name="x" [size]="12" />
+            </button>
+          </div>
+        }
+      </div>
+    }
+  </app-popover>
+}

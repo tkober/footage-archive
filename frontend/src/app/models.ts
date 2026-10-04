@@ -30,6 +30,22 @@ export interface PathChild {
   tracked: boolean | null;
   md5_hash?: string | null;
   media_type?: MediaType | null;
+  /** Directory entries only: number of direct, non-hidden files in that
+      subdirectory (not recursive). Null if the subdirectory couldn't be read. */
+  file_count?: number | null;
+  /** Tracked video files only (#39): `HH:MM:SS:FF` from `VideoDetails.duration_tc`,
+      loaded in the same directory-listing query. Null for photos/untracked/directories. */
+  duration_tc?: string | null;
+}
+
+/** Counts for the whole directory (#46) — independent of pagination and of
+    any `kind` filter on the request, same video/photo/untracked
+    classification as `VIDEO_TYPES`/`PHOTO_TYPES` below. */
+export interface DirectoryCounts {
+  directories: number;
+  video: number;
+  photo: number;
+  untracked: number;
 }
 
 export interface DirectoryResponse {
@@ -37,13 +53,20 @@ export interface DirectoryResponse {
   page: number;
   page_size: number;
   items: PathChild[];
+  counts: DirectoryCounts;
 }
+
+export type DirectoryKind = 'video' | 'photo' | 'untracked';
 
 export interface DirectoryQuery {
   path: string;
   sort_by?: 'name' | 'type';
   sort_order?: 'asc' | 'desc';
   dirs_first?: boolean;
+  /** Server-side filter (#46): only matching files are returned (no
+      directories), and total/pagination refer to the filtered list.
+      Omitted (default) = everything, unchanged behaviour. */
+  kind?: DirectoryKind | null;
   page?: number;
   page_size?: number;
 }
@@ -52,6 +75,19 @@ export type MediaType = 'video' | 'photo' | '360_video' | '360_photo';
 
 export const VIDEO_TYPES: MediaType[] = ['video', '360_video'];
 export const PHOTO_TYPES: MediaType[] = ['photo', '360_photo'];
+
+/** `PathChild.duration_tc` (#39) formatted for the media card's caption:
+    `HH:MM:SS:FF` → `mm:ss`, or `h:mm:ss` once the clip runs an hour or
+    longer. Returns null for anything that doesn't parse. */
+export function formatDurationTc(tc: string | null | undefined): string | null {
+  if (!tc) return null;
+  const parts = tc.split(':').map(Number);
+  if (parts.length < 3 || parts.slice(0, 3).some(n => !Number.isFinite(n))) return null;
+  const [h, m, s] = parts;
+  const mm = String(m).padStart(2, '0');
+  const ss = String(s).padStart(2, '0');
+  return h >= 1 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
 
 export interface VideoDetails {
   width: number | null;

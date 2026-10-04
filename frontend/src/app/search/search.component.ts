@@ -6,6 +6,7 @@ import { debounceTime, distinctUntilChanged, map, switchMap } from 'rxjs/operato
 
 import { ApiService } from '../services/api.service';
 import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
+import { MediaCardComponent, MediaCardKind } from '../shared/media-card/media-card.component';
 import { FileInfo, FileList, FileSearchQuery, SearchResponse, SearchResult, VIDEO_TYPES, PHOTO_TYPES } from '../models';
 
 const MEDIA_TYPE_OPTIONS = [
@@ -18,7 +19,7 @@ const MEDIA_TYPE_OPTIONS = [
 @Component({
   selector: 'app-search',
   standalone: true,
-  imports: [FormsModule, FileDetailPanelComponent],
+  imports: [FormsModule, FileDetailPanelComponent, MediaCardComponent],
   templateUrl: './search.component.html',
   styleUrl: './search.component.css',
 })
@@ -282,5 +283,14 @@ export class SearchComponent implements OnInit, OnDestroy {
   closeDetail(): void {
     this.selectedFile.set(null);
     this.loadingDetails.set(false);
+  }
+
+  cardKind(result: SearchResult): MediaCardKind {
+    return VIDEO_TYPES.includes(result.media_type as any) ? 'video' : 'photo';
+  }
+
+  cardExtension(result: SearchResult): string | null {
+    const dot = result.file_name.lastIndexOf('.');
+    return dot > 0 ? result.file_name.slice(dot + 1) : null;
   }
 }

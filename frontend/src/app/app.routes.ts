@@ -29,7 +29,7 @@ export const routes: Routes = [
   },
   {
     path: 'maintenance',
-    title: 'Maintenance',
+    title: 'Health',
     loadComponent: () => import('./maintenance/maintenance.component').then(m => m.MaintenanceComponent)
   },
   {
