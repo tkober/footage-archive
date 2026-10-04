@@ -18,7 +18,7 @@
   border-radius: var(--r-md);
   background: var(--bg);
   color: var(--faint);
-  width: 260px;
+  width: 300px;
   flex-shrink: 0;
 }
 

@@ -29,7 +29,7 @@
     <header class="pop-header">
       <span>Tasks</span>
       <div class="pop-header-actions">
-        <button type="button" class="icon-btn-sm" (click)="refresh()" title="Refresh">
+        <button type="button" class="icon-btn icon-btn-sm" (click)="refresh()" title="Refresh">
           <app-icon name="rediscover" [size]="14" />
         </button>
         @if (hasFinished()) {
@@ -52,8 +52,8 @@
             </div>
             <div class="t2">{{ task.description }}</div>
             @if (task.status === 'RUNNING' || task.status === 'COMPLETED') {
-              <div class="progress" [class.indeterminate]="taskProgressFraction(task) === null">
-                <i [style.width.%]="taskProgressFraction(task) === null ? 100 : (taskProgressFraction(task)! * 100)"></i>
+              <div class="progress" [class.indeterminate]="task.status === 'RUNNING' && taskProgressFraction(task) === null">
+                <i [style.width.%]="task.status === 'COMPLETED' || taskProgressFraction(task) === null ? 100 : (taskProgressFraction(task)! * 100)"></i>
               </div>
             }
             <div class="t3">
@@ -65,7 +65,7 @@
             @if (task.error) {
               <div class="task-error">{{ task.error }}</div>
             }
-            <button type="button" class="task-remove icon-btn-sm" (click)="remove(task)" title="Remove">
+            <button type="button" class="task-remove icon-btn icon-btn-sm" (click)="remove(task)" title="Remove">
               <app-icon name="x" [size]="12" />
             </button>
           </div>

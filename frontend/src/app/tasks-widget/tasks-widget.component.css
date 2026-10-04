@@ -109,6 +109,7 @@
   display: flex;
   justify-content: space-between;
   gap: var(--space-2);
+  padding-right: 28px; /* room for the remove button */
 }
 
 .task .t1 b {
@@ -201,6 +202,17 @@
   top: var(--space-2);
   right: var(--space-2);
   color: var(--faint);
+  opacity: 0;
+  transition: opacity var(--dur-fast);
+}
+
+.task:hover .task-remove,
+.task-remove:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .task-remove { opacity: 1; }
 }
 
 .task-remove:hover {
