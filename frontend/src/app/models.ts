@@ -30,6 +30,19 @@ export interface PathChild {
   tracked: boolean | null;
   md5_hash?: string | null;
   media_type?: MediaType | null;
+  /** Directory entries only: number of direct, non-hidden files in that
+      subdirectory (not recursive). Null if the subdirectory couldn't be read. */
+  file_count?: number | null;
+}
+
+/** Counts for the whole directory (#46) — independent of pagination and of
+    any `kind` filter on the request, same video/photo/untracked
+    classification as `VIDEO_TYPES`/`PHOTO_TYPES` below. */
+export interface DirectoryCounts {
+  directories: number;
+  video: number;
+  photo: number;
+  untracked: number;
 }
 
 export interface DirectoryResponse {
@@ -37,13 +50,20 @@ export interface DirectoryResponse {
   page: number;
   page_size: number;
   items: PathChild[];
+  counts: DirectoryCounts;
 }
+
+export type DirectoryKind = 'video' | 'photo' | 'untracked';
 
 export interface DirectoryQuery {
   path: string;
   sort_by?: 'name' | 'type';
   sort_order?: 'asc' | 'desc';
   dirs_first?: boolean;
+  /** Server-side filter (#46): only matching files are returned (no
+      directories), and total/pagination refer to the filtered list.
+      Omitted (default) = everything, unchanged behaviour. */
+  kind?: DirectoryKind | null;
   page?: number;
   page_size?: number;
 }
