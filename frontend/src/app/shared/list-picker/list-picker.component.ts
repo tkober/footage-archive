@@ -85,7 +85,9 @@ export class ListPickerComponent {
       event.preventDefault();
       const entry = entries[this.highlightIndex()];
       if (entry) this.pickEntry(entry);
-    } else if (event.key === 'Escape') {
+    } else if (event.key === 'Escape' && this.dropdownOpen()) {
+      // Only swallow Esc while the suggestions are open; a second Esc then
+      // reaches the surrounding popover/dialog and closes it.
       this.closeDropdown();
       event.stopPropagation();
     }

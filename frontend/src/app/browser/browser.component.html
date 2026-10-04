@@ -106,13 +106,14 @@
                 }
               } @else {
                 <button class="folder"
+                        [attr.data-path]="dir.path"
                         (click)="navigateTo(dir.path)"
                         (contextmenu)="onEntryContextMenu($event, dir)">
                   <app-icon name="folder" [size]="20" />
                   <span>
                     <span class="fn">{{ dir.name }}</span>
                     @if (dir.file_count != null) {
-                      <span class="fm">{{ dir.file_count }} files</span>
+                      <span class="fm">{{ dir.file_count }} {{ dir.file_count === 1 ? 'file' : 'files' }}</span>
                     }
                   </span>
                 </button>
@@ -128,6 +129,7 @@
               @for (entry of videoFiles(); track entry.path) {
                 <app-media-card
                     kind="video"
+                    [attr.data-path]="entry.path"
                     [name]="entry.name"
                     [extension]="entry.file_extension"
                     [previewUrl]="entryPreviewUrl(entry)"
@@ -170,6 +172,7 @@
               @for (entry of photoFiles(); track entry.path) {
                 <app-media-card
                     kind="photo"
+                    [attr.data-path]="entry.path"
                     [name]="entry.name"
                     [extension]="entry.file_extension"
                     [previewUrl]="entryPreviewUrl(entry)"
@@ -212,6 +215,7 @@
               @for (entry of untrackedFiles(); track entry.path) {
                 <app-media-card
                     [kind]="cardKind(entry)"
+                    [attr.data-path]="entry.path"
                     [name]="entry.name"
                     [extension]="entry.file_extension"
                     [previewUrl]="entryPreviewUrl(entry)"
@@ -282,13 +286,52 @@
 
 </div>
 
-@if (contextMenuEntry(); as ctxEntry) {
-  <app-context-menu
-    [entry]="ctxEntry"
-    [x]="contextMenuX()"
-    [y]="contextMenuY()"
-    (action)="onContextMenuAction($event)"
-    (close)="closeContextMenu()" />
+@if (menuEntry(); as m) {
+  <app-menu
+    [items]="menuItems()"
+    [position]="menuPoint()"
+    [anchor]="menuAnchor()"
+    (select)="onMenuSelect($event)"
+    (closed)="closeMenu()">
+    <div menuHeader class="ctx-head">
+      @if (m.type === 'directory') {
+        <span class="ctx-thumb ctx-icon"><app-icon name="folder" [size]="18" /></span>
+      } @else if (entryPreviewUrl(m); as url) {
+        <span class="ctx-thumb" [class.video]="cardKind(m) === 'video'" [style.background-image]="'url(' + url + ')'"></span>
+      } @else {
+        <span class="ctx-thumb ctx-icon"><app-icon name="image" [size]="16" /></span>
+      }
+      <span class="ctx-text">
+        <b>{{ m.name }}</b>
+        <small>{{ menuHeaderMeta() }}</small>
+      </span>
+    </div>
+  </app-menu>
+}
+
+@if (quickPop(); as qp) {
+  <app-popover [anchor]="qp.anchor" [width]="300" align="start" (closed)="closeQuickPop()">
+    @if (qp.kind === 'keyword') {
+      <form class="quick-form" (submit)="$event.preventDefault(); submitQuickKeyword()">
+        <label class="quick-label" for="quick-keyword">Add keyword to <b>{{ qp.entry.name }}</b></label>
+        <div class="quick-row">
+          <input id="quick-keyword" class="input" list="quick-keyword-suggestions" autocomplete="off"
+                 placeholder="e.g. beach"
+                 [value]="quickKeyword()"
+                 (input)="quickKeyword.set($any($event.target).value)" />
+          <button type="submit" class="btn btn-primary" [disabled]="!quickKeyword().trim()">Add</button>
+        </div>
+        <datalist id="quick-keyword-suggestions">
+          @for (kw of allKeywords(); track kw) { <option [value]="kw"></option> }
+        </datalist>
+      </form>
+    } @else {
+      <div class="quick-form">
+        <span class="quick-label">Add <b>{{ qp.entry.name }}</b> to a list</span>
+        <app-list-picker placeholder="Find or create a list…" (picked)="quickAddToList($event)" />
+      </div>
+    }
+  </app-popover>
 }
 
 @if (showComparison()) {

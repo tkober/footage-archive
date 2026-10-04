@@ -329,3 +329,36 @@
   .grid.videos { grid-template-columns: 1fr; }
   .folders { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ── Context menu header + quick popovers (#41) ─────────────────── */
+.ctx-head { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.ctx-thumb {
+  flex: none;
+  width: 40px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  background: var(--skeleton) center / cover no-repeat;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+/* video previews are 5-frame strips: show the first frame */
+.ctx-thumb.video { background-size: 500% 100%; background-position: 0 0; }
+.ctx-icon { color: var(--accent); background: var(--accent-soft); }
+.ctx-text { display: grid; min-width: 0; }
+.ctx-text b {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ctx-text small { font: 400 var(--fs-xs) var(--mono); color: var(--faint); }
+
+.quick-form { display: grid; gap: var(--space-2); padding: var(--space-3); }
+.quick-label { font-size: var(--fs-sm); color: var(--muted); overflow-wrap: anywhere; }
+.quick-label b { color: var(--text); font-weight: 500; }
+.quick-row { display: flex; gap: var(--space-2); }
+.quick-row .input { flex: 1; min-width: 0; }
