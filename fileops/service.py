@@ -20,12 +20,14 @@ import errno
 import logging
 import os
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from db.database import Database, UndoRenameFailedError
 from env.environment import Environment
 from fileops.pathlocks import PathLockedError, try_exclusive
+from fileops.trash import ensure_trash_dir, is_in_trash
 
 logger = logging.getLogger(__name__)
 
@@ -66,12 +68,17 @@ class CrossFilesystemError(FileOpError):
     """os.rename raised EXDEV — source and target are on different filesystems."""
 
 
+class TrashPathError(FileOpError):
+    """Source or target is the trash directory itself or something inside it."""
+
+
 # Re-exported for convenience so API code only needs to import from this module.
 __all__ = [
     'FileOpError', 'OutsideRootError', 'NotFoundError', 'AlreadyExistsError',
     'InvalidNameError', 'SelfMoveError', 'SidecarConflictError', 'CrossFilesystemError',
-    'PathLockedError', 'MoveResult', 'PreviewResult', 'move_paths', 'rename_path',
-    'mkdir', 'preview_move', 'recover_pending_operations',
+    'TrashPathError', 'PathLockedError', 'MoveResult', 'PreviewResult', 'move_paths',
+    'rename_path', 'mkdir', 'preview_move', 'recover_pending_operations',
+    'DeletePreviewResult', 'DeleteResult', 'DeleteBatchResult', 'preview_delete', 'delete_paths',
 ]
 
 
@@ -133,6 +140,12 @@ def _require_absent(path: Path) -> Path:
     return path
 
 
+def _require_not_trash(path: Path) -> Path:
+    if is_in_trash(path):
+        raise TrashPathError(f'Path is the trash directory or inside it: {path}')
+    return path
+
+
 def _sidecars_for(file_path: Path) -> list[Path]:
     """Files in the same directory sharing the stem, with an extension in
     BROWSER_HIDDEN_EXTENSIONS — these travel along with a file move/rename."""
@@ -172,84 +185,34 @@ def _os_rename(src: Path, dst: Path) -> None:
         raise
 
 
-def _journal_physical_rename(db: Database, kind: str, src: Path, dst: Path,
-                             apply_updates) -> None:
-    """Insert a 'pending' journal row, then run apply_updates()+os.rename()
-    in one DB transaction, finishing the journal row according to outcome.
+def _group_rename(db: Database, kind: str, pairs: list[tuple[Path, Path]], apply_updates) -> None:
+    """Journal + physically perform one or more ``os.rename``s as a single
+    logical operation, all inside one DB transaction (``apply_updates(conn)``
+    must perform every DB-side change for the whole group). Each physical
+    rename gets its own ``FileOperations`` row (same ``kind``), so startup
+    recovery can reconcile them individually. If a later rename in the group
+    fails, every rename already done earlier in the group is reversed before
+    re-raising — the group either fully lands or fully doesn't.
 
-    ``apply_updates(conn)`` must perform all DB path updates for this single
-    physical rename. Raises FileOpError subclasses or re-raises the
-    underlying OSError/DB exception on failure.
-    """
-    op_id = db.insert_file_operation(kind=kind, source_path=str(src), target_path=str(dst))
-    state = {'rename_completed': False}
-
-    def do_rename():
-        # Re-check immediately before the physical rename: `dst` was free
-        # when the caller validated it, but os.rename() on Linux silently
-        # *replaces* an existing target, so a target created in the
-        # (now very narrow, lock-held) window since would otherwise be
-        # clobbered without warning.
-        if dst.exists():
-            raise AlreadyExistsError(f'Target already exists: {dst}')
-        _os_rename(src, dst)
-        state['rename_completed'] = True
-
-    def undo_rename():
-        os.rename(dst, src)
-
-    try:
-        db.run_guarded_rename(apply_updates, do_rename, undo_rename)
-    except UndoRenameFailedError:
-        # Commit failed AND reversing the physical rename also failed —
-        # filesystem/DB may now be inconsistent. Leave the journal row
-        # 'pending' (untouched) so recover_pending_operations() reconciles
-        # it on next startup, instead of recording a status that would
-        # stop recovery from ever looking at it again.
-        logger.error('Undo failed after a commit failure for FileOperation '
-                     '#%s (%s -> %s); leaving it pending for startup recovery',
-                     op_id, src, dst, exc_info=True)
-        raise
-    except Exception as e:
-        # If do_rename() completed, the only way this still raised is a
-        # post-rename commit failure, which already called undo_rename().
-        status = 'rolled_back' if state['rename_completed'] else 'failed'
-        db.mark_file_operation(op_id, status, error=str(e))
-        raise
-    else:
-        db.mark_file_operation(op_id, 'done')
-
-
-def _rename_single_file_with_sidecars(db: Database, src: Path, dst: Path) -> None:
-    """Rename/move one file plus any sidecars, all inside one DB transaction,
-    each physical rename getting its own journal row. If a later rename in
-    the group fails, already-done renames in the group are reversed before
-    re-raising."""
-    sidecars = _sidecars_for(src)
-    sidecar_targets = [dst.parent / (dst.stem + s.suffix) for s in sidecars]
-
-    for s_target in sidecar_targets:
-        if s_target.exists():
-            raise SidecarConflictError(f'Sidecar target already exists: {s_target}')
-
-    pairs = [(src, dst)] + list(zip(sidecars, sidecar_targets))
+    Used for a single physical rename (one pair — dir move/rename, dir/file
+    trash) as well as a file-plus-sidecars group (several pairs — file
+    move/rename, file trash)."""
     op_ids = [
-        db.insert_file_operation(kind='file_rename', source_path=str(s), target_path=str(d))
+        db.insert_file_operation(kind=kind, source_path=str(s), target_path=str(d))
         for s, d in pairs
     ]
 
     done: list[tuple[Path, Path]] = []
     state = {'rename_completed': False}
 
-    def apply_updates(conn):
-        for s, d in pairs:
-            db.update_file_path_on_conn(conn, str(s.parent), s.name, str(d.parent), d.name)
-
     def do_rename():
         for s, d in pairs:
             try:
-                # Re-check immediately before each physical rename — see
-                # the comment in _journal_physical_rename.do_rename for why.
+                # Re-check immediately before each physical rename: targets
+                # were free when the caller validated them, but os.rename()
+                # on Linux silently *replaces* an existing target, so one
+                # created in the (now very narrow, lock-held) window since
+                # would otherwise be clobbered without warning.
                 if d.exists():
                     raise AlreadyExistsError(f'Target already exists: {d}')
                 _os_rename(s, d)
@@ -270,11 +233,15 @@ def _rename_single_file_with_sidecars(db: Database, src: Path, dst: Path) -> Non
     try:
         db.run_guarded_rename(apply_updates, do_rename, undo_rename)
     except UndoRenameFailedError:
-        # See _journal_physical_rename — leave every row in this group
-        # 'pending' so startup recovery can reconcile them individually.
+        # Commit failed AND reversing the physical rename(s) also failed —
+        # filesystem/DB may now be inconsistent. Leave every journal row in
+        # this group 'pending' (untouched) so recover_pending_operations()
+        # reconciles them individually on next startup, instead of
+        # recording a status that would stop recovery from ever looking at
+        # them again.
         logger.error('Undo failed after a commit failure for FileOperations '
-                     '#%s (group rename of %s); leaving them pending for '
-                     'startup recovery', op_ids, src, exc_info=True)
+                     '#%s (group rename, kind=%s); leaving them pending for '
+                     'startup recovery', op_ids, kind, exc_info=True)
         raise
     except Exception as e:
         # If do_rename() completed fully, the only way run_guarded_rename
@@ -289,6 +256,31 @@ def _rename_single_file_with_sidecars(db: Database, src: Path, dst: Path) -> Non
             db.mark_file_operation(op_id, 'done')
 
 
+def _journal_physical_rename(db: Database, kind: str, src: Path, dst: Path,
+                             apply_updates) -> None:
+    """Single-pair convenience wrapper around _group_rename (dir move/rename)."""
+    _group_rename(db, kind, [(src, dst)], apply_updates)
+
+
+def _rename_single_file_with_sidecars(db: Database, src: Path, dst: Path) -> None:
+    """Rename/move one file plus any sidecars, all inside one DB transaction
+    via _group_rename (``kind='file_rename'``)."""
+    sidecars = _sidecars_for(src)
+    sidecar_targets = [dst.parent / (dst.stem + s.suffix) for s in sidecars]
+
+    for s_target in sidecar_targets:
+        if s_target.exists():
+            raise SidecarConflictError(f'Sidecar target already exists: {s_target}')
+
+    pairs = [(src, dst)] + list(zip(sidecars, sidecar_targets))
+
+    def apply_updates(conn):
+        for s, d in pairs:
+            db.update_file_path_on_conn(conn, str(s.parent), s.name, str(d.parent), d.name)
+
+    _group_rename(db, kind='file_rename', pairs=pairs, apply_updates=apply_updates)
+
+
 # ---------------------------------------------------------------------------
 # Public operations
 # ---------------------------------------------------------------------------
@@ -296,9 +288,11 @@ def _rename_single_file_with_sidecars(db: Database, src: Path, dst: Path) -> Non
 def mkdir(parent: str, name: str) -> str:
     name = _validate_name(name)
     parent_path = _require_exists(_resolve_in_root(parent))
+    _require_not_trash(parent_path)
     if not parent_path.is_dir():
         raise FileOpError(f'Parent is not a directory: {parent_path}')
     new_path = _resolve_in_root(str(parent_path / name))
+    _require_not_trash(new_path)
     _require_absent(new_path)
     new_path.mkdir(parents=False, exist_ok=False)
     return str(new_path)
@@ -308,7 +302,9 @@ def rename_path(path: str, new_name: str) -> str:
     """Rename a file or directory in place (same parent). Returns the new path."""
     new_name = _validate_name(new_name)
     src = _require_exists(_resolve_in_root(path))
+    _require_not_trash(src)
     dst = _resolve_in_root(str(src.parent / new_name))
+    _require_not_trash(dst)
 
     db = Database()
     with try_exclusive([str(src), str(dst)]):
@@ -334,6 +330,7 @@ def _rename_or_move_directory(db: Database, src: Path, dst: Path) -> None:
 def preview_move(paths: list[str], target_directory: str) -> PreviewResult:
     db = Database()
     target = _resolve_in_root(target_directory)
+    _require_not_trash(target)
 
     file_count = 0
     tracked_count = 0
@@ -373,6 +370,7 @@ def move_paths(paths: list[str], target_directory: str) -> list[MoveResult]:
         return []
 
     target = _require_exists(_resolve_in_root(target_directory))
+    _require_not_trash(target)
     if not target.is_dir():
         raise FileOpError(f'Target is not a directory: {target}')
 
@@ -389,6 +387,7 @@ def _move_one_directory(src: Path, target_dir: Path) -> MoveResult:
     dst = target_dir / src.name
     try:
         _require_exists(src)
+        _require_not_trash(src)
         dst = _resolve_in_root(str(dst))
         if dst.is_relative_to(src) or dst == src:
             raise SelfMoveError(f'Cannot move "{src}" into itself or a descendant')
@@ -412,6 +411,7 @@ def _move_one_file(raw_path: str, target_dir: Path) -> MoveResult:
     try:
         src = _resolve_in_root(raw_path)
         _require_exists(src)
+        _require_not_trash(src)
         if src.is_dir():
             raise FileOpError(f'"{src}" is a directory — move it on its own, not mixed with files')
         dst = _resolve_in_root(str(target_dir / src.name))
@@ -430,6 +430,213 @@ def _move_one_file(raw_path: str, target_dir: Path) -> MoveResult:
         # e.g. a PermissionError from the underlying os.rename — don't let
         # one bad item abort the rest of a bulk operation with a 500.
         return MoveResult(path=raw_path, ok=False, error=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Delete to trash
+# ---------------------------------------------------------------------------
+
+@dataclass
+class DeletePreviewResult:
+    file_count: int
+    tracked_count: int
+    sidecars: list[str]
+    list_item_count: int
+    keyword_count: int
+
+
+@dataclass
+class DeleteResult:
+    path: str
+    ok: bool
+    trash_path: Optional[str] = None
+    untracked_count: Optional[int] = None
+    error: Optional[str] = None
+
+
+@dataclass
+class DeleteBatchResult:
+    trash_batch: str
+    results: list[DeleteResult]
+
+
+def preview_delete(paths: list[str]) -> DeletePreviewResult:
+    """Dry-run counts for a delete-to-trash batch: how many files are
+    involved (recursive for directories, including sidecars), how many of
+    those are tracked, and how much tracking data would be lost (ListItems/
+    FileKeywords rows for the affected hashes) — so the frontend can warn
+    before the user confirms."""
+    db = Database()
+
+    file_count = 0
+    tracked_count = 0
+    sidecars: list[str] = []
+    list_item_count = 0
+    keyword_count = 0
+
+    for raw in paths:
+        try:
+            src = _resolve_in_root(raw)
+        except FileOpError:
+            continue
+        if not src.exists():
+            continue
+        if src.is_dir():
+            file_count += _count_files_recursive(src)
+            rows = db.get_tracked_files_with_attachment_counts(directory=str(src))
+            tracked_count += len(rows)
+            keyword_count += sum(r['keyword_count'] for r in rows)
+            list_item_count += sum(r['list_count'] for r in rows)
+        else:
+            file_count += 1
+            hashes = []
+            main_rec = db.get_file_by_path(str(src))
+            if main_rec is not None:
+                tracked_count += 1
+                hashes.append(main_rec['md5_hash'])
+            for s in _sidecars_for(src):
+                sidecars.append(str(s))
+                file_count += 1
+                s_rec = db.get_file_by_path(str(s))
+                if s_rec is not None:
+                    tracked_count += 1
+                    hashes.append(s_rec['md5_hash'])
+            if hashes:
+                summaries = db.get_tracked_files_with_attachment_counts(md5_hashes=hashes)
+                keyword_count += sum(r['keyword_count'] for r in summaries)
+                list_item_count += sum(r['list_count'] for r in summaries)
+
+    return DeletePreviewResult(file_count=file_count, tracked_count=tracked_count,
+                               sidecars=sidecars, list_item_count=list_item_count,
+                               keyword_count=keyword_count)
+
+
+def _make_batch_dir() -> Path:
+    """TRASH/<YYYY-MM-DD_HHMMSS>[_n] — one per delete_paths() call, shared by
+    every item in that call. `_2`, `_3`, … is appended if the plain timestamp
+    already exists (e.g. two deletes within the same second)."""
+    trash_dir = ensure_trash_dir()
+    timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
+    candidate = trash_dir / timestamp
+    suffix = 2
+    while candidate.exists():
+        candidate = trash_dir / f'{timestamp}_{suffix}'
+        suffix += 1
+    candidate.mkdir(parents=False, exist_ok=False)
+    return candidate
+
+
+def _prune_empty_dirs(directory: Path) -> None:
+    """Remove `directory` and any empty subdirectory left behind by a
+    partially/wholly failed batch (e.g. a target's parent dirs were created
+    but the rename itself never happened)."""
+    if not directory.exists():
+        return
+    for dirpath, _dirnames, _filenames in os.walk(directory, topdown=False):
+        p = Path(dirpath)
+        try:
+            if not any(p.iterdir()):
+                p.rmdir()
+        except OSError:
+            pass
+
+
+def _trash_single_file_with_sidecars(db: Database, src: Path, dst: Path) -> None:
+    """Rename one file plus any sidecars into the trash, deleting their
+    tracking (if any) in the same DB transaction as the physical rename(s) —
+    mirrors _rename_single_file_with_sidecars, but the apply_updates side
+    deletes tracking instead of relocating it."""
+    sidecars = _sidecars_for(src)
+    sidecar_targets = [dst.parent / (dst.stem + s.suffix) for s in sidecars]
+
+    for s_target in sidecar_targets:
+        if s_target.exists():
+            raise SidecarConflictError(f'Sidecar target already exists: {s_target}')
+
+    pairs = [(src, dst)] + list(zip(sidecars, sidecar_targets))
+
+    def apply_updates(conn):
+        hashes = []
+        paths = []
+        for s, _d in pairs:
+            paths.append(str(s))
+            md5 = db.get_hash_by_path_on_conn(conn, str(s.parent), s.name)
+            if md5:
+                hashes.append(md5)
+        db.delete_files_on_conn(conn, hashes)
+        db.delete_path_conflicts_by_candidate_paths_on_conn(conn, paths)
+
+    _group_rename(db, kind='file_trash', pairs=pairs, apply_updates=apply_updates)
+
+
+def _trash_one_directory(db: Database, src: Path, dst: Path) -> None:
+    """Single physical rename of a directory into the trash, deleting every
+    Files row at or under it (plus dependents and PathConflicts) in the same
+    DB transaction — mirrors _rename_or_move_directory."""
+    def apply_updates(conn):
+        hashes = db.get_hashes_under_directory_on_conn(conn, str(src))
+        db.delete_files_on_conn(conn, hashes)
+        db.delete_path_conflicts_under_on_conn(conn, str(src))
+
+    _group_rename(db, kind='dir_trash', pairs=[(src, dst)], apply_updates=apply_updates)
+
+
+def _delete_one(raw_path: str, batch_dir: Path) -> DeleteResult:
+    db = Database()
+    try:
+        root = _root()
+        src = _resolve_in_root(raw_path)
+        _require_exists(src)
+        if src == root:
+            raise FileOpError('Cannot delete ROOT_DIR itself')
+        _require_not_trash(src)
+
+        rel = src.relative_to(root)
+        dst = batch_dir / rel
+
+        with try_exclusive([str(src), str(dst)]):
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            # Checked inside the lock — see rename_path for why this still
+            # isn't the last word; do_rename() re-checks right before the
+            # physical rename too.
+            _require_absent(dst)
+            if src.is_dir():
+                total = _count_files_recursive(src)
+                tracked = db.count_tracked_files_under(str(src))
+                _trash_one_directory(db, src, dst)
+                return DeleteResult(path=raw_path, ok=True, trash_path=str(dst),
+                                    untracked_count=total - tracked)
+            else:
+                _trash_single_file_with_sidecars(db, src, dst)
+                return DeleteResult(path=raw_path, ok=True, trash_path=str(dst))
+    except FileOpError as e:
+        return DeleteResult(path=raw_path, ok=False, error=str(e))
+    except PathLockedError as e:
+        return DeleteResult(path=raw_path, ok=False, error=str(e))
+    except OSError as e:
+        # e.g. a PermissionError from the underlying os.rename — don't let
+        # one bad item abort the rest of a bulk operation with a 500.
+        return DeleteResult(path=raw_path, ok=False, error=str(e))
+
+
+def delete_paths(paths: list[str]) -> DeleteBatchResult:
+    """Move each of ``paths`` (files and/or directories, independently) into
+    one shared trash batch directory, deleting their tracking in the same DB
+    transaction as each physical rename. Partial success is allowed — every
+    item gets its own result. A path already removed because it sat under an
+    earlier, successfully-trashed directory in the same batch simply reports
+    NotFoundError (its original location no longer exists)."""
+    if not paths:
+        return DeleteBatchResult(trash_batch='', results=[])
+
+    batch_dir = _make_batch_dir()
+    results = [_delete_one(p, batch_dir) for p in paths]
+
+    # Nothing landed (every item failed, or failed after only creating empty
+    # intermediate parent dirs) — don't leave an empty batch folder behind.
+    _prune_empty_dirs(batch_dir)
+
+    return DeleteBatchResult(trash_batch=str(batch_dir), results=results)
 
 
 # ---------------------------------------------------------------------------
@@ -456,14 +663,30 @@ def recover_pending_operations() -> None:
 
         try:
             if target_exists and not source_exists:
-                _reconcile_db_for(db, kind, source, target)
+                if kind in ('file_trash', 'dir_trash'):
+                    # The physical rename into the trash happened, but the DB
+                    # side of that same transaction never committed before
+                    # the crash — finish it now. Idempotent: safe even if the
+                    # DB side had in fact already committed.
+                    db.finish_pending_trash_delete(kind, str(source))
+                else:
+                    _reconcile_db_for(db, kind, source, target)
                 db.mark_file_operation(op_id, 'done',
                                        error='Recovered on startup: target found on disk')
                 logger.warning('Recovered pending FileOperation #%s (%s): '
                                'target exists, marked done (%s -> %s)',
                                op_id, kind, source, target)
             elif source_exists and not target_exists:
-                _reconcile_db_for(db, kind, target, source)
+                if kind in ('file_trash', 'dir_trash'):
+                    # The physical rename never happened, so the one
+                    # transaction wrapping it never committed either — the
+                    # DB was never touched; nothing to reconcile. (Calling
+                    # the move/rename path-rewrite here would be wrong: it
+                    # would rewrite paths for an operation that was never a
+                    # path *rename*.)
+                    pass
+                else:
+                    _reconcile_db_for(db, kind, target, source)
                 db.mark_file_operation(op_id, 'rolled_back',
                                        error='Recovered on startup: source found on disk')
                 logger.warning('Recovered pending FileOperation #%s (%s): '

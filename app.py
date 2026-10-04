@@ -24,6 +24,7 @@ from alembic import command
 from alembic.config import Config
 from env.environment import Environment
 from fileops.service import recover_pending_operations
+from fileops.trash import ensure_trash_dir
 
 env = Environment()
 
@@ -37,6 +38,13 @@ logger = logging.getLogger(f'{__name__}')
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+    # An invalid TRASH_DIR_NAME raises ValueError here, so a bad config fails
+    # fast. A missing ROOT_DIR only warns: deletes create the trash lazily.
+    try:
+        ensure_trash_dir()
+    except OSError:
+        logger.warning('Could not create the trash directory on startup', exc_info=True)
+
     try:
         recover_pending_operations()
     except Exception:

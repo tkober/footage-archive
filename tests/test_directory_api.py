@@ -248,3 +248,18 @@ def test_no_kind_means_everything_as_today(db, root_dir):
     body = _list_dir(client, root_dir)
     assert body['total'] == 4
     assert {e['type'] for e in body['items']} == {'directory', 'file'}
+
+
+def test_trash_dir_is_hidden_from_directory_listing(db, root_dir):
+    client = _make_client()
+
+    (root_dir / '.trash').mkdir()
+    (root_dir / '.trash-old').mkdir()  # must stay visible — not the real trash
+    (root_dir / 'photo.jpg').write_bytes(b'x')
+
+    body = _list_dir(client, root_dir)
+
+    names = {e['name'] for e in body['items']}
+    assert '.trash' not in names
+    assert '.trash-old' in names
+    assert 'photo.jpg' in names

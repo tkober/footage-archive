@@ -1,4 +1,5 @@
 import hashlib
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -30,11 +31,16 @@ class Scanner:
         env = Environment()
         considered_file_extensions = env.get_scanning_file_extensions()
         media_type_map = env.get_media_type_map()
+        # Resolved once per scan: resolving every walked path would cost
+        # extra syscalls per file on the NAS, so files are compared by abspath.
+        trash_dir = env.get_trash_dir().resolve()
 
         candidates = []
         for f in files:
             f_path = Path(f)
             if f_path.name.startswith('._'):  # macOS AppleDouble sidecars, hidden in the browser too
+                continue
+            if Path(os.path.abspath(f_path)).is_relative_to(trash_dir):  # never (re)track anything inside the trash
                 continue
             if not f_path.is_dir() and f_path.exists() and f_path.suffix.lower() in considered_file_extensions:
                 candidates.append(f_path)

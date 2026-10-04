@@ -10,11 +10,13 @@ from api.dtos import (
     FileListMembership, FileQuery, PathChild, PathType, FileDescriptor, SortField, SortOrder,
     VideoDetails, PhotoDetails, RenameRequest, RenameResponse, AssignLocationRequest, LocationDto,
     ExifTag, MoveRequest, MoveItemResult, MovePreviewResponse, MkdirRequest, MkdirResponse,
+    DeleteRequest, DeletePreviewResponse, DeleteBatchResponse, DeleteItemResult,
 )
 from db.database import Database, UndoRenameFailedError
 from env.environment import Environment
 from fileops import service as fileops_service
 from fileops.pathlocks import PathLockedError
+from fileops.trash import is_in_trash
 from photos.exif import dump_all_exif, render_full_raw
 from scanner.scanner import Scanner
 
@@ -94,6 +96,7 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
         for e in path.iterdir()
         if not e.name.startswith('._')
         and (e.is_dir() or e.suffix.lower() not in hidden)
+        and not is_in_trash(e)
     ]
 
     # Counts for the whole directory — independent of pagination AND of any
@@ -217,7 +220,8 @@ def _fileops_error_to_http(e: Exception) -> HTTPException:
     if isinstance(e, (fileops_service.AlreadyExistsError, fileops_service.SidecarConflictError,
                      fileops_service.CrossFilesystemError)):
         return HTTPException(status_code=409, detail=str(e))
-    if isinstance(e, (fileops_service.InvalidNameError, fileops_service.SelfMoveError)):
+    if isinstance(e, (fileops_service.InvalidNameError, fileops_service.SelfMoveError,
+                     fileops_service.TrashPathError)):
         return HTTPException(status_code=400, detail=str(e))
     if isinstance(e, fileops_service.FileOpError):
         return HTTPException(status_code=400, detail=str(e))
@@ -280,6 +284,35 @@ def make_directory(request: MkdirRequest) -> MkdirResponse:
     except Exception as e:
         raise _fileops_error_to_http(e)
     return MkdirResponse(path=new_path)
+
+
+@FilesApi.post('/delete/preview')
+def preview_delete(request: DeleteRequest) -> DeletePreviewResponse:
+    try:
+        result = fileops_service.preview_delete(request.paths)
+    except Exception as e:
+        raise _fileops_error_to_http(e)
+    return DeletePreviewResponse(
+        file_count=result.file_count, tracked_count=result.tracked_count,
+        sidecars=result.sidecars, list_item_count=result.list_item_count,
+        keyword_count=result.keyword_count,
+    )
+
+
+@FilesApi.post('/delete')
+def delete_files_to_trash(request: DeleteRequest) -> DeleteBatchResponse:
+    try:
+        result = fileops_service.delete_paths(request.paths)
+    except Exception as e:
+        raise _fileops_error_to_http(e)
+    return DeleteBatchResponse(
+        trash_batch=result.trash_batch,
+        results=[
+            DeleteItemResult(path=r.path, ok=r.ok, trash_path=r.trash_path,
+                             untracked_count=r.untracked_count, error=r.error)
+            for r in result.results
+        ],
+    )
 
 
 @FilesApi.get('/clip-preview/{md5_hash}')

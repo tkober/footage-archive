@@ -23,6 +23,7 @@ from db.database import Database, StaleConflictError
 from env.environment import Environment
 from fileops.pathlocks import shared
 from fileops.rediscover import apply as apply_rediscover, classify as classify_rediscover
+from fileops.trash import is_in_trash
 from ffmpeg.ffmpeg import FFmpegInput, FFmpeg, FFprobe
 from photos.exif import probe_photo, generate_photo_thumbnail
 from scanner.scanner import Scanner, ScanResult
@@ -40,6 +41,8 @@ async def scan_directory(query: FileQuery, background_tasks: BackgroundTasks):
     path = Path(query.path)
     if not path.is_dir():
         raise HTTPException(status_code=400, detail='Provided path is not a directory')
+    if is_in_trash(path):
+        raise HTTPException(status_code=400, detail='Path is inside the trash and cannot be scanned')
 
     task_manager = TaskManager()
     task = task_manager.request_task(
@@ -64,6 +67,8 @@ async def rediscover(query: RediscoverQuery, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=403, detail='Access outside root directory is not allowed')
     if not path.is_dir():
         raise HTTPException(status_code=400, detail='Provided path is not a directory')
+    if is_in_trash(resolved):
+        raise HTTPException(status_code=400, detail='Path is inside the trash and cannot be rediscovered')
 
     task_manager = TaskManager()
     task = task_manager.request_task(
@@ -234,6 +239,8 @@ async def scan_file(query: FileQuery, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=400, detail='Provided path is a directory')
     if not path.exists():
         raise HTTPException(status_code=404, detail='File not found')
+    if is_in_trash(path):
+        raise HTTPException(status_code=400, detail='Path is inside the trash and cannot be tracked')
 
     task_manager = TaskManager()
     task = task_manager.request_task(
@@ -256,6 +263,8 @@ async def import_metadata(query: FileQuery, background_tasks: BackgroundTasks):
 
     if not path.exists():
         raise HTTPException(status_code=404, detail='File not found')
+    if is_in_trash(path):
+        raise HTTPException(status_code=400, detail='Path is inside the trash and cannot be imported')
 
     task_manager = TaskManager()
     task = task_manager.request_task(
