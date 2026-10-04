@@ -65,9 +65,12 @@ export class MediaCardComponent {
 
   showPending = computed(() => this.kind() !== 'other' && (!this.previewUrl() || this.imgError()));
 
+  /** ".jpg" → "JPG" for badges and the video caption. */
+  extLabel = computed(() => (this.extension() ?? '').replace(/^\./, '').toUpperCase());
+
   meta = computed(() => {
     if (this.kind() !== 'video') return null;
-    const ext = this.extension()?.toUpperCase() ?? '';
+    const ext = this.extLabel();
     const dur = this.duration();
     return [ext, dur].filter(Boolean).join(' · ') || null;
   });

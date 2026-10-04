@@ -28,7 +28,7 @@
     }
 
     @if (kind() === 'photo' && !showPending() && showExt() && extension()) {
-      <span class="tag ext">{{ extension() }}</span>
+      <span class="tag ext">{{ extLabel() }}</span>
     }
     @if (tracked() === false) {
       <span class="pill-untracked">Untracked</span>

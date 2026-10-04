@@ -45,7 +45,8 @@ interface PendingMove {
   standalone: true,
   imports: [ContextMenuComponent, FileDetailPanelComponent, ListPickerComponent, FolderPickerComponent, ConfirmDialogComponent, RediscoverDialogComponent, ComparisonComponent, IconComponent, MediaCardComponent],
   templateUrl: './browser.component.html',
-  styleUrl: './browser.component.css'
+  styleUrl: './browser.component.css',
+  host: { class: 'page-flush' }
 })
 export class BrowserComponent implements OnInit {
   private api = inject(ApiService);
