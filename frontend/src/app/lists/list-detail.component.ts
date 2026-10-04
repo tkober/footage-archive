@@ -271,6 +271,16 @@ export class ListDetailComponent implements OnInit {
     this.router.navigate([], { relativeTo: this.route, queryParams: {}, replaceUrl: true });
   }
 
+  /** The panel's own "Move to trash" deleted the open item (#61): the file is
+      gone everywhere, not just from this list — drop it from the grid
+      without a full reload and close the panel. */
+  onFileDeleted(path: string): void {
+    this.items.update(list => list.filter(i => `${i.directory}/${i.file_name}` !== path));
+    this.total.update(t => Math.max(0, t - 1));
+    this.list.update(l => l ? { ...l, item_count: Math.max(0, l.item_count - 1) } : l);
+    this.closeDetail();
+  }
+
   // ── Remove from list ──
 
   requestRemove(item: ListItem, event: Event): void {

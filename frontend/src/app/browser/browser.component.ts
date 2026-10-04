@@ -17,14 +17,16 @@ import { LoadMoreFooterComponent } from '../shared/load-more-footer/load-more-fo
 import { InfiniteScrollDirective } from '../shared/infinite-scroll/infinite-scroll.directive';
 import { ApiService } from '../services/api.service';
 import { ToastService } from '../shared/toast/toast.service';
-import { DirectoryCounts, DirectoryKind, FileInfo, FileList, Location, MoveItemResult, MovePreviewResponse, PathChild, RenameResponse, VIDEO_TYPES, PHOTO_TYPES, formatDurationTc } from '../models';
+import { DeleteItemResult, DeletePreviewResponse, DirectoryCounts, DirectoryKind, FileInfo, FileList, Location, MoveItemResult, MovePreviewResponse, PathChild, RenameResponse, VIDEO_TYPES, PHOTO_TYPES, formatDeletePreview, formatDurationTc } from '../models';
 
 const PAGE_SIZE = 50;
 const SKELETON_CAP = 12;
 
-/** Single-key shortcuts on a focused card / folder tile → menu item id (#41). */
+/** Single-key shortcuts on a focused card / folder tile → menu item id (#41).
+    `Delete`/`Backspace` (macOS) move the focused tile to trash (#61). */
 const SHORTCUTS: Record<string, string> = {
   ' ': 'open', F2: 'rename', m: 'move', k: 'keyword', l: 'list', t: 'track',
+  Delete: 'delete', Backspace: 'delete',
 };
 const FILE_OP_RESULT_TIMEOUT_MS = 6000;
 const THUMB_STORAGE_KEY = 'fa-thumb';
@@ -48,6 +50,13 @@ interface PendingMove {
   preview: MovePreviewResponse;
 }
 
+/** Pending delete-to-trash awaiting confirmation (#61), from the context menu
+    (single entry) or bulk mode. */
+interface PendingDelete {
+  paths: string[];
+  preview: DeletePreviewResponse;
+}
+
 @Component({
   selector: 'app-browser',
   standalone: true,
@@ -65,6 +74,8 @@ export class BrowserComponent implements OnInit {
   private header = inject(HeaderService);
 
   rootDir = signal<string | null>(null);
+  /** `.trash` by default — folder under rootDir delete-to-trash moves into (#61). */
+  trashDirName = signal<string | null>(null);
   currentPath = signal<string | null>(null);
   entries = signal<PathChild[]>([]);
   total = signal(0);
@@ -126,6 +137,9 @@ export class BrowserComponent implements OnInit {
   movePickerPaths = signal<string[] | null>(null);
   pendingMove     = signal<PendingMove | null>(null);
   moveError       = signal<string | null>(null);
+
+  // Move to trash (#61), shared by the context menu, the keyboard shortcut and bulk mode
+  pendingDelete = signal<PendingDelete | null>(null);
 
   // Rediscover (context menu on a directory) — a single checkbox confirm,
   // the folder is already known.
@@ -242,7 +256,7 @@ export class BrowserComponent implements OnInit {
 
   ngOnInit() {
     this.api.getConfig().pipe(
-      tap(config => this.rootDir.set(config.root_dir)),
+      tap(config => { this.rootDir.set(config.root_dir); this.trashDirName.set(config.trash_dir_name); }),
       switchMap(config =>
         this.route.queryParamMap.pipe(
           map(params => params.get('path') ?? config.root_dir)
@@ -454,6 +468,7 @@ export class BrowserComponent implements OnInit {
         { id: 'rename', label: 'Rename', icon: 'edit', shortcut: 'F2', separatorBefore: true },
         { id: 'move', label: 'Move to…', icon: 'move', shortcut: 'M' },
         { id: 'copy', label: 'Copy path', icon: 'copy' },
+        { id: 'delete', label: 'Move to trash', icon: 'trash', danger: true, separatorBefore: true, shortcut: 'Delete' },
       ];
     }
     const tracked = entry.tracked === true && !!entry.md5_hash;
@@ -465,6 +480,7 @@ export class BrowserComponent implements OnInit {
       { id: 'rename', label: 'Rename', icon: 'edit', shortcut: 'F2', separatorBefore: true },
       { id: 'move', label: 'Move to…', icon: 'move', shortcut: 'M' },
       { id: 'copy', label: 'Copy path', icon: 'copy' },
+      { id: 'delete', label: 'Move to trash', icon: 'trash', danger: true, separatorBefore: true, shortcut: 'Delete' },
     ];
   }
 
@@ -509,6 +525,9 @@ export class BrowserComponent implements OnInit {
         this.copyPath(entry.path);
         this.focusSource(source);
         break;
+      case 'delete':
+        this.openDeletePreview([entry.path]);
+        break;
       case 'keyword':
       case 'list':
         this.openQuickPop(id, entry, source);
@@ -534,7 +553,7 @@ export class BrowserComponent implements OnInit {
     const event = ev as KeyboardEvent;
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
     if (this.menuEntry() || this.quickPop() || this.bulkPop() || this.showDetail() || this.showComparison() || this.renamingPath()
-        || this.pendingRename() || this.movePickerPaths() || this.pendingMove() || this.rediscoverPath()) return;
+        || this.pendingRename() || this.movePickerPaths() || this.pendingMove() || this.pendingDelete() || this.rediscoverPath()) return;
     const target = event.target as HTMLElement | null;
     if (!target || target.closest('input, textarea, select, [contenteditable="true"]')) return;
     const host = target.closest('[data-path]') as HTMLElement | null;
@@ -839,6 +858,101 @@ export class BrowserComponent implements OnInit {
   bulkMoveTo() {
     if (!this.bulkSelected().size) return;
     this.openMovePicker([...this.bulkSelected()]);
+  }
+
+  // ── Move to trash (#61) ──
+
+  bulkDelete() {
+    if (!this.bulkSelected().size) return;
+    this.openDeletePreview([...this.bulkSelected()]);
+  }
+
+  /** Always previews first; a failed preview toasts the error and never opens
+      the confirm dialog (unlike rename, there's no fallback-without-confirm). */
+  openDeletePreview(paths: string[]) {
+    if (!paths.length) return;
+    this.api.previewDelete(paths).subscribe({
+      next: preview => this.pendingDelete.set({ paths, preview }),
+      error: err => this.showFileOpMessage(err.error?.detail ?? 'Could not preview the delete'),
+    });
+  }
+
+  deletePreviewMessage() {
+    const p = this.pendingDelete();
+    if (!p) return { message: '', warning: null as string | null };
+    return formatDeletePreview(p.preview, this.rootDir() ?? '', this.trashDirName() ?? '.trash');
+  }
+
+  cancelPendingDelete() {
+    this.pendingDelete.set(null);
+  }
+
+  confirmPendingDelete() {
+    const p = this.pendingDelete();
+    if (!p) return;
+    this.pendingDelete.set(null);
+    this.api.deleteFiles(p.paths).subscribe({
+      next: resp => this.applyDeleteResults(resp.results),
+      error: err => this.showFileOpMessage(err.error?.detail ?? 'Delete failed'),
+    });
+  }
+
+  private applyDeleteResults(results: DeleteItemResult[]) {
+    const ok = results.filter(r => r.ok);
+    const failed = results.filter(r => !r.ok);
+
+    if (ok.length) {
+      const okPaths = new Set(ok.map(r => r.path));
+      const removed = this.entries().filter(e => okPaths.has(e.path));
+      this.entries.update(list => list.filter(e => !okPaths.has(e.path)));
+      this.total.update(t => Math.max(0, t - removed.length));
+      this.counts.update(c => {
+        if (!c) return c;
+        const next = { ...c };
+        for (const e of removed) {
+          if (e.type === 'directory') { next.directories = Math.max(0, next.directories - 1); continue; }
+          const kind = this.cardKind(e);
+          if (kind === 'video') next.video = Math.max(0, next.video - 1);
+          else if (kind === 'photo') next.photo = Math.max(0, next.photo - 1);
+          else next.untracked = Math.max(0, next.untracked - 1);
+        }
+        return next;
+      });
+      this.bulkSelected.update(sel => new Set([...sel].filter(path => !okPaths.has(path))));
+
+      // Did we delete the directory we're currently looking at, or an ancestor of it?
+      // Nearest existing parent = the deleted path's own parent (the subtree moved as a whole).
+      const cur = this.currentPath();
+      if (cur) {
+        for (const r of ok) {
+          if (cur === r.path || cur.startsWith(r.path + '/')) {
+            this.navigateTo(this.parentOf(r.path));
+            break;
+          }
+        }
+      }
+
+      // Close the open detail panel if it was showing a deleted file.
+      const sel = this.selectedFile();
+      if (sel && ok.some(r => sel.path === r.path)) this.closeDetails();
+    }
+
+    const okWord = ok.length === 1 ? 'item' : 'items';
+    this.showFileOpMessage(`${ok.length} ${okWord} moved to trash`);
+    if (failed.length) this.showDeleteFailures(failed);
+  }
+
+  private showDeleteFailures(failed: DeleteItemResult[]) {
+    const shown = failed.slice(0, 3).map(f => `${this.relativePath(f.path)}: ${f.error ?? 'failed'}`).join('; ');
+    const more = failed.length > 3 ? ` and ${failed.length - 3} more` : '';
+    this.showFileOpMessage(`${failed.length} failed to move to trash — ${shown}${more}`, true);
+  }
+
+  /** The file-detail-panel's own "Move to trash" (preview → confirm → delete
+      runs inside the panel; this just reconciles the grid, #61). */
+  onFileDeleted(path: string) {
+    this.closeDetails();
+    this.applyDeleteResults([{ path, ok: true }]);
   }
 
   private parentOf(path: string): string {

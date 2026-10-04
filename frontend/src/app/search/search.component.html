@@ -286,7 +286,8 @@
       backLabel="results"
       (navigate)="jumpDetail(detailNavIndex() + $event)"
       (jump)="jumpDetail($event)"
-      (closed)="closeDetail()" />
+      (closed)="closeDetail()"
+      (deleted)="onFileDeleted($event)" />
   </div>
 
   </div><!-- /view-container -->

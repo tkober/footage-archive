@@ -13,7 +13,7 @@ import { ToastService } from '../toast/toast.service';
 import { ThemeService } from '../../services/theme.service';
 import { ApiService } from '../../services/api.service';
 import { GoogleMapsLoaderService } from '../../services/google-maps-loader.service';
-import { ExifTag, FileInfo, FileList, FileListMembership, Location, ShotClassification, VIDEO_TYPES, PHOTO_TYPES, formatDurationTc } from '../../models';
+import { DeletePreviewResponse, ExifTag, FileInfo, FileList, FileListMembership, Location, ShotClassification, VIDEO_TYPES, PHOTO_TYPES, formatDeletePreview, formatDurationTc } from '../../models';
 
 /** One neighbour in the detail view's filmstrip (#43). */
 export interface DetailNavItem {
@@ -54,6 +54,10 @@ export class FileDetailPanelComponent implements OnDestroy {
   navigate = output<number>();    // emits -1 / +1 to step to the prev / next sibling
   jump = output<number>();        // emits a navItems index (filmstrip click)
   listsChanged = output<void>();  // emitted after any list membership add/remove, so hosts can refresh
+  /** Emitted with the file's path once "Move to trash" has actually deleted
+      it (#61) — the panel runs preview → confirm → delete itself; hosts just
+      remove the item from their grid/results/list and close the panel. */
+  deleted = output<string>();
 
   // ── Internal file state (owns its own copy, updated by API calls) ──
   selectedFile = signal<FileInfo | null>(null);
@@ -74,6 +78,11 @@ export class FileDetailPanelComponent implements OnDestroy {
       kw => !applied.has(kw) && (input === '' || kw.toLowerCase().includes(input))
     );
   });
+
+  // ── Move to trash (#61) ──
+  rootDir       = signal('');
+  trashDirName  = signal('.trash');
+  pendingDelete = signal<DeletePreviewResponse | null>(null);
 
   // ── Lists ──
   addingToList      = signal(false);
@@ -203,6 +212,8 @@ export class FileDetailPanelComponent implements OnDestroy {
   private _locPin?: HTMLElement;
 
   constructor() {
+    this.api.getConfig().subscribe(cfg => { this.rootDir.set(cfg.root_dir); this.trashDirName.set(cfg.trash_dir_name); });
+
     // Sync input → local state; reset UI when a different file is opened
     effect(() => {
       const f = this.file();
@@ -218,6 +229,7 @@ export class FileDetailPanelComponent implements OnDestroy {
       this.classifying.set(false);
       this.listAddError.set(null);
       this.pendingRemoveList.set(null);
+      this.pendingDelete.set(null);
       // untracked: resetHq reads hqUrl(), and we must not make this effect
       // depend on it — otherwise fetching HQ would re-trigger the reset.
       untracked(() => this.resetHq());   // drop any full-res image from the previous file
@@ -266,7 +278,7 @@ export class FileDetailPanelComponent implements OnDestroy {
   onKey(ev: Event) {
     const e = ev as KeyboardEvent;
     if (!this.selectedFile() || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (this.showCreateLocation() || this.showExif() || this.pendingRemoveList() || this.locationPicker()) return;
+    if (this.showCreateLocation() || this.showExif() || this.pendingRemoveList() || this.locationPicker() || this.pendingDelete()) return;
     const t = e.target as HTMLElement | null;
     if (t?.closest('input, textarea, select, [contenteditable="true"]')) return;
     if (e.key === 'ArrowLeft') { this.step(-1); e.preventDefault(); }
@@ -595,6 +607,47 @@ export class FileDetailPanelComponent implements OnDestroy {
     this.locCenter.set({ lat, lng: lon });
     const currentZoom = this.locMapRef()?.getZoom() ?? this.locZoom();
     this.locZoom.set(Math.max(currentZoom, 10));
+  }
+
+  // ── Move to trash (#61) ──
+
+  /** Always previews first; a failed preview toasts the error and never opens
+      the confirm dialog (unlike rename, there's no fallback-without-confirm). */
+  requestDelete() {
+    const file = this.selectedFile();
+    if (!file) return;
+    this.api.previewDelete([file.path]).subscribe({
+      next: preview => this.pendingDelete.set(preview),
+      error: err => this.toast.show(err.error?.detail ?? 'Could not preview the delete'),
+    });
+  }
+
+  deletePreviewMessage() {
+    const preview = this.pendingDelete();
+    if (!preview) return { message: '', warning: null as string | null };
+    return formatDeletePreview(preview, this.rootDir(), this.trashDirName());
+  }
+
+  cancelDelete() {
+    this.pendingDelete.set(null);
+  }
+
+  confirmDelete() {
+    const file = this.selectedFile();
+    if (!file || !this.pendingDelete()) return;
+    this.pendingDelete.set(null);
+    this.api.deleteFiles([file.path]).subscribe({
+      next: resp => {
+        const result = resp.results[0];
+        if (result?.ok) {
+          this.toast.show('1 item moved to trash');
+          this.deleted.emit(file.path);
+        } else {
+          this.toast.show(result?.error ?? 'Failed to move to trash');
+        }
+      },
+      error: err => this.toast.show(err.error?.detail ?? 'Failed to move to trash'),
+    });
   }
 
   // ── Display helpers ──

@@ -17,6 +17,9 @@ import { ModalComponent } from '../../modal/modal.component';
 export class ConfirmDialogComponent {
   title = input('Confirm');
   message = input('');
+  /** Extra paragraph rendered below `message` in danger styling (e.g. the
+      delete confirm's tracking-loss warning, #61). */
+  warning = input<string | null>(null);
   confirmLabel = input('Remove');
   danger = input(false);
 

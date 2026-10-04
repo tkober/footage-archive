@@ -34,6 +34,10 @@
           </span>
         </button>
       }
+      <button type="button" class="btn btn-ghost" title="Move to trash" (click)="requestDelete()">
+        <app-icon name="trash" [size]="16" />
+        <span class="lbl">Move to trash</span>
+      </button>
     }
   </div>
 
@@ -409,4 +413,15 @@
     [danger]="true"
     (confirmed)="confirmRemoveFromList()"
     (cancelled)="cancelRemoveFromList()" />
+}
+
+@if (pendingDelete()) {
+  <app-confirm-dialog
+    title="Move to trash"
+    [message]="deletePreviewMessage().message"
+    [warning]="deletePreviewMessage().warning"
+    confirmLabel="Move to trash"
+    [danger]="true"
+    (confirmed)="confirmDelete()"
+    (cancelled)="cancelDelete()" />
 }
