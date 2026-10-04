@@ -1,0 +1,240 @@
+/* ── UI building blocks (#37) ───────────────────────────────────────
+   Global utility classes layered on top of the design tokens in
+   `styles.css`. These keep markup light (a few classes instead of a
+   bespoke local stylesheet per component) and are meant to be reused
+   by every page redesigned from here on. No hex colors — everything
+   is a token.
+
+   Buttons
+     .btn                base button (height 30, border, var(--surface))
+     .btn-primary        filled accent button (primary action)
+     .btn-ghost          borderless, muted → text on hover
+     .btn-danger         filled destructive button
+     .btn-on             "active/toggled" look (accent-soft + accent border)
+     .btn-sm             shorter (26px) variant, combine with any of the above
+     .icon-btn           square icon-only button (32px)
+     .icon-btn-sm        26px variant of .icon-btn
+
+   Segmented control
+     .seg                track/container, wrap .seg-btn children
+     .seg-btn            one segment; add `.on` for the active one
+     .seg-count          small mono counter inside a .seg-btn
+
+   Inputs
+     .input / .select    plain text input / select, full width
+     .field              input "wrapper" with room for a leading icon
+                          (put an <app-icon> or any element with
+                          class="field-icon" before the <input>)
+
+   Chips
+     .chip               rounded pill (e.g. a keyword or list membership)
+     .chip-code          mono/accent sub-label inside a .chip (e.g. a code)
+     .chip-remove        round "×" button inside a .chip
+     .chip-add           dashed "+ Add" affordance, same height as .chip
+
+   Misc
+     .kbd                small keyboard-shortcut hint (e.g. "⌘K", "Esc")
+     .skeleton           shimmering placeholder block (respects
+                          prefers-reduced-motion — shimmer is disabled,
+                          the block just stays static)
+
+   Usage: add the class(es) directly to a native element — no Angular
+   component needed for these. `<app-icon>` composes fine inside any
+   of them (e.g. `<button class="btn btn-primary"><app-icon name="plus" [size]="14" />Add</button>`).
+*/
+
+/* ── Buttons ─────────────────────────────────────────────────────── */
+.btn {
+  height: 30px;
+  padding: 0 var(--space-3);
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-fast) ease, filter var(--dur-fast) ease,
+    color var(--dur-fast) ease, border-color var(--dur-fast) ease;
+}
+.btn:hover { background: var(--hover); }
+.btn:disabled { opacity: .5; cursor: default; pointer-events: none; }
+
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn-primary:hover { filter: brightness(1.08); background: var(--accent); }
+
+.btn-ghost { border-color: transparent; background: none; color: var(--muted); }
+.btn-ghost:hover { color: var(--text); background: var(--hover); }
+
+.btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn-danger:hover { filter: brightness(1.08); background: var(--danger); }
+
+.btn-on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
+.btn-sm { height: 26px; padding: 0 var(--space-2); font-size: var(--fs-xs); gap: 4px; }
+
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--r-md);
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  flex: none;
+  position: relative;
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.icon-btn:hover { background: var(--hover); color: var(--text); }
+.icon-btn:disabled { opacity: .5; cursor: default; pointer-events: none; }
+.icon-btn-sm { width: 26px; height: 26px; }
+
+/* ── Segmented control ──────────────────────────────────────────── */
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.seg-btn {
+  border: 0;
+  background: none;
+  padding: 4px 10px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.seg-btn:hover { color: var(--text); }
+.seg-btn.on { background: var(--hover); color: var(--text); box-shadow: var(--shadow-1); }
+
+.seg-count { font: 400 11px var(--mono); color: var(--faint); }
+
+/* ── Inputs ──────────────────────────────────────────────────────── */
+.input,
+.select {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--fs-md);
+  outline: none;
+  width: 100%;
+  transition: border-color var(--dur-fast) ease;
+}
+.input::placeholder { color: var(--faint); }
+.input:focus,
+.select:focus { border-color: var(--line-strong); }
+.input:disabled,
+.select:disabled { opacity: .6; cursor: default; }
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--muted);
+  transition: border-color var(--dur-fast) ease;
+}
+.field:focus-within { border-color: var(--line-strong); }
+.field .field-icon { flex: none; color: var(--faint); display: inline-flex; }
+.field input,
+.field select {
+  border: 0;
+  background: none;
+  outline: none;
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  color: var(--text);
+  font-size: var(--fs-md);
+}
+
+/* ── Chips ───────────────────────────────────────────────────────── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 6px 0 10px;
+  border-radius: 13px;
+  background: var(--hover);
+  border: 1px solid var(--line);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.chip-code { font: 500 11px var(--mono); color: var(--accent); }
+.chip-remove {
+  border: 0;
+  background: none;
+  color: var(--faint);
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+  flex: none;
+}
+.chip-remove:hover { background: var(--line-strong); color: var(--text); }
+
+.chip-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 13px;
+  border: 1px dashed var(--line-strong);
+  background: none;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease, border-color var(--dur-fast) ease;
+}
+.chip-add:hover { color: var(--text); background: var(--hover); border-color: var(--line-strong); }
+
+/* ── Misc ────────────────────────────────────────────────────────── */
+.kbd {
+  font: 500 10.5px/1 var(--mono);
+  color: var(--muted);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  padding: 3px 5px;
+  white-space: nowrap;
+}
+
+.skeleton {
+  background: linear-gradient(100deg, var(--skeleton) 30%, var(--skeleton-hi) 50%, var(--skeleton) 70%);
+  background-size: 200% 100%;
+  animation: fa-shimmer 1.3s linear infinite;
+  border-radius: var(--r-sm);
+}
+@keyframes fa-shimmer { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+}

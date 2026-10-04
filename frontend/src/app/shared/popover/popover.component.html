@@ -1,0 +1,12 @@
+<div class="popover-backdrop" (click)="onBackdropClick()"></div>
+<div
+  #popEl
+  class="pop"
+  [style.left.px]="left()"
+  [style.top.px]="top()"
+  [style.width.px]="width()"
+  (keydown)="onKeydown($event)"
+  tabindex="-1"
+>
+  <ng-content />
+</div>

@@ -1,0 +1,13 @@
+<div class="toast-stack">
+  @for (toast of toastService.toasts(); track toast.id) {
+    <div class="toast">
+      <span class="toast-msg">{{ toast.message }}</span>
+      @if (toast.action) {
+        <button type="button" class="toast-action" (click)="runAction(toast)">{{ toast.action.label }}</button>
+      }
+      <button type="button" class="icon-btn toast-dismiss" title="Dismiss" (click)="dismiss(toast.id)">
+        <app-icon name="x" [size]="14" />
+      </button>
+    </div>
+  }
+</div>

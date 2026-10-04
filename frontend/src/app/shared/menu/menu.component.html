@@ -1,0 +1,37 @@
+<div class="menu-backdrop" (click)="close()" (contextmenu)="onBackdropContext($event)"></div>
+<div
+  #menuEl
+  class="menu"
+  role="menu"
+  [style.left.px]="left()"
+  [style.top.px]="top()"
+  (keydown)="onKeydown($event)"
+>
+  <div class="mh">
+    <ng-content select="[menuHeader]" />
+  </div>
+  @for (item of items(); track item.id; let i = $index) {
+    @if (item.separatorBefore) {
+      <div class="msep" role="separator"></div>
+    }
+    <button
+      #itemBtn
+      type="button"
+      role="menuitem"
+      class="mi"
+      [class.danger]="item.danger"
+      [disabled]="item.disabled"
+      [attr.tabindex]="activeIndex() === i ? 0 : -1"
+      (click)="pick(item)"
+      (mouseenter)="activeIndex.set(i)"
+    >
+      @if (item.icon) {
+        <app-icon [name]="item.icon" [size]="16" />
+      }
+      <span class="mi-label">{{ item.label }}</span>
+      @if (item.shortcut) {
+        <span class="kbd">{{ item.shortcut }}</span>
+      }
+    </button>
+  }
+</div>

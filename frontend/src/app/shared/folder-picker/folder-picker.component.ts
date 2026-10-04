@@ -1,6 +1,7 @@
 import { Component, computed, ElementRef, inject, input, OnInit, output, signal, ViewChild } from '@angular/core';
 
 import { ModalComponent } from '../../modal/modal.component';
+import { IconComponent } from '../icon/icon.component';
 import { ApiService } from '../../services/api.service';
 import { PathChild } from '../../models';
 
@@ -16,7 +17,7 @@ import { PathChild } from '../../models';
 @Component({
   selector: 'app-folder-picker',
   standalone: true,
-  imports: [ModalComponent],
+  imports: [ModalComponent, IconComponent],
   templateUrl: './folder-picker.component.html',
   styleUrl: './folder-picker.component.css',
 })

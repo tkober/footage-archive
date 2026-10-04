@@ -1,8 +1,8 @@
 <app-modal [title]="title()" (close)="onCancel()">
   <p class="confirm-message">{{ message() }}</p>
   <div class="confirm-actions">
-    <button type="button" class="btn-cancel" (click)="onCancel()">Cancel</button>
-    <button type="button" class="btn-confirm" [class.btn-danger]="danger()" (click)="onConfirm()">
+    <button type="button" class="btn" (click)="onCancel()">Cancel</button>
+    <button type="button" class="btn" [class.btn-primary]="!danger()" [class.btn-danger]="danger()" (click)="onConfirm()">
       {{ confirmLabel() }}
     </button>
   </div>
