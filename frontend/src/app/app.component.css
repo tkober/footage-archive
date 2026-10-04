@@ -1,176 +1,151 @@
-/* Shell layout */
-.shell {
-  display: flex;
-  flex-direction: column;
+/* ── Shell ──────────────────────────────────────────────────────── */
+.app {
+  display: grid;
+  grid-template-columns: 72px 1fr;
   height: 100vh;
   overflow: hidden;
 }
 
-/* Header */
-.header {
-  height: 56px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  padding: 0 var(--space-5);
-  flex-shrink: 0;
-  z-index: 10;
-}
-
-.burger {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 5px;
-  width: 36px;
-  height: 36px;
-  padding: 6px;
-  background: none;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.burger:hover {
-  background: var(--hover);
-}
-
-.burger span {
-  display: block;
-  height: 2px;
-  background: var(--text);
-  border-radius: 2px;
-  transition: transform var(--dur-base) ease, opacity var(--dur-base) ease;
-}
-
-.page-title {
-  font-size: var(--fs-lg);
-  font-weight: 600;
-  color: var(--text);
-  flex: 1;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-}
-
-/* Body: sidebar + content */
-.body {
-  display: flex;
-  flex: 1;
-  overflow: hidden;
-}
-
-/* Sidebar */
-.sidebar {
-  width: 56px;
+/* Rail (desktop left nav) */
+.rail {
   background: var(--surface);
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-3) var(--space-2);
-  overflow: hidden;
-  flex-shrink: 0;
-  transition: width var(--dur-base) ease;
-}
-
-.shell.sidebar-open .sidebar {
-  width: 220px;
-}
-
-.nav-item {
-  position: relative;
-  display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3);
+  padding: var(--space-3) 0;
+  gap: 2px;
+}
+
+.brand {
+  width: 36px;
+  height: 36px;
   border-radius: var(--r-md);
+  display: grid;
+  place-items: center;
+  margin-bottom: var(--space-4);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: 600 13px/1 var(--mono);
+  letter-spacing: -0.02em;
+  flex-shrink: 0;
+}
+
+.nav {
+  position: relative;
+  width: 60px;
+  padding: var(--space-2) 0 6px;
+  border-radius: var(--r-md);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
   color: var(--muted);
   text-decoration: none;
-  white-space: nowrap;
-  transition: background var(--dur-base) ease, color var(--dur-base) ease;
+  font-size: 10.5px;
+  font-weight: 500;
+  border: 0;
+  background: none;
+  cursor: pointer;
 }
 
-.nav-badge {
+.nav:hover { color: var(--text); background: var(--hover); }
+.nav.active { color: var(--text); background: var(--hover); }
+.nav.active::before {
+  content: '';
   position: absolute;
-  top: 4px;
-  left: 28px;
-  min-width: 15px;
-  height: 15px;
+  left: -6px;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.nav .dot {
+  position: absolute;
+  top: 5px;
+  right: 14px;
+  min-width: 16px;
+  height: 16px;
   padding: 0 4px;
-  border-radius: 999px;
+  border-radius: 8px;
   background: var(--danger);
   color: #fff;
-  font-size: 0.62rem;
-  font-weight: 600;
-  line-height: 15px;
+  font: 600 10px/16px var(--font);
   text-align: center;
 }
 
-.nav-item:hover {
-  background: var(--hover);
-  color: var(--text);
+.rail .spacer { flex: 1; }
+
+.rail .ver {
+  font: 400 10px/1.4 var(--mono);
+  color: var(--faint);
+  text-align: center;
+  padding-top: var(--space-2);
 }
 
-.nav-item.active {
-  background: var(--hover);
-  color: var(--text);
+/* Mobile bottom tab bar: same markup as the rail's main items, hidden on desktop */
+.tabbar {
+  display: none;
 }
 
-.nav-icon {
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-}
-
-.nav-label {
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  opacity: 0;
-  transition: opacity var(--dur-base) ease;
-  pointer-events: none;
-}
-
-.shell.sidebar-open .nav-label {
-  opacity: 1;
-}
-
-/* Version footer pinned to the bottom of the sidebar */
-.version-footer {
-  margin-top: auto;
+/* Main column */
+.main {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: var(--space-3) var(--space-3) var(--space-1);
-  font-size: var(--fs-xs);
-  color: var(--faint);
-  white-space: nowrap;
-  overflow: hidden;
-  opacity: 0;
-  transition: opacity var(--dur-base) ease;
-  pointer-events: none;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
 }
 
-.shell.sidebar-open .version-footer {
-  opacity: 1;
-}
-
-.version-row {
+/* Topbar */
+.topbar {
+  height: 52px;
+  flex: none;
   display: flex;
-  justify-content: space-between;
-  gap: 8px;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-5);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
 }
 
-.version-value {
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.crumb {
+  border: 0;
+  background: none;
+  padding: 4px 6px;
+  border-radius: var(--r-sm);
   color: var(--muted);
-  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  font-size: var(--fs-md);
+  cursor: pointer;
+}
+
+.crumb:hover { color: var(--text); background: var(--hover); }
+
+.crumb.cur {
+  color: var(--text);
+  font-weight: 600;
+  cursor: default;
+  background: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.crumb-sep {
+  color: var(--faint);
+  font-size: 12px;
+  flex-shrink: 0;
 }
 
 /* Main content */
@@ -179,4 +154,37 @@
   padding: var(--space-8);
   overflow: auto;
   background: var(--bg);
+}
+
+/* ── Mobile ─────────────────────────────────────────────────────── */
+@media (max-width: 760px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+  }
+
+  .rail { display: none; }
+
+  .tabbar {
+    display: flex;
+    grid-row: 2;
+    justify-content: space-around;
+    background: var(--surface);
+    border-top: 1px solid var(--line);
+    padding: 4px 4px calc(4px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .tabbar .nav.active::before {
+    left: 18px;
+    right: 18px;
+    top: -4px;
+    bottom: auto;
+    width: auto;
+    height: 3px;
+  }
+
+  .topbar {
+    padding: 0 var(--space-3);
+    gap: 6px;
+  }
 }

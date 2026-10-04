@@ -9,40 +9,18 @@
   display: contents;
 }
 
-/* Breadcrumbs */
-.breadcrumbs {
+/* Toolbar actions row (breadcrumbs moved to the shell topbar, #38) */
+.toolbar-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.crumb {
-  background: none;
-  border: none;
-  font-size: 0.875rem;
-  color: #3b82f6;
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 4px;
-  transition: background 120ms ease;
-}
-
-.crumb:hover {
-  background: #dbeafe;
-}
-
-.crumb.active {
-  color: #18181b;
-  font-weight: 600;
-  cursor: default;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .scan-current-btn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-left: auto;
   padding: 2px 8px;
   font-size: 0.75rem;
   color: #6b7280;
@@ -81,16 +59,6 @@
   background: #eff6ff;
   color: #1d4ed8;
   border-color: #bfdbfe;
-}
-
-.crumb.active:hover {
-  background: none;
-}
-
-.sep {
-  color: #a1a1aa;
-  font-size: 0.875rem;
-  user-select: none;
 }
 
 /* State messages */

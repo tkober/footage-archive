@@ -221,13 +221,28 @@ footage-archive/
     │   ├── environment.ts             # dev: apiUrl http://localhost:8051
     │   └── environment.production.ts  # prod: apiUrl /api (swapped in via angular.json fileReplacements)
     └── src/app/
-        ├── app.component.*         # shell: header + tasks widget + collapsible sidebar
+        ├── app.component.*         # shell (#38): 72px left rail (brand, Browse/Search/Lists/Map/Health/Settings, version) that
+        │                           #   becomes a bottom tab bar under 760px ("More" opens a `MenuComponent` with Health/Settings);
+        │                           #   52px topbar with a breadcrumb slot (see `services/header.service.ts`), `app-quick-jump`,
+        │                           #   `app-tasks-widget`
         ├── app.routes.ts           # lazy-loaded routes
         ├── app.config.ts           # provideRouter + provideHttpClient
         ├── models.ts               # TypeScript interfaces
         ├── services/api.service.ts # HTTP calls + taskRefresh$ subject
         ├── services/theme.service.ts # Dark/light theme (signal-based, localStorage `fa-theme`, resolves "system" via matchMedia)
-        ├── tasks-widget/           # Header task indicator with polling + progress
+        ├── services/header.service.ts # `HeaderService` (#38, signal-based, `providedIn: 'root'`) — lets the active page drive the
+        │                           #   topbar's breadcrumb slot: `setCrumbs([{label, action?}, …])` (last item has no action, renders
+        │                           #   bold/current) or `setTitle(title)` for a plain one-item trail. `AppComponent` clears it to `null`
+        │                           #   on every `NavigationStart` (before the next page's `ngOnInit` can set its own) and falls back to
+        │                           #   the route's `title` (`app.routes.ts`) whenever nothing is published. The browser page is the one
+        │                           #   publisher so far, via an `effect()` over its existing `breadcrumbs` computed — Scan/Select stay
+        │                           #   local to the page (#39 folds them into a proper toolbar)
+        ├── tasks-widget/           # Header task indicator (#38): icon button with an SVG progress ring while tasks run (ring = average
+        │                           #   fraction parsed from running tasks' `progress` text via `/(\d+)\s*\/\s*(\d+)/`, spins indeterminately
+        │                           #   if none match), a small red dot when any task FAILED, and the running/failed count badge; popover
+        │                           #   (`PopoverComponent`) lists each task (name, mono start time, description, progress bar, status line,
+        │                           #   error, "N conflicts to review →"); "Clear finished" removes COMPLETED tasks via `DELETE /tasks/completed`
+        │                           #   and FAILED ones individually (there's no bulk endpoint for those) — running/queued tasks are left alone
         ├── browser/                # Browser page: directory navigator + file detail panel
         │   └── context-menu/       # Right-click context menu: scan/track, Rename (inline tile edit), Move to… (folder picker), for both files and directories
         ├── search/                 # Faceted search page: filter panel + results grid + sliding detail panel
@@ -243,7 +258,12 @@ footage-archive/
         │   ├── file-detail-panel/       # Shared file detail panel (used by browser, search, lists)
         │   ├── image-viewer/            # Zoomable/pannable image viewer used by the detail panel
         │   ├── confirm-dialog/          # Generic confirm/cancel dialog on top of ModalComponent (reused by lists, rename/move, future callers)
-        │   ├── quick-jump/              # Header box: pick a list + type an item code → /lists/:id?code= (gachapon use case)
+        │   ├── quick-jump/              # Header box (#38): one `.jump` field ("Jump to code…", ⌘K/Ctrl+K hint — global, focuses it;
+        │   │                           #   Escape collapses it again) with a small truncated list-name button at its left that opens a
+        │   │                           #   `MenuComponent` of lists in place of the old native `<select>`; code input still uppercases,
+        │   │                           #   Enter jumps to /lists/:id?code=, a 404 turns the border red with an inline "No item with code X"
+        │   │                           #   message. Selected list remembered in `localStorage`. Under 760px the field collapses to an
+        │   │                           #   icon button that expands it as a fixed-position overlay with a backdrop + close button
         │   ├── list-picker/             # Reusable "add to list" input (text field + keyboard-navigable dropdown + ad hoc create); used by the detail panel and the browser's bulk action bar
         │   ├── folder-picker/           # Directory navigator on top of ModalComponent: breadcrumbs from ROOT_DIR, directories-only listing via POST /files/directory, inline "New folder" (POST /files/mkdir). Reused by two flows via inputs: `title`/`confirmLabel` (default "Move to…"/"Move here"); `sourcePaths` (optional — when given, disables the source itself/its descendants/its current parent as a target; omitted entirely for a plain "pick any folder" flow where nothing is blocked, used by Rediscover's "Rediscover here")
         │   └── rediscover-dialog/       # Starts POST /tracking/rediscover (#25): `path` omitted → folder-picker step ("Rediscover…"/"Rediscover here") then a checkbox confirm step; `path` given (browser context-menu "Rediscover" on a directory) → checkbox confirm step only. Checkbox: "Also track new files" (default off). On start, fires `ApiService.taskRefresh$` and reports "Rediscover started — see tasks."
@@ -295,9 +315,9 @@ bring their own button/menu/toast styles.
   design tokens and the classes above (`--raised` surface, `--r-lg`, `--shadow-2`, `rgba(5,6,8,.6)`
   backdrop, `.btn`/`.btn-primary` footer actions, `.btn-danger` for the destructive confirm path).
   Behaviour/structure unchanged.
-- **Not yet redesigned**: the shell/rail (`app.component.*`, #38), the browser's own context menu
-  (`browser/context-menu/`, #41) and card/grid styling (#39) — they still carry their pre-#37 local
-  styles and will move onto these blocks in their own tickets.
+- **Not yet redesigned**: the browser's own context menu (`browser/context-menu/`, #41) and card/grid
+  styling (#39) — they still carry their pre-#37 local styles and will move onto these blocks in
+  their own tickets. The shell/rail moved onto tokens + these blocks in #38 (see below).
 
 ---
 
@@ -384,7 +404,7 @@ bring their own button/menu/toast styles.
 - [x] `POST /files/move` + `/files/move/preview`, `POST /files/mkdir` — bulk/single file move, directory move, dry-run counts (file/tracked/sidecars), new-folder creation; see "Safe move/rename with journal recovery + path locks" above
 - [x] Background task FAILED status with error message
 - [x] Background task progress reporting (step messages while running)
-- [x] Angular shell: header with page title, collapsible dark sidebar, lazy routing
+- [x] Angular shell: 72px left rail (bottom tab bar on mobile) + topbar with a page-driven breadcrumb slot, lazy routing (#38)
 - [x] Browser page: directory navigation with breadcrumbs, load-more pagination
 - [x] File detail panel: two-column layout (metadata left, location+map right), tracking dot next to filename
 - [x] Inline filename editing in detail view (pen icon on hover → input → Enter to save, Escape to cancel)
@@ -410,6 +430,7 @@ bring their own button/menu/toast styles.
 - [x] Rename and move from the browser UI, on top of #21's `fileops/` service: context menu gained "Rename" and "Move to…" for both files and directories (kept "Scan directory"/"Track file"), emitting a typed `{ kind, entry }` action instead of overloading the old single-purpose emitter. Rename is an inline edit directly on the grid tile (dir chip or file card — mirrors the detail panel's pen-icon/input/Enter-save/Escape-cancel UX); a directory rename always confirms first via `ConfirmDialogComponent` with counts from a `POST /files/move/preview` dry run (`paths=[dir], target_directory=<parent>`), a file rename only confirms when sidecars (same-stem `BROWSER_HIDDEN_EXTENSIONS`) would move along too. "Move to…" opens the new `app-folder-picker` (breadcrumbs from ROOT_DIR, directories-only listing, inline "New folder" via `POST /files/mkdir` that navigates straight into the new folder, source/descendant/current-parent disabled as targets with a tooltip), then confirms via `ConfirmDialogComponent` with counts + sidecars + the target path relative to ROOT_DIR before calling `POST /files/move`. Bulk mode's action bar gained a "Move to…" button for the current (files-only — directories were already not selectable in bulk mode, so the backend's single-directory-path constraint is moot) selection. Both flows report results via a transient banner ("2 moved", or "0 moved · 1 failed: Target already exists: …" with the backend's `detail` inlined, dismissible, non-sticky on full success), then reload the current directory listing; if the viewed directory (or an ancestor of it) was itself renamed/moved the view follows it to its new path, and if the open detail panel was showing a moved/renamed file it re-fetches it at the new path (or closes if it's gone).
 - [x] UI redesign #36 — design tokens + base styles (dark/light): `frontend/src/styles.css` is now the single source of truth for the visual system — CSS custom properties on `:root` for color (`--bg --surface --raised --hover --line --line-strong --text --muted --faint --stage --accent --accent-ink --accent-soft --ok --danger --skeleton --skeleton-hi`), shadows (`--shadow-1/2`), type scale (`--fs-xs/sm/md/lg/xl`), radii (`--r-sm/md/lg`), spacing (`--space-1…8`, 4px grid) and motion (`--dur-fast/base`); values taken verbatim from the design prototype. Dark is the default (no `data-theme` attr, or `data-theme="dark"`); `:root[data-theme="light"]` carries the light palette. **No hex colors in component CSS** — every color comes from a token; only the shell (`app.component.css`) and `tasks-widget` were touched to use tokens so far, the rest of the component tree keeps its old hardcoded styling until its own redesign ticket lands. `services/theme.service.ts` (signal-based, `providedIn: 'root'`, injected once from `AppComponent`) owns the theme choice (`system`/`dark`/`light`, `localStorage` key `fa-theme`, default `dark`, all storage access wrapped in try/catch) and resolves `system` via `matchMedia('(prefers-color-scheme: light)')` (kept live via a change listener), writing `data-theme`/`color-scheme` onto `<html>`. A matching inline script in `index.html` applies the stored choice before Angular bootstraps, so there's no flash of the wrong theme. Settings gained an "Appearance" section with a small local segmented control (System/Dark/Light) — not the shared `app-ui` building blocks, those come with #37. Fonts: Geist + Geist Mono bundled locally via `@fontsource/geist`/`@fontsource/geist-mono` (weights 400/500/600, mono 400/500, imported from `styles.css`) so the app works offline on the NAS; `--font`/`--mono` fall back to system stacks.
 - [x] UI redesign #37 — building blocks on top of #36's tokens (see "UI Building Blocks" section above for the full rundown): global utility classes (`frontend/src/styles/components.css`) for buttons/icon-buttons/segmented-control/inputs/chips/kbd/skeleton; `shared/icon/` (`IconComponent`, inline-SVG Lucide-like icon set); `shared/menu/` (`MenuComponent` — point- or anchor-positioned, viewport-clamped, keyboard-navigable floating menu); `shared/popover/` (`PopoverComponent` — anchored, flips above when it doesn't fit below); `shared/toast/` (`ToastService` + `ToastOutletComponent`, bottom-left stacked, replaces the browser page's old local `file-op-message` banner). `modal/`, `shared/confirm-dialog/`, `shared/folder-picker/`, `shared/rediscover-dialog/`, `shared/list-picker/` converted to tokens + the new classes (no hex colors left, behaviour unchanged); Settings' theme picker now uses the global `.seg`/`.seg-btn` classes instead of a local copy. The browser's own context menu (`browser/context-menu/`) and card/grid styling are untouched here — they're #41/#39.
+- [x] UI redesign #38 — app shell on top of #36/#37: `app.component.*` is now a 72px `.rail` (brand mark, `app-icon`-based nav items for Browse/Search/Lists/Map/Health/Settings, active item = `--hover` bg + 3px left accent bar, compact two-line mono version footer) over a `.main` column with a 52px `.topbar` (breadcrumb slot + `app-quick-jump` + `app-tasks-widget`); burger/`sidebarOpen`/collapsible-label logic is gone. New `services/header.service.ts` (`HeaderService`) lets a page publish `{label, action?}` breadcrumbs (last = bold/current) or a plain title; the shell falls back to the route's `title` (`app.routes.ts`) when a page sets nothing, clearing on every `NavigationStart` so the previous page's trail never flashes. The browser page publishes its path breadcrumbs through it via an `effect()` (its own `nav` now only holds the local Scan/Select buttons — #39 turns those into a proper toolbar); Lists/Maintenance/Search dropped their redundant H2/filter-panel heading now that the topbar is the single title. `shared/quick-jump/` gained a `MenuComponent`-backed list picker (replacing the native `<select>`) inside a prototype-style `.jump` field, plus a global Cmd/Ctrl+K `HostListener` and a mobile icon-button-to-overlay collapse. `tasks-widget/` gained the SVG progress ring (average fraction across running tasks' `progress` text, indeterminate spin with no numeric match), a failed-task red dot, and moved its popover onto `PopoverComponent`/full tokens; "Clear finished" calls `DELETE /tasks/completed` for COMPLETED tasks plus a per-id delete for FAILED ones (`ApiService.clearCompletedTasks()`), leaving running/queued tasks untouched — a more honest label than the old "Clear all", which deleted everything including in-flight scans. Below 760px the rail becomes a bottom tab bar (`.tabbar`, `env(safe-area-inset-bottom)`) with Health/Settings tucked behind a "More" `MenuComponent`, the quick-jump field collapses to an icon that expands as a fixed overlay, and the tasks popover goes full-width with 8px margins.
 
 ---
 

@@ -1,21 +1,37 @@
 @if (lists().length) {
-  <div class="quick-jump">
-    <select class="quick-jump-select"
-            [ngModel]="selectedListId()"
-            (ngModelChange)="onListChange($event)"
-            (focus)="onSelectFocus()"
-            title="List to jump within">
-      @for (list of lists(); track list.id) {
-        <option [ngValue]="list.id">{{ list.name }}</option>
-      }
-    </select>
-    <input class="quick-jump-code"
-           [class.error]="error()"
+  <!-- Icon-only trigger, shown instead of the field below 760px -->
+  <button type="button" class="jump-toggle icon-btn" (click)="expand()" title="Jump to code…">
+    <app-icon name="search" [size]="18" />
+  </button>
+
+  <div class="jump" [class.error]="error()" [class.mobile-expanded]="mobileExpanded()">
+    <button type="button" #listBtn class="jump-list" (click)="openListMenu()" [title]="selectedListName()">
+      {{ selectedListName() }}
+    </button>
+    <app-icon name="search" [size]="16" />
+    <input #codeInput
+           class="jump-input"
            [value]="code()"
            (input)="onCodeInput($any($event.target).value)"
            (keydown.enter)="jump()"
-           placeholder="Code"
-           [title]="error() ? 'No item with code ' + code() : 'Item code'"
+           (keydown.escape)="collapse()"
+           placeholder="Jump to code…"
+           [attr.aria-label]="'Jump to code'"
            maxlength="8" />
+    <span class="kbd">{{ isMac ? '⌘K' : 'Ctrl+K' }}</span>
+    <button type="button" class="jump-close icon-btn-sm" (click)="collapse()" title="Close">
+      <app-icon name="x" [size]="14" />
+    </button>
+    @if (error()) {
+      <div class="jump-error" role="alert">No item with code {{ code() }}</div>
+    }
   </div>
+
+  @if (mobileExpanded()) {
+    <div class="jump-backdrop" (click)="collapse()"></div>
+  }
+
+  @if (listMenuOpen()) {
+    <app-menu [anchor]="listMenuAnchor()" [items]="listMenuItems()" (select)="onListMenuSelect($event)" (closed)="closeListMenu()" />
+  }
 }

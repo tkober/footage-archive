@@ -1,7 +1,8 @@
-import { Component, computed, ElementRef, HostListener, inject, OnInit, signal, ViewChild } from '@angular/core';
+import { Component, computed, effect, ElementRef, HostListener, inject, OnInit, signal, ViewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, switchMap, map, tap } from 'rxjs';
 
+import { HeaderService } from '../services/header.service';
 import { ContextMenuComponent, ContextMenuActionEvent } from './context-menu/context-menu.component';
 import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
 import { ListPickerComponent } from '../shared/list-picker/list-picker.component';
@@ -43,6 +44,7 @@ export class BrowserComponent implements OnInit {
   private toast = inject(ToastService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
+  private header = inject(HeaderService);
 
   rootDir = signal<string | null>(null);
   currentPath = signal<string | null>(null);
@@ -118,6 +120,16 @@ export class BrowserComponent implements OnInit {
       label,
       path: '/' + currentParts.slice(0, rootParts.length - 1 + i + 1).join('/')
     }));
+  });
+
+  /** Publishes this page's breadcrumbs into the shell's topbar (#38) instead
+      of rendering its own `<nav>` — Scan/Select stay local (see template),
+      only the path trail moves. */
+  private publishCrumbs = effect(() => {
+    this.header.setCrumbs(this.breadcrumbs().map(c => ({
+      label: c.label,
+      action: () => this.navigateTo(c.path),
+    })));
   });
 
   ngOnInit() {

@@ -89,6 +89,11 @@ export class ApiService {
     return this.http.delete<Task>(`${this.base}/tasks/${id}`);
   }
 
+  /** Removes all COMPLETED tasks in one call (backend: DELETE /tasks/completed). */
+  clearCompletedTasks(): Observable<Task[]> {
+    return this.http.delete<Task[]>(`${this.base}/tasks/completed`);
+  }
+
   getAllKeywords(): Observable<string[]> {
     return this.http.get<string[]>(`${this.base}/keywords/`);
   }
