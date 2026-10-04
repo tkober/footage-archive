@@ -232,7 +232,8 @@
         (navigate)="navigateDetail($event)"
         (jump)="jumpDetail($event)"
         (closed)="closeDetails()"
-        (renamed)="onFileRenamed($event)" />
+        (renamed)="onFileRenamed($event)"
+        (deleted)="onFileDeleted($event)" />
     </div>
 
   </div>
@@ -262,6 +263,10 @@
       <button type="button" class="btn" [disabled]="comparablePhotos().length < 2"
               (click)="openComparison()" title="Compare the selected photos side by side">
         <app-icon name="compare" [size]="16" /><span class="lbl">Compare</span>
+      </button>
+      <button type="button" class="btn btn-danger" [disabled]="bulkApplying() || !bulkSelected().size"
+              (click)="bulkDelete()" title="Move the selected files to trash">
+        <app-icon name="trash" [size]="16" /><span class="lbl">Delete</span>
       </button>
     </div>
     <span class="bulk-sep"></span>
@@ -399,6 +404,17 @@
     confirmLabel="Move"
     (confirmed)="confirmPendingMove()"
     (cancelled)="cancelPendingMove()" />
+}
+
+@if (pendingDelete()) {
+  <app-confirm-dialog
+    title="Move to trash"
+    [message]="deletePreviewMessage().message"
+    [warning]="deletePreviewMessage().warning"
+    confirmLabel="Move to trash"
+    [danger]="true"
+    (confirmed)="confirmPendingDelete()"
+    (cancelled)="cancelPendingDelete()" />
 }
 
 @if (rediscoverPath(); as path) {

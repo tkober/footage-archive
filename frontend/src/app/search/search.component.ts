@@ -396,6 +396,14 @@ export class SearchComponent implements OnInit, OnDestroy {
     this.loadingDetails.set(false);
   }
 
+  /** The panel's own "Move to trash" deleted the open result (#61): drop it
+      from the results grid without a full reload and close the panel. */
+  onFileDeleted(path: string): void {
+    this.results.update(list => list.filter(r => r.directory + '/' + r.file_name !== path));
+    this.total.update(t => Math.max(0, t - 1));
+    this.closeDetail();
+  }
+
   cardKind(result: SearchResult): MediaCardKind {
     return VIDEO_TYPES.includes(result.media_type as any) ? 'video' : 'photo';
   }

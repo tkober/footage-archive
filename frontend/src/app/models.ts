@@ -4,6 +4,8 @@ export interface Config {
   browser_hidden_extensions: string[];
   google_maps_api_key: string;
   google_maps_map_id: string;
+  /** Single folder name under `root_dir` that delete-to-trash moves files into (#61). */
+  trash_dir_name: string;
 }
 
 export type TaskStatus = 'PENDING' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
@@ -244,6 +246,60 @@ export interface MoveItemResult {
 
 export interface MkdirResponse {
   path: string;
+}
+
+/** Dry-run counts for a delete-to-trash, from POST /files/delete/preview (#61).
+    Purely informational — never mutates anything. `list_item_count`/`keyword_count`
+    are only meaningful (and only shown) when `tracked_count > 0`. */
+export interface DeletePreviewResponse {
+  file_count: number;
+  tracked_count: number;
+  sidecars: string[];
+  list_item_count: number;
+  keyword_count: number;
+}
+
+/** Per-path outcome of POST /files/delete (bulk-safe: one entry per requested path). */
+export interface DeleteItemResult {
+  path: string;
+  ok: boolean;
+  trash_path?: string | null;
+  untracked_count?: number | null;
+  error?: string | null;
+}
+
+export interface DeleteBatchResponse {
+  trash_batch: string;
+  results: DeleteItemResult[];
+}
+
+/** Confirm-dialog copy for a delete-to-trash preview (#61), shared by the
+    browser's context menu/bulk delete and the file detail panel's own
+    delete action so both read identically. */
+export function formatDeletePreview(
+  preview: DeletePreviewResponse,
+  rootDir: string,
+  trashDirName: string,
+): { message: string; warning: string | null } {
+  const fileWord = preview.file_count === 1 ? 'file' : 'files';
+  let message = `${preview.file_count} ${fileWord}`;
+  if (preview.sidecars.length) {
+    // file_count already includes the sidecars
+    message += ` (incl. ${preview.sidecars.length} sidecar${preview.sidecars.length === 1 ? '' : 's'})`;
+  }
+  const dest = [rootDir, trashDirName].filter(Boolean).join('/');
+  message += ` will be moved to "${dest}/…", where they can be restored manually (without tracking).`;
+
+  let warning: string | null = null;
+  if (preview.tracked_count > 0) {
+    const trackedWord = preview.tracked_count === 1 ? 'file' : 'files';
+    const extras: string[] = [];
+    if (preview.keyword_count > 0) extras.push(`${preview.keyword_count} keyword${preview.keyword_count === 1 ? '' : 's'}`);
+    if (preview.list_item_count > 0) extras.push(`${preview.list_item_count} list entr${preview.list_item_count === 1 ? 'y' : 'ies'}`);
+    warning = `${preview.tracked_count} tracked ${trackedWord} will permanently lose their keywords, location and list entries`
+      + (extras.length ? ` (${extras.join(', ')})` : '') + '.';
+  }
+  return { message, warning };
 }
 
 export interface FileList {

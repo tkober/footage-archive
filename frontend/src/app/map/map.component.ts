@@ -159,6 +159,14 @@ export class MapComponent implements OnInit, OnDestroy {
     this.loadingDetails.set(false);
   }
 
+  /** The panel's own "Move to trash" deleted the open file (#61). Markers are
+      clustered server-side, so there's no single marker to patch locally —
+      just close the panel and refetch for the current view. */
+  onFileDeleted(): void {
+    this.closeDetail();
+    this.refresh();
+  }
+
   // ── Display helpers ──
 
   previewUrlFor(p: MapPoint): string | null {

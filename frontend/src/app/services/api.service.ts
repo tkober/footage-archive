@@ -4,7 +4,7 @@ import { Observable, Subject } from 'rxjs';
 import { shareReplay } from 'rxjs/operators';
 
 import { environment } from '../../environments/environment';
-import { AddFilesToListResponse, Config, ConflictEntry, DirectoryQuery, DirectoryResponse, ExifTag, FileInfo, FileList, FileSearchQuery, ListItem, ListItemsResponse, Location, MapPoint, MissingFile, MkdirResponse, MoveItemResult, MovePreviewResponse, RemoveMissingFilesResponse, RenameResponse, ResolveBatchResponse, ResolveBatchStrategy, SearchResponse, ShotClassification, Task } from '../models';
+import { AddFilesToListResponse, Config, ConflictEntry, DeleteBatchResponse, DeletePreviewResponse, DirectoryQuery, DirectoryResponse, ExifTag, FileInfo, FileList, FileSearchQuery, ListItem, ListItemsResponse, Location, MapPoint, MissingFile, MkdirResponse, MoveItemResult, MovePreviewResponse, RemoveMissingFilesResponse, RenameResponse, ResolveBatchResponse, ResolveBatchStrategy, SearchResponse, ShotClassification, Task } from '../models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -79,6 +79,15 @@ export class ApiService {
 
   mkdir(parent: string, name: string): Observable<MkdirResponse> {
     return this.http.post<MkdirResponse>(`${this.base}/files/mkdir`, { parent, name });
+  }
+
+  /** Dry-run delete-to-trash counts (#61) — never mutates anything. */
+  previewDelete(paths: string[]): Observable<DeletePreviewResponse> {
+    return this.http.post<DeletePreviewResponse>(`${this.base}/files/delete/preview`, { paths });
+  }
+
+  deleteFiles(paths: string[]): Observable<DeleteBatchResponse> {
+    return this.http.post<DeleteBatchResponse>(`${this.base}/files/delete`, { paths });
   }
 
   getTasks(): Observable<Task[]> {
