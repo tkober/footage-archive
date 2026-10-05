@@ -543,7 +543,7 @@ def refresh_tracked_files(query: RefreshQuery, report: Callable[[str], None]):
 
     parallel_map(to_process, process)
 
-    parts = [f'Rescanned {succeeded} files']
+    parts = [f"Rescanned {succeeded} file{'' if succeeded == 1 else 's'}"]
     if without_preview:
         parts.append(f'{without_preview} without preview')
     if missing:

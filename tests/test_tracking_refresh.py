@@ -75,7 +75,7 @@ def test_refresh_photo_without_preview_gets_one(db, root_dir):
     tracking.refresh_tracked_files(RefreshQuery(md5_hashes=[md5_hash]), report)
 
     assert _has_preview(md5_hash)
-    assert report.last == 'Rescanned 1 files'
+    assert report.last == 'Rescanned 1 file'
 
 
 def test_refresh_unknown_hash_is_skipped(db, root_dir):
@@ -117,7 +117,7 @@ def test_refresh_does_not_rehash(db, root_dir, monkeypatch):
     tracking.refresh_tracked_files(RefreshQuery(md5_hashes=[md5_hash]), report)
 
     assert _has_preview(md5_hash)
-    assert report.last == 'Rescanned 1 files'
+    assert report.last == 'Rescanned 1 file'
 
 
 def test_refresh_video_ffprobe_failure_counts_without_preview_and_isolates_error(db, root_dir):
@@ -133,7 +133,7 @@ def test_refresh_video_ffprobe_failure_counts_without_preview_and_isolates_error
     tracking.refresh_tracked_files(RefreshQuery(md5_hashes=[md5_hash]), report)
 
     assert not _has_preview(md5_hash)
-    assert report.last == 'Rescanned 1 files · 1 without preview'
+    assert report.last == 'Rescanned 1 file · 1 without preview'
 
 
 def test_refresh_leaves_keywords_location_and_lists_unchanged(db, root_dir):
