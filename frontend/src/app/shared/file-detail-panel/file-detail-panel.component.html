@@ -34,9 +34,10 @@
           </span>
         </button>
       }
-      <button type="button" class="btn btn-ghost" title="Move to trash" (click)="requestDelete()">
-        <app-icon name="trash" [size]="16" />
-        <span class="lbl">Move to trash</span>
+      <span class="dbar-sep"></span>
+      <button #moreBtn type="button" class="icon-btn" aria-label="More actions" title="More actions"
+              (click)="openMoreMenu(moreBtn)">
+        <app-icon name="more-vertical" [size]="16" />
       </button>
     }
   </div>
@@ -418,6 +419,14 @@
     [danger]="true"
     (confirmed)="confirmRemoveFromList()"
     (cancelled)="cancelRemoveFromList()" />
+}
+
+@if (moreMenuAnchor(); as anchor) {
+  <app-menu
+    [items]="moreMenuItems()"
+    [anchor]="anchor"
+    (select)="onMoreMenuSelect($event)"
+    (closed)="closeMoreMenu()" />
 }
 
 @if (pendingDelete()) {
