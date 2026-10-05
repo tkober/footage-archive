@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 from typing import Optional
@@ -5,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 from api.dtos import MissingFile, RemoveMissingFilesRequest, RemoveMissingFilesResponse
-from api.tracking import create_clip_preview
+from api.tracking import PHOTO_TYPES, VIDEO_TYPES, generate_preview
 from db.database import Database
 from env.environment import Environment
 from ffmpeg.ffmpeg import FFprobe
@@ -16,10 +17,15 @@ TroubleShootingApi = APIRouter(prefix='/trouble-shooting')
 
 _env = Environment()
 
+# Media types that can ever get a clip preview (incl. 360 variants) — a
+# non-media file (media_type NULL) is never in scope for either the listing
+# or the repair (#65).
+_PREVIEWABLE_MEDIA_TYPES = VIDEO_TYPES | PHOTO_TYPES
+
 
 @TroubleShootingApi.get('/missing-preview')
 async def get_missing_previews():
-    return Database().get_files_without_clip_preview().to_dict(orient="records")
+    return Database().get_files_without_clip_preview(_PREVIEWABLE_MEDIA_TYPES).to_dict(orient="records")
 
 
 @TroubleShootingApi.get('/missing-files')
@@ -75,12 +81,44 @@ async def fix_missing_previews(background_tasks: BackgroundTasks):
 
 
 def generate_missing_clip_previews(report):
-    files = Database().get_files_without_clip_preview()
+    """Repair pass for GET /trouble-shooting/missing-preview (#65). Only
+    video/photo files are ever listed (see _PREVIEWABLE_MEDIA_TYPES), so
+    every row here goes through `generate_preview` for its actual
+    media_type instead of assuming video. Each file is isolated in its own
+    try/except — a bad probe or a corrupt file is logged + counted as
+    failed, never aborting the rest of the batch. A file gone from disk
+    since the listing was built is skipped and counted as missing, not
+    failed."""
+    files = Database().get_files_without_clip_preview(VIDEO_TYPES | PHOTO_TYPES)
     total = len(files)
+
+    generated = 0
+    failed = 0
+    missing = 0
+
     for i, row in enumerate(files.itertuples(index=True, name='Row'), 1):
+        report(f'Generating preview {i} / {total}')
+
         if not Path(row.file_path).exists():
+            missing += 1
             continue
-        with shared(row.file_path):
-            report(f'Generating preview {i} / {total}')
-            ffmpeg_input = FFprobe().probe_file(row.md5_hash, row.file_path)
-            create_clip_preview(ffmpeg_input)
+
+        try:
+            with shared(row.file_path):
+                probe = None
+                if row.media_type in VIDEO_TYPES:
+                    probe = FFprobe().probe_file(row.md5_hash, row.file_path)
+                    if probe is None:
+                        raise RuntimeError(f'FFprobe failed for {row.file_path}')
+                if generate_preview(row.md5_hash, row.file_path, row.media_type, probe=probe):
+                    generated += 1
+        except Exception:
+            logging.exception(f'Failed to generate preview for {row.file_path}')
+            failed += 1
+
+    parts = [f"Generated {generated} preview{'' if generated == 1 else 's'}"]
+    if failed:
+        parts.append(f"{failed} failed")
+    if missing:
+        parts.append(f"{missing} missing on disk")
+    report(' · '.join(parts))

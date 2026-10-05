@@ -569,16 +569,24 @@ class Database:
             row = conn.execute(stmt).fetchone()
         return row[0] if row else None
 
-    def get_files_without_clip_preview(self) -> pd.DataFrame:
+    def get_files_without_clip_preview(self, media_types: set[str]) -> pd.DataFrame:
+        """Tracked files with no row in ClipPreviews, restricted to
+        ``media_types`` (the caller passes video/photo media types, incl.
+        360 — see api/tracking.py's VIDEO_TYPES/PHOTO_TYPES — so a
+        non-media file, media_type NULL, never gets a preview and never
+        bloats this list, #65). Also returns media_type so the caller knows
+        which kind of preview to generate without a second query."""
         stmt = (
             select(
                 files_table.c.md5_hash,
                 files_table.c.file_name,
+                files_table.c.media_type,
                 (files_table.c.directory + '/' + files_table.c.file_name).label('file_path'),
             )
             .outerjoin(clip_previews_table,
                        files_table.c.md5_hash == clip_previews_table.c.md5_hash)
             .where(clip_previews_table.c.md5_hash.is_(None))
+            .where(files_table.c.media_type.in_(media_types))
         )
         with get_engine().connect() as conn:
             return pd.read_sql_query(stmt, conn)
