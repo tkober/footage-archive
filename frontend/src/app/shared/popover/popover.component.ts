@@ -15,8 +15,10 @@ import {
  * Floating panel anchored to an element — used for forms (keyword/location/
  * list pickers) and the tasks popover. Opens below the anchor by default,
  * flips above it when there isn't enough room below, and is always clamped
- * horizontally inside the viewport (8px margin). Content is projected
- * as-is; closes on outside click or Esc.
+ * horizontally inside the viewport (8px margin). Re-positions whenever the
+ * panel resizes (e.g. a list picker filling in after its request), so late
+ * content never pushes it off-screen (#68). Content is projected as-is;
+ * closes on outside click or Esc.
  *
  * Teleports itself to `<body>` on init / removes itself on destroy, same
  * convention as `ModalComponent` and `MenuComponent`. The caller owns
@@ -44,6 +46,8 @@ export class PopoverComponent implements OnInit, AfterViewInit, OnDestroy {
   left = signal(0);
   top = signal(0);
 
+  private resizeObserver?: ResizeObserver;
+
   ngOnInit() {
     document.body.appendChild(this.el.nativeElement);
   }
@@ -51,9 +55,12 @@ export class PopoverComponent implements OnInit, AfterViewInit, OnDestroy {
   ngAfterViewInit() {
     this.positionPopover();
     queueMicrotask(() => this.popElRef.nativeElement.focus());
+    this.resizeObserver = new ResizeObserver(() => this.positionPopover());
+    this.resizeObserver.observe(this.popElRef.nativeElement);
   }
 
   ngOnDestroy() {
+    this.resizeObserver?.disconnect();
     this.el.nativeElement.remove();
   }
 

@@ -28,11 +28,52 @@
 }
 
 .list-picker-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
   font-size: var(--fs-sm);
   padding: 6px 10px;
   cursor: pointer;
   color: var(--text);
   white-space: nowrap;
+}
+
+.list-picker-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Inline mode (#68): always-visible list, used inside popovers ── */
+.inline .list-picker-input {
+  height: 32px;
+  font-size: var(--fs-md);
+}
+
+.list-picker-list {
+  margin-top: var(--space-2);
+  max-height: min(296px, 45vh);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+.list-picker-list .list-picker-item {
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+}
+
+.list-picker-count {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.list-picker-empty {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  padding: 10px;
 }
 
 .list-picker-item.highlighted,
