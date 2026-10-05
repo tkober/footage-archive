@@ -89,7 +89,7 @@ def generate_missing_clip_previews(report):
     failed, never aborting the rest of the batch. A file gone from disk
     since the listing was built is skipped and counted as missing, not
     failed."""
-    files = Database().get_files_without_clip_preview(VIDEO_TYPES | PHOTO_TYPES)
+    files = Database().get_files_without_clip_preview(_PREVIEWABLE_MEDIA_TYPES)
     total = len(files)
 
     generated = 0
@@ -112,6 +112,8 @@ def generate_missing_clip_previews(report):
                         raise RuntimeError(f'FFprobe failed for {row.file_path}')
                 if generate_preview(row.md5_hash, row.file_path, row.media_type, probe=probe):
                     generated += 1
+                else:
+                    failed += 1  # probed fine, but no preview came out (e.g. no thumbnail/frames)
         except Exception:
             logging.exception(f'Failed to generate preview for {row.file_path}')
             failed += 1
