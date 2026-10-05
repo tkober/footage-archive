@@ -8,6 +8,7 @@ import { ImageViewerComponent } from '../image-viewer/image-viewer.component';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { ListPickerComponent } from '../list-picker/list-picker.component';
 import { IconComponent } from '../icon/icon.component';
+import { MenuComponent, MenuItem } from '../menu/menu.component';
 import { PopoverComponent } from '../popover/popover.component';
 import { ToastService } from '../toast/toast.service';
 import { ThemeService } from '../../services/theme.service';
@@ -32,7 +33,7 @@ const STRIP_FRAMES = [1, 2, 3, 4, 5];
 @Component({
   selector: 'app-file-detail-panel',
   standalone: true,
-  imports: [DatePipe, JsonPipe, RouterLink, ModalComponent, ImageViewerComponent, ConfirmDialogComponent, ListPickerComponent, IconComponent, PopoverComponent, GoogleMap, MapAdvancedMarker],
+  imports: [DatePipe, JsonPipe, RouterLink, ModalComponent, ImageViewerComponent, ConfirmDialogComponent, ListPickerComponent, IconComponent, MenuComponent, PopoverComponent, GoogleMap, MapAdvancedMarker],
   templateUrl: './file-detail-panel.component.html',
   styleUrl: './file-detail-panel.component.css',
 })
@@ -90,6 +91,19 @@ export class FileDetailPanelComponent implements OnDestroy {
 
   // ── Rescan (#64) ──
   rescanning = signal(false);
+
+  // ── More actions menu (#67: "Rescan" / "Move to trash", off the top bar) ──
+  moreMenuAnchor = signal<HTMLElement | null>(null);
+  moreMenuItems = computed<MenuItem[]>(() => {
+    const file = this.selectedFile();
+    const tracked = !!file?.tracked && !!file?.md5_hash;
+    const items: MenuItem[] = [];
+    if (tracked) {
+      items.push({ id: 'rescan', label: 'Rescan', icon: 'scan', disabled: this.rescanning() });
+    }
+    items.push({ id: 'delete', label: 'Move to trash', icon: 'trash', danger: true, separatorBefore: tracked });
+    return items;
+  });
 
   // ── Lists ──
   addingToList      = signal(false);
@@ -238,6 +252,7 @@ export class FileDetailPanelComponent implements OnDestroy {
       this.pendingRemoveList.set(null);
       this.pendingDelete.set(null);
       this.rescanning.set(false);
+      this.moreMenuAnchor.set(null);
       // untracked: resetHq reads hqUrl(), and we must not make this effect
       // depend on it — otherwise fetching HQ would re-trigger the reset.
       untracked(() => this.resetHq());   // drop any full-res image from the previous file
@@ -286,7 +301,7 @@ export class FileDetailPanelComponent implements OnDestroy {
   onKey(ev: Event) {
     const e = ev as KeyboardEvent;
     if (!this.selectedFile() || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (this.showCreateLocation() || this.showExif() || this.pendingRemoveList() || this.locationPicker() || this.pendingDelete()) return;
+    if (this.showCreateLocation() || this.showExif() || this.pendingRemoveList() || this.locationPicker() || this.pendingDelete() || this.moreMenuAnchor()) return;
     const t = e.target as HTMLElement | null;
     if (t?.closest('input, textarea, select, [contenteditable="true"]')) return;
     if (e.key === 'ArrowLeft') { this.step(-1); e.preventDefault(); }
@@ -643,6 +658,22 @@ export class FileDetailPanelComponent implements OnDestroy {
     this.locCenter.set({ lat, lng: lon });
     const currentZoom = this.locMapRef()?.getZoom() ?? this.locZoom();
     this.locZoom.set(Math.max(currentZoom, 10));
+  }
+
+  // ── More actions menu (#67) ──
+
+  openMoreMenu(anchor: HTMLElement) {
+    this.moreMenuAnchor.set(anchor);
+  }
+
+  closeMoreMenu() {
+    this.moreMenuAnchor.set(null);
+  }
+
+  onMoreMenuSelect(id: string) {
+    this.moreMenuAnchor.set(null);
+    if (id === 'rescan') this.rescanFile();
+    else if (id === 'delete') this.requestDelete();
   }
 
   // ── Move to trash (#61) ──
