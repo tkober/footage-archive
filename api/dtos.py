@@ -17,6 +17,14 @@ class RediscoverQuery(FileQuery):
     track_new: bool = False
 
 
+class RefreshQuery(BaseModel):
+    """POST /tracking/refresh (#64) — rescan already-tracked files by hash:
+    re-probe + regenerate preview without re-hashing. Preview generation is
+    always on for a rescan (unlike FileQuery/RediscoverQuery, there's no
+    generate_clip_preview toggle)."""
+    md5_hashes: List[StrictStr]
+
+
 class PathType(str, Enum):
     FILE = 'file'
     DIRECTORY = 'directory'

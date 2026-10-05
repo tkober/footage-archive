@@ -13,6 +13,7 @@ from api.dtos import (
     ConflictEntry,
     FileQuery,
     RediscoverQuery,
+    RefreshQuery,
     ResolveBatchRequest,
     ResolveBatchResponse,
     ResolveBatchStrategy,
@@ -255,6 +256,24 @@ async def scan_file(query: FileQuery, background_tasks: BackgroundTasks):
     return task.id
 
 
+@TrackingApi.post('/refresh')
+async def refresh(query: RefreshQuery, background_tasks: BackgroundTasks):
+    if not query.md5_hashes:
+        raise HTTPException(status_code=400, detail='No files to rescan')
+
+    task_manager = TaskManager()
+    task = task_manager.request_task(
+        TaskRequest(
+            name='Rescan files',
+            description=f'Rescanning {len(query.md5_hashes)} files.',
+            method=lambda report: refresh_tracked_files(query, report)
+        ),
+        background_tasks
+    )
+
+    return task.id
+
+
 @TrackingApi.post('/import-metadata')
 async def import_metadata(query: FileQuery, background_tasks: BackgroundTasks):
     path = Path(query.path)
@@ -452,7 +471,95 @@ def index_single_file(query: FileQuery, report: Callable[[str], None]):
                             scanned_directory=str(path.parent))
 
 
-def _probe_and_save(sc: ScanResult, db: Database, generate_clip_preview: bool):
+def refresh_tracked_files(query: RefreshQuery, report: Callable[[str], None]):
+    """POST /tracking/refresh (#64) — "rescan" already-tracked files: re-probe
+    metadata and regenerate the preview for a known hash without re-hashing
+    (so this is fast even for a large video over the network, and never
+    changes which path/hash a file is tracked under). An unknown hash is
+    silently skipped (still counted into the X/Y progress, since the
+    requested total already includes it, but never into the final tally —
+    it was never tracked to begin with). A missing/trashed file is counted
+    as "missing" instead of being probed. Per-file failures are isolated
+    like `probe_one`, and processing is fanned out across the shared worker
+    pool."""
+    db = Database()
+    requested = list(dict.fromkeys(query.md5_hashes))
+    total = len(requested)
+
+    done = 0
+    missing = 0
+    failed = 0
+    succeeded = 0
+    without_preview = 0
+    progress_lock = Lock()
+    counters_lock = Lock()
+
+    def report_progress():
+        nonlocal done
+        with progress_lock:
+            done += 1
+            report(f'Rescanned {done} / {total}')
+
+    to_process = []
+    for md5_hash in requested:
+        row = db.get_file_by_hash(md5_hash)
+        if row is None:
+            report_progress()  # untracked — skipped silently, not tallied below
+            continue
+
+        file_path = f"{row['directory']}/{row['file_name']}"
+        if not Path(file_path).exists() or is_in_trash(file_path):
+            missing += 1
+            report_progress()
+            continue
+
+        to_process.append(row)
+
+    def process(row: dict):
+        nonlocal succeeded, without_preview, failed
+        file_path = f"{row['directory']}/{row['file_name']}"
+        try:
+            with shared(file_path):
+                sc = ScanResult(
+                    md5_hash=row['md5_hash'],
+                    file_name=row['file_name'],
+                    file_extension=row['file_extension'],
+                    media_type=row['media_type'],
+                    directory=row['directory'],
+                    last_indexed_at=datetime.now(),
+                )
+                has_preview = _probe_and_save(sc, db, generate_clip_preview=True)
+                db.touch_last_indexed_at(sc.md5_hash)
+            with counters_lock:
+                succeeded += 1
+                if not has_preview:
+                    without_preview += 1
+        except Exception:
+            logging.exception(f'Failed to rescan {file_path}')
+            with counters_lock:
+                failed += 1
+        finally:
+            report_progress()
+
+    parallel_map(to_process, process)
+
+    parts = [f'Rescanned {succeeded} files']
+    if without_preview:
+        parts.append(f'{without_preview} without preview')
+    if missing:
+        parts.append(f'{missing} missing')
+    if failed:
+        parts.append(f'{failed} failed')
+    report(' · '.join(parts))
+
+
+def _probe_and_save(sc: ScanResult, db: Database, generate_clip_preview: bool) -> bool:
+    """Probes `sc`'s media type and saves the resulting details. Returns
+    whether the file has a preview after this call — only meaningful when
+    `generate_clip_preview` is True; always False otherwise. Non-media files
+    (`sc.media_type` None) never get a preview. Used by the rescan task
+    (#64) to count files left "without preview" (e.g. FFprobe returned None,
+    or ffmpeg/the thumbnailer silently produced nothing)."""
     file_path = sc.directory + '/' + sc.file_name
     last_modified_at = datetime.fromtimestamp(Path(file_path).stat().st_mtime).isoformat()
 
@@ -461,13 +568,14 @@ def _probe_and_save(sc: ScanResult, db: Database, generate_clip_preview: bool):
         if probe is None:
             logging.warning(f'FFprobe failed for {file_path}')
             _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=None)
-            return
+            return False
 
         _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=probe.recorded_at)
         db.insert_video_details(pd.DataFrame([probe.model_dump()]))
 
         if generate_clip_preview:
-            create_clip_preview(probe)
+            return create_clip_preview(probe)
+        return False
 
     elif sc.media_type in PHOTO_TYPES:
         probe = probe_photo(md5_hash=sc.md5_hash, file_path=file_path)
@@ -483,9 +591,12 @@ def _probe_and_save(sc: ScanResult, db: Database, generate_clip_preview: bool):
             thumbnail = generate_photo_thumbnail(sc.md5_hash, file_path)
             if thumbnail:
                 db.insert_raw_preview(sc.md5_hash, thumbnail, identifier=sc.md5_hash)
+                return True
+        return False
 
     else:
         _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=None)
+        return False
 
 
 def _save_file_details(db: Database, md5_hash: str, last_modified_at: str, recorded_at: str | None,
@@ -549,7 +660,14 @@ def scan_files_in_metadata(query: FileQuery, report: Callable[[str], None]):
                 create_clip_preview(ffmpeg_input)
 
 
-def create_clip_preview(input: FFmpegInput):
+def create_clip_preview(input: FFmpegInput) -> bool:
+    """Generate+store a video clip preview. Returns whether a preview was
+    actually produced — ffmpeg can silently come back with no frames (e.g.
+    a near-zero-duration or corrupt file), in which case nothing is stored.
+    Used by `_probe_and_save` to report preview success back to the rescan
+    task (#64)."""
     result = FFmpeg(input.md5_hash).generate_clip_preview(input)
     if result is not None:
         Database().insert_clip_preview(result, identifier=input.md5_hash)
+        return True
+    return False

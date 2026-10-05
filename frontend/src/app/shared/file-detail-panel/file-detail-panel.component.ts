@@ -13,6 +13,8 @@ import { ToastService } from '../toast/toast.service';
 import { ThemeService } from '../../services/theme.service';
 import { ApiService } from '../../services/api.service';
 import { GoogleMapsLoaderService } from '../../services/google-maps-loader.service';
+import { PreviewCacheService } from '../../services/preview-cache.service';
+import { TaskPollService } from '../../services/task-poll.service';
 import { DeletePreviewResponse, ExifTag, FileInfo, FileList, FileListMembership, Location, ShotClassification, VIDEO_TYPES, PHOTO_TYPES, formatDeletePreview, formatDurationTc } from '../../models';
 
 /** One neighbour in the detail view's filmstrip (#43). */
@@ -40,6 +42,8 @@ export class FileDetailPanelComponent implements OnDestroy {
   private host: ElementRef<HTMLElement> = inject(ElementRef);
   private loader = inject(GoogleMapsLoaderService);
   private geocoder = inject(MapGeocoder);
+  private previewCache = inject(PreviewCacheService);
+  private taskPoll = inject(TaskPollService);
 
   // ── Inputs / Outputs ──
   file    = input<FileInfo | null>(null);
@@ -83,6 +87,9 @@ export class FileDetailPanelComponent implements OnDestroy {
   rootDir       = signal('');
   trashDirName  = signal('.trash');
   pendingDelete = signal<DeletePreviewResponse | null>(null);
+
+  // ── Rescan (#64) ──
+  rescanning = signal(false);
 
   // ── Lists ──
   addingToList      = signal(false);
@@ -230,6 +237,7 @@ export class FileDetailPanelComponent implements OnDestroy {
       this.listAddError.set(null);
       this.pendingRemoveList.set(null);
       this.pendingDelete.set(null);
+      this.rescanning.set(false);
       // untracked: resetHq reads hqUrl(), and we must not make this effect
       // depend on it — otherwise fetching HQ would re-trigger the reset.
       untracked(() => this.resetHq());   // drop any full-res image from the previous file
@@ -291,6 +299,34 @@ export class FileDetailPanelComponent implements OnDestroy {
     this.api.trackFile(file.path).subscribe({
       next: () => { this.api.taskRefresh$.next(); this.toast.show(`Tracking ${file.name}. It appears here once the scan is done.`); },
       error: () => this.toast.show(`Couldn't start tracking ${file.name}.`),
+    });
+  }
+
+  // ── Rescan (#64) ──
+
+  /** Re-probes metadata and regenerates the preview for the open file
+      without re-hashing it. Once the task completes, cache-busts its
+      preview URL (so the stage/filmstrip/grid show the regenerated image)
+      and reloads the file's details (so new metadata shows up too). */
+  rescanFile() {
+    const file = this.selectedFile();
+    if (!file?.md5_hash || this.rescanning()) return;
+    const md5Hash = file.md5_hash;
+    this.rescanning.set(true);
+    this.api.refreshFiles([md5Hash]).subscribe({
+      next: taskId => {
+        this.api.taskRefresh$.next();
+        this.toast.show('Rescan started — see tasks.');
+        this.taskPoll.pollUntilDone(taskId).subscribe(() => {
+          this.rescanning.set(false);
+          this.previewCache.bump([md5Hash]);
+          this.reloadFile();
+        });
+      },
+      error: () => {
+        this.rescanning.set(false);
+        this.toast.show("Couldn't start the rescan.");
+      },
     });
   }
 

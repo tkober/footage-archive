@@ -276,7 +276,12 @@
       }
 
       <section class="isec">
-        <h3>File <button type="button" class="link" (click)="openExif()">All metadata</button></h3>
+        <h3>File
+          <span class="h3-acts">
+            <button type="button" class="link" [disabled]="rescanning()" (click)="rescanFile()" title="Re-probe metadata and regenerate the preview without re-hashing">{{ rescanning() ? 'Rescanning…' : 'Rescan' }}</button>
+            <button type="button" class="link" (click)="openExif()">All metadata</button>
+          </span>
+        </h3>
         <dl class="kv">
           <div><dt>Size</dt><dd>{{ formatBytes(file.size_bytes) }}</dd></div>
           <div><dt>Modified</dt><dd>{{ file.modified_at | date:'yyyy-MM-dd HH:mm' }}</dd></div>
