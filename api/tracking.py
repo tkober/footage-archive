@@ -265,7 +265,7 @@ async def refresh(query: RefreshQuery, background_tasks: BackgroundTasks):
     task = task_manager.request_task(
         TaskRequest(
             name='Rescan files',
-            description=f'Rescanning {len(query.md5_hashes)} files.',
+            description=f"Rescanning {len(query.md5_hashes)} file{'' if len(query.md5_hashes) == 1 else 's'}.",
             method=lambda report: refresh_tracked_files(query, report)
         ),
         background_tasks
