@@ -286,7 +286,7 @@
 }
 
 @if (bulkPop(); as bp) {
-  <app-popover [anchor]="bp.anchor" [width]="300" align="start" (closed)="closeBulkPop()">
+  <app-popover [anchor]="bp.anchor" [width]="bp.kind === 'list' ? 380 : 300" align="start" (closed)="closeBulkPop()">
     @switch (bp.kind) {
       @case ('keyword') {
         <form class="quick-form" (submit)="$event.preventDefault(); bulkAddKeyword()">
@@ -325,7 +325,7 @@
       @case ('list') {
         <div class="quick-form">
           <span class="quick-label">Add <b>{{ bulkTrackedCount() }} {{ bulkTrackedCount() === 1 ? 'file' : 'files' }}</b> to a list</span>
-          <app-list-picker placeholder="Find or create a list…" (picked)="bulkAddToList($event)" />
+          <app-list-picker placeholder="Find or create a list…" [inline]="true" [autofocus]="true" (picked)="bulkAddToList($event)" />
         </div>
       }
     }
@@ -356,7 +356,7 @@
 }
 
 @if (quickPop(); as qp) {
-  <app-popover [anchor]="qp.anchor" [width]="300" align="start" (closed)="closeQuickPop()">
+  <app-popover [anchor]="qp.anchor" [width]="qp.kind === 'list' ? 380 : 300" align="start" (closed)="closeQuickPop()">
     @if (qp.kind === 'keyword') {
       <form class="quick-form" (submit)="$event.preventDefault(); submitQuickKeyword()">
         <label class="quick-label" for="quick-keyword">Add keyword to <b>{{ qp.entry.name }}</b></label>
@@ -374,7 +374,7 @@
     } @else {
       <div class="quick-form">
         <span class="quick-label">Add <b>{{ qp.entry.name }}</b> to a list</span>
-        <app-list-picker placeholder="Find or create a list…" (picked)="quickAddToList($event)" />
+        <app-list-picker placeholder="Find or create a list…" [inline]="true" [autofocus]="true" (picked)="quickAddToList($event)" />
       </div>
     }
   </app-popover>

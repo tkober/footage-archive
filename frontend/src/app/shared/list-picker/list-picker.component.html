@@ -1,4 +1,4 @@
-<div class="list-picker-wrap">
+<div class="list-picker-wrap" [class.inline]="inline()">
   <input
     class="input list-picker-input"
     [placeholder]="placeholder()"
@@ -8,22 +8,36 @@
     (focus)="onFocus()"
     (blur)="onBlur()"
     (keydown)="onKeydown($event)" />
-  @if (dropdownOpen() && entries().length > 0) {
-    <div class="list-picker-dropdown">
-      @for (entry of entries(); track (entry.type === 'existing' ? 'l' + entry.list.id : 'c' + entry.name); let i = $index) {
-        <div class="list-picker-item"
-             [class.highlighted]="i === highlightIndex()"
-             (mousedown)="$event.preventDefault(); pickEntry(entry)">
-          @if (entry.type === 'existing') {
-            {{ entry.list.name }}
-          } @else {
-            + Create list "{{ entry.name }}"
-          }
-        </div>
+  @if (inline()) {
+    <div class="list-picker-list" role="listbox">
+      <ng-container *ngTemplateOutlet="items" />
+      @if (entries().length === 0) {
+        <div class="list-picker-empty">{{ allLists().length ? 'No list matches.' : 'No lists yet. Type a name to create one.' }}</div>
       }
+    </div>
+  } @else if (dropdownOpen() && entries().length > 0) {
+    <div class="list-picker-dropdown">
+      <ng-container *ngTemplateOutlet="items" />
     </div>
   }
   @if (error()) {
     <div class="list-picker-error">{{ error() }}</div>
   }
 </div>
+
+<ng-template #items>
+  @for (entry of entries(); track (entry.type === 'existing' ? 'l' + entry.list.id : 'c' + entry.name); let i = $index) {
+    <div class="list-picker-item"
+         role="option"
+         [attr.aria-selected]="i === highlightIndex()"
+         [class.highlighted]="i === highlightIndex()"
+         (mousedown)="$event.preventDefault(); pickEntry(entry)">
+      @if (entry.type === 'existing') {
+        <span class="list-picker-name">{{ entry.list.name }}</span>
+        @if (inline()) { <span class="list-picker-count">{{ entry.list.item_count }}</span> }
+      } @else {
+        <span class="list-picker-name">+ Create list "{{ entry.name }}"</span>
+      }
+    </div>
+  }
+</ng-template>

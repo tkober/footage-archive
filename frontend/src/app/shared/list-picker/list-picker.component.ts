@@ -1,4 +1,6 @@
-import { Component, computed, inject, input, output, signal } from '@angular/core';
+import { Component, ElementRef, OnInit, computed, inject, input, output, signal } from '@angular/core';
+
+import { NgTemplateOutlet } from '@angular/common';
 
 import { ApiService } from '../../services/api.service';
 import { FileList } from '../../models';
@@ -14,20 +16,29 @@ export type ListPickerEntry =
     entry. Selecting an existing list just emits it; selecting the create
     entry creates the list itself (handling a 409 duplicate-name race inline)
     and then emits the newly created list. Callers are responsible for
-    whatever "add to X" call the picked list should trigger. */
+    whatever "add to X" call the picked list should trigger.
+
+    `inline` renders the suggestions as an always-visible, scrollable list
+    under the input instead of a floating dropdown: inside a popover the
+    dropdown got clipped by the panel's own scroll box, leaving only a sliver
+    of it visible (#68). `autofocus` focuses the input on open (mouse/trackpad only). */
 @Component({
   selector: 'app-list-picker',
   standalone: true,
+  imports: [NgTemplateOutlet],
   templateUrl: './list-picker.component.html',
   styleUrl: './list-picker.component.css',
 })
-export class ListPickerComponent {
+export class ListPickerComponent implements OnInit {
   private api = inject(ApiService);
+  private el = inject(ElementRef<HTMLElement>);
 
   // ── Inputs / Outputs ──
   excludeListIds = input<number[]>([]);
   placeholder    = input('Add to list…');
   disabled       = input(false);
+  inline         = input(false);
+  autofocus      = input(false);
   picked         = output<FileList>();
 
   // ── Internal state ──
@@ -52,6 +63,15 @@ export class ListPickerComponent {
     return entries;
   });
 
+  ngOnInit() {
+    if (this.inline()) this.loadLists();
+    // After the surrounding popover has focused its own panel. Touch devices
+    // are skipped: the on-screen keyboard would cover the list just opened.
+    if (this.autofocus() && window.matchMedia('(pointer: fine)').matches) {
+      setTimeout(() => this.el.nativeElement.querySelector('input')?.focus());
+    }
+  }
+
   onInputChange(value: string) {
     this.value.set(value);
     this.error.set(null);
@@ -63,6 +83,10 @@ export class ListPickerComponent {
       elsewhere (or by another picker instance) show up. */
   onFocus() {
     this.dropdownOpen.set(true);
+    this.loadLists();
+  }
+
+  private loadLists() {
     this.api.getLists().subscribe(ls => this.allLists.set(ls));
   }
 
@@ -78,19 +102,26 @@ export class ListPickerComponent {
       event.preventDefault();
       this.dropdownOpen.set(true);
       this.highlightIndex.update(i => Math.min(i + 1, Math.max(entries.length - 1, 0)));
+      this.scrollHighlightedIntoView();
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
       this.highlightIndex.update(i => Math.max(i - 1, 0));
+      this.scrollHighlightedIntoView();
     } else if (event.key === 'Enter') {
       event.preventDefault();
       const entry = entries[this.highlightIndex()];
       if (entry) this.pickEntry(entry);
-    } else if (event.key === 'Escape' && this.dropdownOpen()) {
+    } else if (event.key === 'Escape' && this.dropdownOpen() && !this.inline()) {
       // Only swallow Esc while the suggestions are open; a second Esc then
       // reaches the surrounding popover/dialog and closes it.
       this.closeDropdown();
       event.stopPropagation();
     }
+  }
+
+  private scrollHighlightedIntoView() {
+    setTimeout(() => this.el.nativeElement.querySelector('.list-picker-item.highlighted')
+      ?.scrollIntoView({ block: 'nearest' }));
   }
 
   closeDropdown() {
