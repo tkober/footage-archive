@@ -25,7 +25,7 @@ from env.environment import Environment
 from fileops.pathlocks import shared
 from fileops.rediscover import apply as apply_rediscover, classify as classify_rediscover
 from fileops.trash import is_in_trash
-from ffmpeg.ffmpeg import FFmpegInput, FFmpeg, FFprobe
+from ffmpeg.ffmpeg import FFmpegInput, FFmpeg, FFprobe, VideoProbeResult
 from photos.exif import probe_photo, generate_photo_thumbnail
 from scanner.scanner import Scanner, ScanResult
 from tasks.taskmanager import TaskManager, TaskRequest
@@ -574,7 +574,7 @@ def _probe_and_save(sc: ScanResult, db: Database, generate_clip_preview: bool) -
         db.insert_video_details(pd.DataFrame([probe.model_dump()]))
 
         if generate_clip_preview:
-            return create_clip_preview(probe)
+            return generate_preview(sc.md5_hash, file_path, sc.media_type, probe=probe)
         return False
 
     elif sc.media_type in PHOTO_TYPES:
@@ -588,10 +588,7 @@ def _probe_and_save(sc: ScanResult, db: Database, generate_clip_preview: bool) -
             db.insert_photo_details(pd.DataFrame([probe.model_dump()]))
 
         if generate_clip_preview:
-            thumbnail = generate_photo_thumbnail(sc.md5_hash, file_path)
-            if thumbnail:
-                db.insert_raw_preview(sc.md5_hash, thumbnail, identifier=sc.md5_hash)
-                return True
+            return generate_preview(sc.md5_hash, file_path, sc.media_type)
         return False
 
     else:
@@ -658,6 +655,33 @@ def scan_files_in_metadata(query: FileQuery, report: Callable[[str], None]):
                     duration_tc=row.duration_tc
                 )
                 create_clip_preview(ffmpeg_input)
+
+
+def generate_preview(md5_hash: str, file_path: str, media_type: str | None,
+                      probe: VideoProbeResult | None = None) -> bool:
+    """Generate+store a preview for a known `media_type`, reporting whether
+    one was actually produced. Shared by `_probe_and_save` (#64) and the
+    missing-preview repair (#65) so there's exactly one place that decides
+    how a video vs. a photo gets its preview. Video: reuses `probe` when the
+    caller already ran FFprobe (e.g. `_probe_and_save` probing for
+    VideoDetails), otherwise probes fresh; a failed/missing probe means no
+    preview (`False`), never a crash. Photo: thumbnail + `insert_raw_preview`.
+    Any other media_type (incl. None, non-media files) never has a preview."""
+    if media_type in VIDEO_TYPES:
+        if probe is None:
+            probe = FFprobe().probe_file(md5_hash=md5_hash, file_path=file_path)
+        if probe is None:
+            return False
+        return create_clip_preview(probe)
+
+    elif media_type in PHOTO_TYPES:
+        thumbnail = generate_photo_thumbnail(md5_hash, file_path)
+        if thumbnail:
+            Database().insert_raw_preview(md5_hash, thumbnail, identifier=md5_hash)
+            return True
+        return False
+
+    return False
 
 
 def create_clip_preview(input: FFmpegInput) -> bool:
