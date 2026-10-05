@@ -437,3 +437,50 @@ class RenameResponse(FileInfo):
     report tracked=False and no media-specific details, plus an extra
     `is_directory` flag the frontend can ignore for now."""
     is_directory: bool = False
+
+
+class LoadAvg(BaseModel):
+    """os.getloadavg() — 1/5/15 minute averages."""
+    load_1m: float
+    load_5m: float
+    load_15m: float
+
+
+class LastSlowJob(BaseModel):
+    label: str
+    duration_s: float
+
+
+class SystemDiagnostics(BaseModel):
+    """Live runtime snapshot from tasks/loadcontrol.py::diagnostics() (#71)."""
+    cpu_count: Optional[int] = None
+    cpu_limit: Optional[float] = None
+    load_avg: LoadAvg
+    cpu_temperature_c: Optional[float] = None
+    throttled: bool
+    throttle_reason: Optional[str] = None
+    active_heavy_jobs: int
+    waiting_heavy_jobs: int
+    heavy_jobs_total: int
+    heavy_jobs_seconds_total: float
+    throttle_events: int
+    last_slow_job: Optional[LastSlowJob] = None
+    pool_queue_length: Optional[int] = None
+
+
+class SystemSettings(BaseModel):
+    """Effective load-management settings — read-only on the Settings page
+    for now (#71); editing them is a follow-up)."""
+    worker_pool_size: int
+    db_pool_size: int
+    db_max_overflow: int
+    heavy_job_concurrency: int
+    ffmpeg_threads: int
+    process_niceness: int
+    cpu_temp_limit_c: float
+    load_avg_limit: float
+
+
+class SystemDiagnosticsResponse(BaseModel):
+    settings: SystemSettings
+    runtime: SystemDiagnostics

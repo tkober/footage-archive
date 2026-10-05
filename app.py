@@ -20,11 +20,13 @@ from api.search import SearchApi
 from api.tracking import TrackingApi
 from api.tasks import TasksApi
 from api.troubleshoot import TroubleShootingApi
+from api.system import SystemApi
 from alembic import command
 from alembic.config import Config
 from env.environment import Environment
 from fileops.service import recover_pending_operations
 from fileops.trash import ensure_trash_dir
+from tasks.loadcontrol import read_cpu_limit, read_cpu_temperature
 
 env = Environment()
 
@@ -50,6 +52,22 @@ async def lifespan(application: FastAPI):
     except Exception:
         logger.exception('Failed to recover pending file operations on startup')
 
+    temp = read_cpu_temperature()
+    logger.info(
+        'Load settings (#71): worker_pool_size=%s heavy_job_concurrency=%s ffmpeg_threads=%s '
+        'process_niceness=%s cpu_temp_limit_c=%s load_avg_limit=%s cpu_count=%s cgroup_cpu_limit=%s '
+        'cpu_temperature=%s',
+        env.get_worker_pool_size(),
+        env.get_heavy_job_concurrency(),
+        env.get_ffmpeg_threads(),
+        env.get_process_niceness(),
+        env.get_cpu_temp_limit_c(),
+        env.get_load_avg_limit(),
+        os.cpu_count(),
+        read_cpu_limit(),
+        f'{temp:.1f}°C' if temp is not None else 'no sensor',
+    )
+
     application.include_router(AiApi)
     application.include_router(BaseApi)
     application.include_router(ConfigApi)
@@ -61,6 +79,7 @@ async def lifespan(application: FastAPI):
     application.include_router(TrackingApi)
     application.include_router(TasksApi)
     application.include_router(TroubleShootingApi)
+    application.include_router(SystemApi)
 
     yield
 
