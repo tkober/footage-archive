@@ -16,6 +16,8 @@ import { MediaCardComponent } from '../shared/media-card/media-card.component';
 import { LoadMoreFooterComponent } from '../shared/load-more-footer/load-more-footer.component';
 import { InfiniteScrollDirective } from '../shared/infinite-scroll/infinite-scroll.directive';
 import { ApiService } from '../services/api.service';
+import { PreviewCacheService } from '../services/preview-cache.service';
+import { TaskPollService } from '../services/task-poll.service';
 import { ToastService } from '../shared/toast/toast.service';
 import { DeleteItemResult, DeletePreviewResponse, DirectoryCounts, DirectoryKind, FileInfo, FileList, Location, MoveItemResult, MovePreviewResponse, PathChild, RenameResponse, VIDEO_TYPES, PHOTO_TYPES, formatDeletePreview, formatDurationTc } from '../models';
 
@@ -25,7 +27,7 @@ const SKELETON_CAP = 12;
 /** Single-key shortcuts on a focused card / folder tile → menu item id (#41).
     `Delete`/`Backspace` (macOS) move the focused tile to trash (#61). */
 const SHORTCUTS: Record<string, string> = {
-  ' ': 'open', F2: 'rename', m: 'move', k: 'keyword', l: 'list', t: 'track',
+  ' ': 'open', F2: 'rename', m: 'move', k: 'keyword', l: 'list', t: 'track', r: 'rescan',
   Delete: 'delete', Backspace: 'delete',
 };
 const FILE_OP_RESULT_TIMEOUT_MS = 6000;
@@ -72,6 +74,8 @@ export class BrowserComponent implements OnInit {
   private router = inject(Router);
   private route = inject(ActivatedRoute);
   private header = inject(HeaderService);
+  private previewCache = inject(PreviewCacheService);
+  private taskPoll = inject(TaskPollService);
 
   rootDir = signal<string | null>(null);
   /** `.trash` by default — folder under rootDir delete-to-trash moves into (#61). */
@@ -474,7 +478,9 @@ export class BrowserComponent implements OnInit {
     const tracked = entry.tracked === true && !!entry.md5_hash;
     return [
       { id: 'open', label: 'Open', icon: 'eye', shortcut: 'Space' },
-      ...(tracked ? [] : [{ id: 'track', label: 'Track file', icon: 'plus', shortcut: 'T' }]),
+      ...(tracked
+        ? [{ id: 'rescan', label: 'Rescan', icon: 'scan', shortcut: 'R' }]
+        : [{ id: 'track', label: 'Track file', icon: 'plus', shortcut: 'T' }]),
       { id: 'keyword', label: 'Add keyword…', icon: 'tag', shortcut: 'K', separatorBefore: true, disabled: !tracked },
       { id: 'list', label: 'Add to list…', icon: 'list', shortcut: 'L', disabled: !tracked },
       { id: 'rename', label: 'Rename', icon: 'edit', shortcut: 'F2', separatorBefore: true },
@@ -511,6 +517,9 @@ export class BrowserComponent implements OnInit {
         this.api.trackFile(entry.path).subscribe({
           next: () => { this.api.taskRefresh$.next(); this.toast.show(`Tracking ${entry.name}`); },
         });
+        break;
+      case 'rescan':
+        if (entry.md5_hash) this.startRescan([entry.md5_hash]);
         break;
       case 'rediscover':
         this.rediscoverPath.set(entry.path);
@@ -858,6 +867,37 @@ export class BrowserComponent implements OnInit {
   bulkMoveTo() {
     if (!this.bulkSelected().size) return;
     this.openMovePicker([...this.bulkSelected()]);
+  }
+
+  // ── Rescan (#64) ──
+
+  bulkRescan() {
+    const targets = this.bulkTrackedEntries();
+    if (!targets.length) return;
+    const skipped = this.bulkSelected().size - targets.length;
+    this.startRescan(targets.map(e => e.md5_hash!), skipped);
+  }
+
+  /** Starts POST /tracking/refresh for the given hashes (context menu, bulk
+      bar, or the detail panel's own open file) and, once the task finishes,
+      cache-busts their preview URL so the grid/detail panel pick up the
+      regenerated preview without a page reload. */
+  private startRescan(md5Hashes: string[], skipped = 0) {
+    if (!md5Hashes.length) return;
+    this.api.refreshFiles(md5Hashes).subscribe({
+      next: taskId => {
+        this.api.taskRefresh$.next();
+        this.toast.show(this.withSkipped('Rescan started — see tasks.', skipped));
+        this.taskPoll.pollUntilDone(taskId).subscribe(() => {
+          this.previewCache.bump(md5Hashes);
+          const sel = this.selectedFile();
+          if (sel?.md5_hash && md5Hashes.includes(sel.md5_hash)) {
+            this.api.getFileDetails(sel.path).subscribe({ next: info => this.selectedFile.set(info) });
+          }
+        });
+      },
+      error: () => this.toast.show("Couldn't start the rescan."),
+    });
   }
 
   // ── Move to trash (#61) ──

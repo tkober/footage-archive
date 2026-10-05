@@ -5,6 +5,7 @@ import { shareReplay } from 'rxjs/operators';
 
 import { environment } from '../../environments/environment';
 import { AddFilesToListResponse, Config, ConflictEntry, DeleteBatchResponse, DeletePreviewResponse, DirectoryQuery, DirectoryResponse, ExifTag, FileInfo, FileList, FileSearchQuery, ListItem, ListItemsResponse, Location, MapPoint, MissingFile, MkdirResponse, MoveItemResult, MovePreviewResponse, RemoveMissingFilesResponse, RenameResponse, ResolveBatchResponse, ResolveBatchStrategy, SearchResponse, ShotClassification, Task } from '../models';
+import { PreviewCacheService } from './preview-cache.service';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -16,7 +17,7 @@ export class ApiService {
   readonly conflictsChanged$ = new Subject<void>();
   private config$?: Observable<Config>;
 
-  constructor(private http: HttpClient) {}
+  constructor(private http: HttpClient, private previewCache: PreviewCacheService) {}
 
   /** Cached: /config is immutable per session and read by several consumers
       (app shell, Google Maps loader), so share a single request. */
@@ -51,8 +52,21 @@ export class ApiService {
     return this.http.post<string>(`${this.base}/tracking/scan-file`, { path, generate_clip_preview: true });
   }
 
+  /** Cache-busted (#64) via PreviewCacheService.bump() once a rescan task
+      completes — every caller (browser grid, search, lists, detail panel)
+      goes through this one builder, so none of them need their own cache
+      invalidation logic. */
   clipPreviewUrl(md5Hash: string): string {
-    return `${this.base}/files/clip-preview/${md5Hash}`;
+    const base = `${this.base}/files/clip-preview/${md5Hash}`;
+    const v = this.previewCache.versionFor(md5Hash);
+    return v ? `${base}?v=${v}` : base;
+  }
+
+  /** POST /tracking/refresh (#64) — "rescan" already-tracked files: re-probe
+      metadata and regenerate the preview for each hash without re-hashing.
+      Returns the started task's id. */
+  refreshFiles(md5Hashes: string[]): Observable<string> {
+    return this.http.post<string>(`${this.base}/tracking/refresh`, { md5_hashes: md5Hashes });
   }
 
   fetchFullImage(md5Hash: string): Observable<Blob> {
@@ -92,6 +106,10 @@ export class ApiService {
 
   getTasks(): Observable<Task[]> {
     return this.http.get<Task[]>(`${this.base}/tasks/`);
+  }
+
+  getTask(id: string): Observable<Task> {
+    return this.http.get<Task>(`${this.base}/tasks/${id}`);
   }
 
   deleteTask(id: string): Observable<Task> {

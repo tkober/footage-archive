@@ -162,6 +162,19 @@ class Database:
             for row in rows
         }
 
+    def touch_last_indexed_at(self, md5_hash: str) -> None:
+        """Bump Files.last_indexed_at to now for an already-tracked hash,
+        without touching any other column. Used by the rescan task (#64),
+        which builds a ScanResult from the existing Files row instead of
+        re-hashing, so the normal insert_scan_results() upsert (which would
+        also bump this) never runs."""
+        with get_engine().begin() as conn:
+            conn.execute(
+                update(files_table)
+                .where(files_table.c.md5_hash == md5_hash)
+                .values(last_indexed_at=func.now())
+            )
+
     def get_file_by_hash(self, md5_hash: str) -> Optional[dict]:
         stmt = select(files_table).where(files_table.c.md5_hash == md5_hash)
         with get_engine().connect() as conn:

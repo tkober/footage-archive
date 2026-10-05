@@ -256,6 +256,10 @@
               (click)="openBulkPop('list', listBtn)" title="Add the selected files to a list">
         <app-icon name="list" [size]="16" /><span class="lbl">Add to list</span>
       </button>
+      <button type="button" class="btn" [disabled]="bulkApplying() || !bulkTrackedCount()"
+              (click)="bulkRescan()" title="Rescan the selected tracked files (re-probe metadata and regenerate the preview)">
+        <app-icon name="scan" [size]="16" /><span class="lbl">Rescan</span>
+      </button>
       <button type="button" class="btn" [disabled]="bulkApplying() || !bulkSelected().size"
               (click)="bulkMoveTo()" title="Move the selected files to another folder">
         <app-icon name="move" [size]="16" /><span class="lbl">Move</span>

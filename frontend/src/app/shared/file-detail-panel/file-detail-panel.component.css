@@ -175,6 +175,7 @@
 }
 .link:hover:not(:disabled) { text-decoration: underline; }
 .link:disabled { opacity: .5; cursor: default; }
+.h3-acts { display: flex; gap: var(--space-3); }
 .hint { margin: 0; font-size: var(--fs-sm); color: var(--faint); }
 .err { font-size: var(--fs-sm); color: var(--danger); }
 .faint { color: var(--faint); }
