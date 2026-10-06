@@ -426,3 +426,49 @@ export interface ShotClassification {
   visual: ShotVisual;
   technical: ShotTechnical;
 }
+
+/** GET /system/diagnostics (#71) — read-only load-management settings +
+    live runtime diagnostics, shown on the Settings page's "Performance" section. */
+export interface SystemSettings {
+  worker_pool_size: number;
+  db_pool_size: number;
+  db_max_overflow: number;
+  heavy_job_concurrency: number;
+  ffmpeg_threads: number;
+  process_niceness: number;
+  cpu_temp_limit_c: number;
+  load_avg_limit: number;
+}
+
+export interface LoadAvg {
+  load_1m: number;
+  load_5m: number;
+  load_15m: number;
+}
+
+export interface LastSlowJob {
+  label: string;
+  duration_s: number;
+}
+
+export interface SystemDiagnostics {
+  cpu_count: number | null;
+  cpu_limit: number | null;
+  load_avg: LoadAvg;
+  cpu_usage_percent: number | null;
+  cpu_temperature_c: number | null;
+  throttled: boolean;
+  throttle_reason: string | null;
+  active_heavy_jobs: number;
+  waiting_heavy_jobs: number;
+  heavy_jobs_total: number;
+  heavy_jobs_seconds_total: number;
+  throttle_events: number;
+  last_slow_job: LastSlowJob | null;
+  pool_queue_length: number | null;
+}
+
+export interface SystemDiagnosticsResponse {
+  settings: SystemSettings;
+  runtime: SystemDiagnostics;
+}

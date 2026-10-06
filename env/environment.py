@@ -82,6 +82,32 @@ class Environment:
     def get_worker_pool_size(self) -> int:
         return int(self.loadEnvironmentVariable("WORKER_POOL_SIZE", "4"))
 
+    def get_ffmpeg_threads(self) -> int:
+        # Decoding threads per ffmpeg/ffprobe invocation. ffmpeg defaults to
+        # one thread per core, which multiplies badly with concurrent jobs.
+        return int(self.loadEnvironmentVariable("FFMPEG_THREADS", "2"))
+
+    def get_heavy_job_concurrency(self) -> int:
+        # Global ceiling on concurrent CPU-heavy jobs (ffmpeg previews, raw
+        # decoding, …), independent of the worker/task pool sizes (#71).
+        return int(self.loadEnvironmentVariable("HEAVY_JOB_CONCURRENCY", "2"))
+
+    def get_process_niceness(self) -> int:
+        # os.nice() delta applied to ffmpeg/ffprobe/exiftool child processes
+        # so they yield CPU to the rest of the system under load.
+        return int(self.loadEnvironmentVariable("PROCESS_NICENESS", "10"))
+
+    def get_cpu_temp_limit_c(self) -> float:
+        # Heavy jobs pause while the CPU is at/above this temperature (°C).
+        # 0 disables the temperature check (e.g. no readable sensor).
+        return float(self.loadEnvironmentVariable("CPU_TEMP_LIMIT_C", "85"))
+
+    def get_load_avg_limit(self) -> float:
+        # Heavy jobs pause while the 1-minute load average is at/above this
+        # value. 0 disables the check. Defaults to the CPU count.
+        default = str(float(os.cpu_count() or 1))
+        return float(self.loadEnvironmentVariable("LOAD_AVG_LIMIT", default))
+
     def get_db_pool_size(self) -> int:
         return int(self.loadEnvironmentVariable("DB_POOL_SIZE", "5"))
 

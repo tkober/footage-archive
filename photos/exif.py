@@ -1,13 +1,14 @@
 import io
 import json
 import logging
-import subprocess
 from pathlib import Path
 
 import numpy as np
 import rawpy
 from PIL import Image, ImageOps
 from pydantic import BaseModel
+
+from tasks.loadcontrol import heavy_slot, run_niced
 
 
 class PhotoProbeResult(BaseModel):
@@ -57,7 +58,7 @@ def dump_all_exif(file_path: str) -> list[dict]:
     come back as a human placeholder string ('(Binary data N bytes, ...)'), which we keep.
     """
     try:
-        result = subprocess.run(
+        result = run_niced(
             ['exiftool', '-json', '-G1', file_path],
             capture_output=True, text=True,
         )
@@ -80,7 +81,7 @@ def dump_all_exif(file_path: str) -> list[dict]:
 def probe_photo(md5_hash: str, file_path: str) -> PhotoProbeResult | None:
     """Extract photo metadata via exiftool. Used for all photo formats (JPEG, RW2, …)."""
     try:
-        result = subprocess.run(
+        result = run_niced(
             ['exiftool', '-json', *_EXIFTOOL_TAGS, file_path],
             capture_output=True, text=True,
         )
@@ -128,21 +129,22 @@ def probe_photo(md5_hash: str, file_path: str) -> PhotoProbeResult | None:
 
 def generate_photo_thumbnail(md5_hash: str, file_path: str, max_width: int = 600) -> bytes | None:
     try:
-        ext = Path(file_path).suffix.lower()
-        if ext == '.rw2':
-            img = _open_rw2(file_path)
-        else:
-            img = Image.open(file_path)
-            img = ImageOps.exif_transpose(img)
-        if img is None:
-            return None
-        if img.mode not in ('RGB', 'L'):
-            img = img.convert('RGB')
-        ratio = max_width / img.width
-        img = img.resize((max_width, int(img.height * ratio)), Image.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format='JPEG', quality=82)
-        return buf.getvalue()
+        with heavy_slot(f'photo thumbnail {file_path}'):
+            ext = Path(file_path).suffix.lower()
+            if ext == '.rw2':
+                img = _open_rw2(file_path)
+            else:
+                img = Image.open(file_path)
+                img = ImageOps.exif_transpose(img)
+            if img is None:
+                return None
+            if img.mode not in ('RGB', 'L'):
+                img = img.convert('RGB')
+            ratio = max_width / img.width
+            img = img.resize((max_width, int(img.height * ratio)), Image.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format='JPEG', quality=82)
+            return buf.getvalue()
     except Exception as e:
         logging.debug(f'Photo thumbnail generation failed for {file_path}: {e}')
         return None
@@ -157,14 +159,15 @@ def render_full_raw(file_path: str) -> bytes | None:
     detailed comparison view where resolution is the whole point.
     """
     try:
-        img = _open_rw2(file_path)  # full rawpy postprocess (works for any libraw RAW)
-        if img is None:
-            return None
-        if img.mode not in ('RGB', 'L'):
-            img = img.convert('RGB')
-        buf = io.BytesIO()
-        img.save(buf, format='JPEG', quality=92)
-        return buf.getvalue()
+        with heavy_slot(f'full raw render {file_path}'):
+            img = _open_rw2(file_path)  # full rawpy postprocess (works for any libraw RAW)
+            if img is None:
+                return None
+            if img.mode not in ('RGB', 'L'):
+                img = img.convert('RGB')
+            buf = io.BytesIO()
+            img.save(buf, format='JPEG', quality=92)
+            return buf.getvalue()
     except Exception as e:
         logging.debug(f'Full RAW render failed for {file_path}: {e}')
         return None

@@ -8,6 +8,9 @@ from pathlib import Path
 from PIL import Image
 from pydantic import BaseModel
 
+from env.environment import Environment
+from tasks.loadcontrol import heavy_slot, run_niced
+
 
 def _seconds_to_tc(seconds: int) -> str:
     hh = seconds // 3600
@@ -69,6 +72,46 @@ class ClipPreview(BaseModel):
     data: bytes
 
 
+def _build_frame_command(file_path: str, timestamp: str, width: int, height: int, out_file: str,
+                         keyframes_only: bool = True) -> list[str]:
+    """Shared ffmpeg command for pulling a single frame at `timestamp` from
+    `file_path`. `-threads` (before and after `-i`, covering decode and
+    encode) caps ffmpeg's threads instead of the default one-per-core, so
+    concurrent jobs don't multiply (#71). `keyframes_only` adds
+    `-skip_frame nokey`: the decoder skips everything but keyframes, so
+    the output is the first keyframe at/after `timestamp` instead of a frame
+    decoded forward from the previous keyframe, which is several times
+    cheaper on long-GOP 4K/HEVC footage. Past the last keyframe it yields
+    nothing, so callers fall back to `keyframes_only=False`."""
+    threads = str(Environment().get_ffmpeg_threads())
+    return [
+        'ffmpeg', '-nostdin', '-y',
+        '-threads', threads,
+        *(['-skip_frame', 'nokey'] if keyframes_only else []),
+        '-ss', timestamp,
+        '-i', file_path,
+        '-an', '-sn', '-dn',
+        '-vframes', '1',
+        '-vf', f'scale={width}:{height}',
+        '-threads', threads,
+        '-q:v', '2',
+        out_file,
+    ]
+
+
+def _extract_frame(file_path: str, timestamp: str, width: int, height: int,
+                   out_file: str) -> subprocess.CompletedProcess:
+    """Writes one frame to `out_file`: keyframe-only first, accurate decode
+    only when that produced nothing (timestamp past the last keyframe)."""
+    result = run_niced(_build_frame_command(file_path, timestamp, width, height, out_file),
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if not Path(out_file).exists():
+        result = run_niced(_build_frame_command(file_path, timestamp, width, height, out_file,
+                                                keyframes_only=False),
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return result
+
+
 class FFprobe:
 
     def probe_file(self, md5_hash: str, file_path: str) -> VideoProbeResult | None:
@@ -80,7 +123,7 @@ class FFprobe:
             "-show_format",
             "-show_streams",
         ]
-        result = subprocess.run(command, capture_output=True, text=True)
+        result = run_niced(command, capture_output=True, text=True)
         try:
             info = json.loads(result.stdout)
         except json.JSONDecodeError:
@@ -157,24 +200,19 @@ class FFmpeg:
             padding=10,
             max_keyframes=5
     ) -> ClipPreview:
-        frame_files = []
         timestamps = self.timestamp_for_keyframes(video, max_keyframes=max_keyframes)
-        for i, timestamp in enumerate(timestamps):
-            frame_file = f"{self._identifier}_{i}.jpeg"
-            command = [
-                'ffmpeg', '-y',
-                '-ss', timestamp,
-                '-i', video.file_path,
-                '-vframes', '1',
-                '-vf', f'scale={width}:{height}',
-                '-q:v', '2',
-                frame_file
-            ]
-            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            if Path(frame_file).exists():
-                frame_files.append(frame_file)
-            else:
-                logging.warning(f'ffmpeg failed to extract frame at {timestamp} from {video.file_path}: {result.stderr.decode(errors="replace")}')
+        frame_files = []
+        # The whole multi-frame extraction is one logical heavy job — the
+        # semaphore should reflect "N videos being previewed", not one slot
+        # per frame (#71).
+        with heavy_slot(f'clip preview {video.file_path}'):
+            for i, timestamp in enumerate(timestamps):
+                frame_file = f"{self._identifier}_{i}.jpeg"
+                result = _extract_frame(video.file_path, timestamp, width, height, frame_file)
+                if Path(frame_file).exists():
+                    frame_files.append(frame_file)
+                else:
+                    logging.warning(f'ffmpeg failed to extract frame at {timestamp} from {video.file_path}: {result.stderr.decode(errors="replace")}')
 
         if not frame_files:
             logging.warning(f'No frames extracted for {video.file_path}, skipping clip preview')
@@ -197,7 +235,7 @@ class FFmpeg:
         image_bytes = buffer.getvalue()
 
         for file in frame_files:
-            subprocess.run(['rm', file])
+            Path(file).unlink(missing_ok=True)
 
         return ClipPreview(
             md5_hash=video.md5_hash,
@@ -214,22 +252,14 @@ class FFmpeg:
         """Extract individual frames as a list of JPEG bytes, one per keyframe timestamp."""
         timestamps = self.timestamp_for_keyframes(video, max_keyframes=max_keyframes)
         frames = []
-        for i, timestamp in enumerate(timestamps):
-            frame_file = f"{self._identifier}_frame_{i}.jpeg"
-            command = [
-                'ffmpeg', '-y',
-                '-ss', timestamp,
-                '-i', video.file_path,
-                '-vframes', '1',
-                '-vf', f'scale={width}:{height}',
-                '-q:v', '2',
-                frame_file
-            ]
-            subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            path = Path(frame_file)
-            if path.exists():
-                frames.append(path.read_bytes())
-                path.unlink()
-            else:
-                logging.warning(f'ffmpeg failed to extract frame at {timestamp} from {video.file_path}')
+        with heavy_slot(f'frame extraction {video.file_path}'):
+            for i, timestamp in enumerate(timestamps):
+                frame_file = f"{self._identifier}_frame_{i}.jpeg"
+                _extract_frame(video.file_path, timestamp, width, height, frame_file)
+                path = Path(frame_file)
+                if path.exists():
+                    frames.append(path.read_bytes())
+                    path.unlink(missing_ok=True)
+                else:
+                    logging.warning(f'ffmpeg failed to extract frame at {timestamp} from {video.file_path}')
         return frames

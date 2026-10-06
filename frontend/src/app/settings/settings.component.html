@@ -15,3 +15,58 @@
     }
   </div>
 </section>
+
+<section class="section">
+  <h2 class="section-title">Performance</h2>
+  <p class="section-hint">
+    Load limits for video and photo processing. Set via environment variables
+    on the backend container.
+  </p>
+
+  <dl class="kv-list">
+    @for (row of settingsRows; track row.key) {
+      <div class="kv-row">
+        <dt>{{ row.label }}</dt>
+        <dd>{{ settingValue(row.key) }}</dd>
+      </div>
+    }
+  </dl>
+
+  @if (diagnostics(); as data) {
+    <div class="live-block" [class.throttled]="data.runtime.throttled">
+      <h3 class="live-title">Live</h3>
+      <dl class="kv-list">
+        <div class="kv-row">
+          <dt>Load average (1m / 5m / 15m)</dt>
+          <dd>{{ loadAvgLabel() }}</dd>
+        </div>
+        <div class="kv-row">
+          <dt>CPU usage</dt>
+          <dd>{{ data.runtime.cpu_usage_percent == null ? '—' : data.runtime.cpu_usage_percent + '%' }}</dd>
+        </div>
+        <div class="kv-row">
+          <dt>CPU temperature</dt>
+          <dd>{{ cpuTemperatureLabel() }}</dd>
+        </div>
+        <div class="kv-row">
+          <dt>CPU count</dt>
+          <dd>{{ cpuLabel() }}</dd>
+        </div>
+        <div class="kv-row">
+          <dt>Throttled</dt>
+          <dd>
+            @if (data.runtime.throttled) {
+              <span class="throttle-pill">Yes — {{ data.runtime.throttle_reason }}</span>
+            } @else {
+              No
+            }
+          </dd>
+        </div>
+        <div class="kv-row">
+          <dt>Heavy jobs (active / waiting)</dt>
+          <dd>{{ data.runtime.active_heavy_jobs }} / {{ data.runtime.waiting_heavy_jobs }}</dd>
+        </div>
+      </dl>
+    </div>
+  }
+</section>

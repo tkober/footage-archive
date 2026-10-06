@@ -1,3 +1,4 @@
+import logging
 from logging.config import fileConfig
 
 from alembic import context
@@ -12,7 +13,11 @@ from env.environment import Environment
 config = context.config
 config.set_main_option('sqlalchemy.url', Environment().get_owner_database_url())
 
-if config.config_file_name is not None:
+# app.py configures logging before it runs the migrations; applying alembic.ini
+# on top would raise the root level to WARN and disable every logger created so
+# far, silencing the app's own INFO/WARNING logs (#71). Only the alembic CLI,
+# which starts without handlers, gets the ini's logging setup.
+if config.config_file_name is not None and not logging.getLogger().handlers:
     fileConfig(config.config_file_name)
 
 target_metadata = metadata

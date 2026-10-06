@@ -4,7 +4,7 @@ import { Observable, Subject } from 'rxjs';
 import { shareReplay } from 'rxjs/operators';
 
 import { environment } from '../../environments/environment';
-import { AddFilesToListResponse, Config, ConflictEntry, DeleteBatchResponse, DeletePreviewResponse, DirectoryQuery, DirectoryResponse, ExifTag, FileInfo, FileList, FileSearchQuery, ListItem, ListItemsResponse, Location, MapPoint, MissingFile, MkdirResponse, MoveItemResult, MovePreviewResponse, RemoveMissingFilesResponse, RenameResponse, ResolveBatchResponse, ResolveBatchStrategy, SearchResponse, ShotClassification, Task } from '../models';
+import { AddFilesToListResponse, Config, ConflictEntry, DeleteBatchResponse, DeletePreviewResponse, DirectoryQuery, DirectoryResponse, ExifTag, FileInfo, FileList, FileSearchQuery, ListItem, ListItemsResponse, Location, MapPoint, MissingFile, MkdirResponse, MoveItemResult, MovePreviewResponse, RemoveMissingFilesResponse, RenameResponse, ResolveBatchResponse, ResolveBatchStrategy, SearchResponse, ShotClassification, SystemDiagnosticsResponse, Task } from '../models';
 import { PreviewCacheService } from './preview-cache.service';
 
 @Injectable({ providedIn: 'root' })
@@ -249,5 +249,11 @@ export class ApiService {
     return this.http.post<ResolveBatchResponse>(`${this.base}/tracking/conflicts/resolve-batch`, {
       strategy, md5_hashes: md5Hashes,
     });
+  }
+
+  // ── System diagnostics (#71) ──
+
+  getSystemDiagnostics(): Observable<SystemDiagnosticsResponse> {
+    return this.http.get<SystemDiagnosticsResponse>(`${this.base}/system/diagnostics`);
   }
 }

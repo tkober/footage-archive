@@ -21,7 +21,7 @@ class ScanResult(BaseModel):
 class Scanner:
     __block_size: int
 
-    def __init__(self, block_size: int = 4096):
+    def __init__(self, block_size: int = 1024 * 1024):
         self.__block_size = block_size
 
     def scan_directory(self, path: Path) -> [ScanResult]:

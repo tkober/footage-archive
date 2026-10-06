@@ -5,6 +5,10 @@
   max-width: 420px;
 }
 
+.section + .section {
+  margin-top: var(--space-6);
+}
+
 .section-title {
   font-size: var(--fs-lg);
   font-weight: 600;
@@ -21,3 +25,65 @@
 .seg {
   width: fit-content;
 }
+
+/* ── Performance section (#71) ───────────────────────────────────── */
+
+.kv-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+.kv-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-sm);
+}
+
+.kv-row:last-child {
+  border-bottom: none;
+}
+
+.kv-row dt {
+  color: var(--muted);
+}
+
+.kv-row dd {
+  margin: 0;
+  color: var(--text);
+  font-weight: 500;
+  text-align: right;
+  font-family: var(--mono);
+}
+
+.live-block {
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.live-block.throttled {
+  border-color: var(--danger);
+}
+
+.live-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .02em;
+  margin: 0 0 var(--space-2) 0;
+}
+
+.throttle-pill {
+  color: var(--danger);
+  font-weight: 600;
+}
+
