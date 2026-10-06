@@ -77,6 +77,7 @@ def _reset_loadcontrol_state(monkeypatch):
     """Each test gets a fresh semaphore/stats, and the throttle guard sees no
     sensor/limit by default so heavy_slot doesn't block on real host state."""
     monkeypatch.setattr(loadcontrol, '_semaphore', None)
+    monkeypatch.setattr(loadcontrol, '_interactive_semaphore', None)
     monkeypatch.setattr(loadcontrol, '_stats', {
         'active': 0, 'waiting': 0, 'heavy_jobs_total': 0,
         'heavy_jobs_seconds_total': 0.0, 'throttle_events': 0,
@@ -144,6 +145,86 @@ def test_throttle_guard_waits_then_proceeds(monkeypatch):
     snapshot = loadcontrol.diagnostics()
     assert snapshot['throttled'] is False
     assert snapshot['throttle_events'] == 1
+
+
+# --- interactive heavy_slot ---------------------------------------------------
+
+def test_interactive_slot_enters_immediately_while_batch_semaphore_is_held(monkeypatch):
+    """A fully-held batch semaphore (HEAVY_JOB_CONCURRENCY=1) must not block an
+    interactive render — it has its own semaphore."""
+    monkeypatch.setenv('HEAVY_JOB_CONCURRENCY', '1')
+
+    holder_ready = threading.Event()
+    release_holder = threading.Event()
+
+    def hold_batch_slot():
+        with loadcontrol.heavy_slot('batch holder'):
+            holder_ready.set()
+            release_holder.wait(timeout=5)
+
+    holder = threading.Thread(target=hold_batch_slot)
+    holder.start()
+    assert holder_ready.wait(timeout=5)
+
+    entered = threading.Event()
+    with loadcontrol.heavy_slot('interactive render', interactive=True):
+        entered.set()
+    assert entered.is_set()
+
+    release_holder.set()
+    holder.join(timeout=5)
+
+
+def test_interactive_slot_ignores_throttle(monkeypatch):
+    """An interactive render must not sleep in the throttle guard, even while
+    the host is reported as over its limits."""
+    monkeypatch.setattr(loadcontrol, '_throttle_reason', lambda: 'CPU temperature 99.0°C >= limit 85.0°C')
+    sleep_calls = []
+    monkeypatch.setattr(loadcontrol.time, 'sleep', lambda s: sleep_calls.append(s))
+
+    entered = []
+    with loadcontrol.heavy_slot('interactive render', interactive=True):
+        entered.append(True)
+
+    assert entered == [True]
+    assert sleep_calls == []
+
+
+def test_interactive_slots_are_serialized():
+    """Cap of 1: a second interactive render must not enter while the first
+    is still inside the slot."""
+    order = []
+    first_entered = threading.Event()
+    release_first = threading.Event()
+    second_entered = threading.Event()
+
+    def first():
+        with loadcontrol.heavy_slot('render a', interactive=True):
+            order.append('first-enter')
+            first_entered.set()
+            release_first.wait(timeout=5)
+        order.append('first-exit')
+
+    def second():
+        assert first_entered.wait(timeout=5)
+        with loadcontrol.heavy_slot('render b', interactive=True):
+            order.append('second-enter')
+            second_entered.set()
+
+    t1 = threading.Thread(target=first)
+    t2 = threading.Thread(target=second)
+    t1.start()
+    assert first_entered.wait(timeout=5)
+    t2.start()
+
+    # Second thread should be blocked waiting on the semaphore, not inside yet.
+    assert not second_entered.wait(timeout=0.2)
+
+    release_first.set()
+    t1.join(timeout=5)
+    t2.join(timeout=5)
+
+    assert order == ['first-enter', 'first-exit', 'second-enter']
 
 
 def test_cpu_times_parsed_from_proc_stat(tmp_path):

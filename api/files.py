@@ -244,7 +244,7 @@ async def get_file_details(path: str) -> FileInfo:
 
 
 @FilesApi.get('/exif')
-async def get_file_exif(path: str) -> list[ExifTag]:
+def get_file_exif(path: str) -> list[ExifTag]:
     root = Path(_env.get_root_dir())
     p = Path(path).resolve()
 
@@ -372,7 +372,7 @@ async def get_clip_preview(md5_hash: str):
 
 
 @FilesApi.get('/full-image/{md5_hash}')
-async def get_full_image(md5_hash: str):
+def get_full_image(md5_hash: str):
     """Full-resolution still: JPEG files as-is, RAW files as their embedded preview JPEG."""
     rec = Database().get_file_by_hash(md5_hash)
     if rec is None:
@@ -410,7 +410,7 @@ async def assign_location(request: AssignLocationRequest) -> FileInfo:
 
 
 @FilesApi.post('/checksum')
-async def get_checksum(query: FileQuery) -> FileDescriptor:
+def get_checksum(query: FileQuery) -> FileDescriptor:
     path = Path(query.path)
 
     if path.is_dir():

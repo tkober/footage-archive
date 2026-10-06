@@ -1,6 +1,7 @@
 import { Component, computed, effect, ElementRef, HostListener, inject, OnDestroy, signal, untracked, ViewChild, viewChild, input, output } from '@angular/core';
 import { DatePipe, JsonPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { GoogleMap, MapAdvancedMarker, MapGeocoder } from '@angular/google-maps';
 
 import { ModalComponent } from '../../modal/modal.component';
@@ -182,6 +183,7 @@ export class FileDetailPanelComponent implements OnDestroy {
   hqError    = signal(false);
   /** Viewer source: full-res once fetched, otherwise the ~600px preview. */
   viewerUrl  = computed(() => this.hqUrl() ?? this.previewUrl());
+  private hqSub?: Subscription;
   /** Aspect ratio (w/h) of the loaded image, so the frame hugs it (no narrow
       pillarbox). Re-measured on each load, so it adjusts when HQ swaps in. */
   viewerAspect = signal<number | null>(null);
@@ -392,7 +394,7 @@ export class FileDetailPanelComponent implements OnDestroy {
     if (!file?.md5_hash || this.hqFetching() || this.hqUrl()) return;
     this.hqFetching.set(true);
     this.hqError.set(false);
-    this.api.fetchFullImage(file.md5_hash).subscribe({
+    this.hqSub = this.api.fetchFullImage(file.md5_hash).subscribe({
       next: blob => {
         this.hqUrl.set(URL.createObjectURL(blob));
         this.hqFetching.set(false);
@@ -401,8 +403,12 @@ export class FileDetailPanelComponent implements OnDestroy {
     });
   }
 
-  /** Revoke any cached full-res object URL and clear HQ state. */
+  /** Revoke any cached full-res object URL, cancel a still-pending fetch, and
+      clear HQ state — called when the selected file changes so a stale
+      render can't land on the wrong file. */
   private resetHq() {
+    this.hqSub?.unsubscribe();
+    this.hqSub = undefined;
     const url = this.hqUrl();
     if (url) URL.revokeObjectURL(url);
     this.hqUrl.set(null);

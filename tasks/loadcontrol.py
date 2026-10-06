@@ -52,6 +52,11 @@ _HWMON_NAMES = {'coretemp', 'k10temp', 'zenpower', 'cpu_thermal'}
 _semaphore: threading.BoundedSemaphore | None = None
 _semaphore_lock = threading.Lock()
 
+# Separate, size-1 semaphore for interactive (user-triggered) renders — see
+# heavy_slot's `interactive` parameter.
+_interactive_semaphore: threading.BoundedSemaphore | None = None
+_interactive_semaphore_lock = threading.Lock()
+
 _stats_lock = threading.Lock()
 _stats = {
     'active': 0,
@@ -73,6 +78,15 @@ def _get_semaphore() -> threading.BoundedSemaphore:
                 size = Environment().get_heavy_job_concurrency()
                 _semaphore = threading.BoundedSemaphore(size)
     return _semaphore
+
+
+def _get_interactive_semaphore() -> threading.BoundedSemaphore:
+    global _interactive_semaphore
+    if _interactive_semaphore is None:
+        with _interactive_semaphore_lock:
+            if _interactive_semaphore is None:
+                _interactive_semaphore = threading.BoundedSemaphore(1)
+    return _interactive_semaphore
 
 
 def read_cpu_temperature(hwmon_root: Path = HWMON_ROOT, thermal_zone_root: Path = THERMAL_ZONE_ROOT) -> float | None:
@@ -249,7 +263,7 @@ def _wait_while_throttled():
 
 
 @contextmanager
-def heavy_slot(label: str):
+def heavy_slot(label: str, interactive: bool = False):
     """Context manager guarding a CPU-heavy unit of work (ffmpeg/exiftool/raw
     decode). Waits for the host's temperature/load to be back under the
     configured limits, then acquires a slot in the global heavy-job
@@ -258,13 +272,23 @@ def heavy_slot(label: str):
     Use this around a whole logical job (e.g. "generate this clip preview",
     not each individual ffmpeg call within it) so the semaphore reflects real
     concurrent heavy work.
+
+    `interactive=True` is for a single user-triggered render (e.g. "Load full
+    resolution"): it skips the throttle wait and the batch semaphore
+    entirely, using its own size-1 semaphore instead. A single render is
+    short — the throttle exists to protect the host from sustained batch
+    work, not a one-off — but the size-1 cap still keeps several interactive
+    renders (e.g. from the comparison view) from piling up concurrently.
     """
     # "waiting" covers both a throttle pause and a full semaphore.
     with _stats_lock:
         _stats['waiting'] += 1
     try:
-        _wait_while_throttled()
-        semaphore = _get_semaphore()
+        if interactive:
+            semaphore = _get_interactive_semaphore()
+        else:
+            _wait_while_throttled()
+            semaphore = _get_semaphore()
         semaphore.acquire()
     finally:
         with _stats_lock:
