@@ -4,7 +4,8 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, StrictStr
 
-from tasks.taskmanager import TaskManager, TaskStatus
+from tasks.activity import Activity
+from tasks.taskmanager import Task, TaskManager, TaskStatus
 
 TasksApi = APIRouter(prefix='/tasks')
 
@@ -19,11 +20,18 @@ class TaskDescription(BaseModel):
     last_updated: datetime
     error: Optional[str] = None
     progress: Optional[str] = None
+    # Only set while RUNNING (#93): ACTIVE = doing work right now, otherwise
+    # what it is waiting for (worker pool / heavy-job slot / throttle).
+    activity: Optional[Activity] = None
+
+
+def describe(task: Task) -> TaskDescription:
+    return TaskDescription(**task.model_dump(), activity=TaskManager().get_activity(task.id))
 
 
 @TasksApi.get('/')
 async def get_tasks() -> List[TaskDescription]:
-    return [TaskDescription(**t.model_dump()) for t in TaskManager().get_all_tasks()]
+    return [describe(t) for t in TaskManager().get_all_tasks()]
 
 
 @TasksApi.get('/{task_id}')
@@ -32,7 +40,7 @@ async def get_task(task_id: str) -> TaskDescription:
     if task is None:
         raise HTTPException(status_code=404, detail='Task not found')
 
-    return TaskDescription(**task.model_dump())
+    return describe(task)
 
 
 @TasksApi.delete('/completed')

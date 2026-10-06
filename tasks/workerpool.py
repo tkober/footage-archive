@@ -3,6 +3,7 @@ from threading import Lock
 from typing import Callable, Iterable, TypeVar
 
 from env.environment import Environment
+from tasks import activity
 
 T = TypeVar('T')
 R = TypeVar('R')
@@ -39,7 +40,19 @@ def parallel_map(items: Iterable[T], fn: Callable[[T], R]) -> list[R]:
         return []
     results: list[R] = [None] * len(items)  # type: ignore[list-item]
     pool = get_worker_pool()
-    futures = {pool.submit(fn, item): i for i, item in enumerate(items)}
-    for future in as_completed(futures):
-        results[futures[future]] = future.result()
+    # Carry the calling task's activity tracker over to the pool threads (#93),
+    # so the task reads as "waiting" while its items sit behind other work.
+    task_activity = activity.current()
+
+    def run(item: T) -> R:
+        with activity.started(task_activity):
+            return fn(item)
+
+    futures = {}
+    for i, item in enumerate(items):
+        activity.submitted(task_activity)
+        futures[pool.submit(run, item)] = i
+    with activity.idle():
+        for future in as_completed(futures):
+            results[futures[future]] = future.result()
     return results

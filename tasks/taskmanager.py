@@ -6,6 +6,10 @@ from typing import Callable, Dict, Optional, List
 from fastapi import BackgroundTasks
 from pydantic import BaseModel
 
+from tasks import activity
+from tasks.activity import Activity, TaskActivity
+from tasks.loadcontrol import is_throttled
+
 
 class TaskStatus(str, Enum):
     PENDING = "PENDING",
@@ -34,6 +38,8 @@ class Task(TaskRequest):
 class TaskManager:
     _instance = None
     _tasks: Dict[str, Task] = {}
+    # Live activity counters of RUNNING tasks (#93), dropped once they finish.
+    _activities: Dict[str, TaskActivity] = {}
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
@@ -71,12 +77,17 @@ class TaskManager:
             task.progress = message
             task.last_updated = datetime.now()
 
+        task_activity = TaskActivity()
+        self._activities[task_id] = task_activity
         try:
-            task.method(report)
+            with activity.bound(task_activity):
+                task.method(report)
             task.status = TaskStatus.COMPLETED
         except Exception as e:
             task.status = TaskStatus.FAILED
             task.error = str(e)
+        finally:
+            self._activities.pop(task_id, None)
 
         task.last_updated = datetime.now()
 
@@ -85,6 +96,14 @@ class TaskManager:
             return None
 
         return self._tasks[task_id]
+
+    def get_activity(self, task_id: str) -> Optional[Activity]:
+        """What a RUNNING task is doing right now (working vs. waiting for
+        capacity); None for any task that isn't running."""
+        task_activity = self._activities.get(task_id)
+        if task_activity is None:
+            return None
+        return task_activity.snapshot(throttled=is_throttled())
 
     def get_all_tasks(self) -> List[Task]:
         return list(self._tasks.values())
