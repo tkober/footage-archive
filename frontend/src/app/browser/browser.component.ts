@@ -195,11 +195,18 @@ export class BrowserComponent implements OnInit {
       whole directory, not from however many rows happen to be loaded/paged.
       With an extension filter active (#72), `counts.video`/`photo`/`untracked`
       no longer match what's actually loaded (they ignore `extension`), so
-      fall back to the loaded list lengths — simple, and accurate as long as
-      the filtered set fits on one page, which is the common case. */
-  videoCount     = computed(() => this.extFilter() !== null ? this.videoFiles().length : (this.counts()?.video ?? this.videoFiles().length));
-  photoCount     = computed(() => this.extFilter() !== null ? this.photoFiles().length : (this.counts()?.photo ?? this.photoFiles().length));
-  untrackedCount = computed(() => this.extFilter() !== null ? this.untrackedFiles().length : (this.counts()?.untracked ?? this.untrackedFiles().length));
+      count from the loaded rows instead (see `extSectionCount`). */
+  videoCount     = computed(() => this.extFilter() !== null ? this.extSectionCount(this.videoFiles().length) : (this.counts()?.video ?? this.videoFiles().length));
+  photoCount     = computed(() => this.extFilter() !== null ? this.extSectionCount(this.photoFiles().length) : (this.counts()?.photo ?? this.photoFiles().length));
+  untrackedCount = computed(() => this.extFilter() !== null ? this.extSectionCount(this.untrackedFiles().length) : (this.counts()?.untracked ?? this.untrackedFiles().length));
+
+  /** Section count under an extension filter: exact once everything is
+      loaded; while paging, `total` if this section holds every loaded row
+      (the usual case — one extension, one kind), else the loaded count. */
+  private extSectionCount(loaded: number): number {
+    if (!this.hasMore()) return loaded;
+    return loaded === this.entries().length ? this.total() : loaded;
+  }
 
   /** Filter segments: All / Videos / Stills / Untracked, hiding any
       zero-count segment except All. */
