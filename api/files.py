@@ -15,6 +15,7 @@ from api.dtos import (
 from api.preview_status import derive_preview_status
 from db.database import Database, UndoRenameFailedError
 from env.environment import Environment
+from env.hidden_files import is_hidden_system_file
 from fileops import service as fileops_service
 from fileops.pathlocks import PathLockedError
 from fileops.trash import is_in_trash
@@ -58,7 +59,7 @@ def _normalize_extension(extension: str | None) -> str | None:
     return extension
 
 
-def _count_direct_files(dir_path: Path, hidden: set[str]) -> int | None:
+def _count_direct_files(dir_path: Path, hidden_extensions: set[str], hidden_names: set[str]) -> int | None:
     """Direct, non-hidden file count for a subdirectory (not recursive).
     Cheap by design: os.scandir only, no hashing, no DB access. None if the
     subdirectory can't be read (permissions, race with a delete, ...)."""
@@ -66,9 +67,7 @@ def _count_direct_files(dir_path: Path, hidden: set[str]) -> int | None:
         count = 0
         with os.scandir(dir_path) as it:
             for entry in it:
-                if entry.name.startswith('._'):
-                    continue
-                if entry.is_file() and os.path.splitext(entry.name)[1].lower() not in hidden:
+                if entry.is_file() and not is_hidden_system_file(entry.name, hidden_extensions, hidden_names):
                     count += 1
         return count
     except OSError:
@@ -88,6 +87,7 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
         raise HTTPException(status_code=400, detail='Path is not a directory')
 
     hidden = set(_env.get_browser_hidden_extensions())
+    hidden_names = set(_env.get_browser_hidden_names())
     tracked = Database().get_tracked_files_in_directory(str(path))
 
     entries = [
@@ -99,7 +99,7 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
             tracked=e.name in tracked if e.is_file() else None,
             md5_hash=tracked[e.name]['md5_hash'] if e.is_file() and e.name in tracked else None,
             media_type=tracked[e.name]['media_type'] if e.is_file() and e.name in tracked else None,
-            file_count=_count_direct_files(e, hidden) if e.is_dir() else None,
+            file_count=_count_direct_files(e, hidden, hidden_names) if e.is_dir() else None,
             duration_tc=(
                 tracked[e.name]['duration_tc']
                 if e.is_file() and e.name in tracked
@@ -117,7 +117,7 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
         )
         for e in path.iterdir()
         if not e.name.startswith('._')
-        and (e.is_dir() or e.suffix.lower() not in hidden)
+        and (e.is_dir() or not is_hidden_system_file(e.name, hidden, hidden_names))
         and not is_in_trash(e)
     ]
 
