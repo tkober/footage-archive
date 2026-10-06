@@ -27,7 +27,7 @@ from fileops.pathlocks import shared
 from fileops.rediscover import apply as apply_rediscover, classify as classify_rediscover
 from fileops.trash import is_in_trash
 from ffmpeg.ffmpeg import FFmpegInput, FFmpeg, FFprobe, VideoProbeResult
-from photos.exif import probe_photo, generate_photo_thumbnail_with_status
+from photos.exif import probe_photo, generate_photo_thumbnail
 from scanner.scanner import Scanner, ScanResult
 from tasks.preview_registry import discard as discard_pending_preview, pending_previews
 from tasks.taskmanager import TaskManager, TaskRequest
@@ -584,6 +584,11 @@ def _probe_and_save(sc: ScanResult, db: Database, generate_clip_preview: bool) -
         if probe is None:
             logging.warning(f'FFprobe failed for {file_path}')
             _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=None)
+            if generate_clip_preview:
+                # No generate_preview call on this path, so record the outcome
+                # here — otherwise the file would show "missing" (#77).
+                db.set_preview_status(sc.md5_hash, 'failed', 'FFprobe could not read the file')
+                discard_pending_preview(sc.md5_hash)
             return False
 
         _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=probe.recorded_at)
@@ -702,7 +707,7 @@ def generate_preview(md5_hash: str, file_path: str, media_type: str | None,
             return create_clip_preview(probe)
 
         elif media_type in PHOTO_TYPES:
-            thumbnail, status, reason = generate_photo_thumbnail_with_status(md5_hash, file_path)
+            thumbnail, status, reason = generate_photo_thumbnail(md5_hash, file_path)
             if thumbnail:
                 Database().insert_raw_preview(md5_hash, thumbnail, identifier=md5_hash)
                 Database().set_preview_status(md5_hash, 'ok')

@@ -19,7 +19,6 @@ from db.engine import get_engine
 from db.models import files_table, preview_status_table
 from tasks.preview_registry import discard, is_pending, pending_previews
 
-TEST_PHOTO = Path(__file__).resolve().parent.parent / 'footage' / 'japan_2024' / 'photo' / 'atami' / 'P1011679.JPG'
 
 
 class _Report:
@@ -122,6 +121,44 @@ def test_unidentifiable_format_records_unsupported(db, root_dir):
     assert status is not None
     assert status['status'] == 'unsupported'
     assert '.dng' in status['reason']
+
+
+def test_corrupt_file_with_pillow_extension_records_failed_not_unsupported(db, root_dir):
+    # Pillow handles .jpg, so an unidentifiable .jpg is a broken file, not an
+    # unsupported format.
+    jpg_path = root_dir / 'broken.jpg'
+    jpg_path.write_bytes(b'garbage')
+    md5_hash = 'broken-jpg-hash'
+    _insert_file_row(str(root_dir), 'broken.jpg', md5_hash)
+
+    troubleshoot.generate_missing_clip_previews(_Report())
+
+    status = _get_preview_status_row(md5_hash)
+    assert status is not None
+    assert status['status'] == 'failed'
+
+
+def test_normal_scan_records_ffprobe_failure(db, root_dir):
+    # _probe_and_save returns before generate_preview when FFprobe fails —
+    # the scan path must still record 'failed' instead of leaving 'missing'.
+    from datetime import datetime
+    from api.tracking import _probe_and_save
+    from scanner.scanner import ScanResult
+
+    (root_dir / 'scan_broken.mp4').write_bytes(b'not a video')
+    md5_hash = 'scan-broken-video-hash'
+    _insert_file_row(str(root_dir), 'scan_broken.mp4', md5_hash, media_type='video')
+    sc = ScanResult(md5_hash=md5_hash, file_name='scan_broken.mp4', file_extension='.mp4',
+                    media_type='video', directory=str(root_dir), last_indexed_at=datetime.now())
+
+    with pending_previews([md5_hash]):
+        assert _probe_and_save(sc, Database(), generate_clip_preview=True) is False
+        assert not is_pending(md5_hash)
+
+    status = _get_preview_status_row(md5_hash)
+    assert status is not None
+    assert status['status'] == 'failed'
+    assert 'FFprobe' in status['reason']
 
 
 def test_video_with_no_frames_or_ffprobe_failure_records_failed(db, root_dir):

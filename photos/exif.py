@@ -127,37 +127,15 @@ def probe_photo(md5_hash: str, file_path: str) -> PhotoProbeResult | None:
     return probe
 
 
-def generate_photo_thumbnail(md5_hash: str, file_path: str, max_width: int = 600) -> bytes | None:
-    try:
-        with heavy_slot(f'photo thumbnail {file_path}'):
-            ext = Path(file_path).suffix.lower()
-            if ext == '.rw2':
-                img = _open_rw2(file_path)
-            else:
-                img = Image.open(file_path)
-                img = ImageOps.exif_transpose(img)
-            if img is None:
-                return None
-            if img.mode not in ('RGB', 'L'):
-                img = img.convert('RGB')
-            ratio = max_width / img.width
-            img = img.resize((max_width, int(img.height * ratio)), Image.LANCZOS)
-            buf = io.BytesIO()
-            img.save(buf, format='JPEG', quality=82)
-            return buf.getvalue()
-    except Exception as e:
-        logging.warning(f'Photo thumbnail generation failed for {file_path}: {e}')
-        return None
-
-
-def generate_photo_thumbnail_with_status(
+def generate_photo_thumbnail(
         md5_hash: str, file_path: str, max_width: int = 600,
 ) -> tuple[bytes | None, str, str | None]:
-    """Like ``generate_photo_thumbnail``, but also reports *why* it failed
-    (#77), so the caller can record a `PreviewStatus` outcome. PIL's
-    `UnidentifiedImageError` (format not recognised at all — e.g. an
-    Insta360 `.dng` PIL can't open) is reported as ``'unsupported'``; any
-    other failure (corrupt file, a rawpy decode error, ...) as ``'failed'``.
+    """600px-wide JPEG thumbnail (Pillow, EXIF-rotation-corrected; rawpy for
+    RW2) plus *why* it failed (#77), so the caller can record a
+    `PreviewStatus` outcome. PIL's `UnidentifiedImageError` on an extension
+    Pillow doesn't handle (e.g. an Insta360 `.dng`) is reported as
+    ``'unsupported'``; any other failure — incl. a corrupt file with an
+    extension Pillow does handle, a rawpy decode error, ... — as ``'failed'``.
     Returns ``(thumbnail_bytes, 'ok', None)`` on success."""
     ext = Path(file_path).suffix.lower()
     try:
@@ -178,6 +156,8 @@ def generate_photo_thumbnail_with_status(
             return buf.getvalue(), 'ok', None
     except UnidentifiedImageError as e:
         logging.warning(f'Photo thumbnail generation failed for {file_path}: {e}')
+        if ext in Image.registered_extensions():
+            return None, 'failed', str(e)
         return None, 'unsupported', f'Format not supported by the preview generator ({ext})'
     except Exception as e:
         logging.warning(f'Photo thumbnail generation failed for {file_path}: {e}')

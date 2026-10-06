@@ -57,7 +57,7 @@
           @if (file.preview_error) {
             <span class="reason">{{ file.preview_error }}</span>
           }
-          <button type="button" class="btn btn-ghost btn-sm" [disabled]="rescanning()" (click)="rescanFile()">
+          <button type="button" class="stage-retry" [disabled]="rescanning()" (click)="rescanFile()">
             {{ rescanning() ? 'Retrying…' : 'Retry' }}
           </button>
         </div>

@@ -56,6 +56,19 @@
 .stage-fmt .reason { max-width: 420px; text-align: center; color: var(--faint); font-size: var(--fs-xs); }
 .stage-fmt.failed .why, .stage-fmt.failed .reason { color: var(--preview-fail); }
 .stage-fmt.failed .ext { border-color: var(--preview-fail-line); color: var(--preview-fail); }
+/* The stage is always dark, so the button carries its own light-on-dark look. */
+.stage-retry {
+  margin-top: var(--space-2);
+  padding: 6px 14px;
+  border: 1px solid rgba(255, 255, 255, .28);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, .08);
+  color: #e7e9ec;
+  font: 500 var(--fs-sm) var(--font);
+  cursor: pointer;
+}
+.stage-retry:hover:not(:disabled) { background: rgba(255, 255, 255, .16); }
+.stage-retry:disabled { opacity: .55; cursor: default; }
 
 /* Video: all five frames of the clip preview at their native size */
 .frames {
