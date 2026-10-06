@@ -129,9 +129,7 @@
 .task .t2 {
   font-size: var(--fs-sm);
   color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere; /* fallback for segments longer than the panel */
 }
 
 .task.done .t2,

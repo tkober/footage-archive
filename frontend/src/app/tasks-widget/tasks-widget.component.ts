@@ -140,9 +140,17 @@ export class TasksWidgetComponent implements OnInit, OnDestroy {
     return this.tasks().some(t => t.status === 'COMPLETED' || t.status === 'FAILED');
   }
 
-  /** 340px like the prototype, but full-width with 8px margins on phones. */
+  /** 440px — wide enough for a task's description path to wrap readably —
+      but full-width with 8px margins on phones. */
   panelWidth(): number {
-    return typeof window !== 'undefined' && window.innerWidth <= 760 ? window.innerWidth - 16 : 340;
+    return typeof window !== 'undefined' && window.innerWidth <= 760 ? window.innerWidth - 16 : 440;
+  }
+
+  /** Splits a description so each `/` stays at the end of its segment,
+      letting the template insert a `<wbr>` after every slash — the text
+      wraps at directory boundaries instead of mid-path. */
+  descriptionSegments(description: string): string[] {
+    return description.split(/(?<=\/)/);
   }
 
   statusLabel(status: Task['status']): string {
