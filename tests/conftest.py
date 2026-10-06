@@ -97,4 +97,8 @@ def root_dir(tmp_path, monkeypatch):
     Environment class reads the env var fresh on every call, no caching."""
     resolved = tmp_path.resolve()
     monkeypatch.setenv('ROOT_DIR', str(resolved))
+    # alembic/env.py's load_dotenv() copies the developer's .env into
+    # os.environ; tests rely on the code defaults unless they set these.
+    monkeypatch.delenv('BROWSER_HIDDEN_EXTENSIONS', raising=False)
+    monkeypatch.delenv('BROWSER_HIDDEN_NAMES', raising=False)
     return resolved

@@ -171,6 +171,33 @@ def test_preview_delete_counts_files_tracked_sidecars_lists_and_keywords(db, roo
     assert preview.list_item_count == 1
 
 
+def test_preview_delete_counts_exclude_system_files(db, root_dir):
+    src_dir = root_dir / 'camera'
+    _mkfile(src_dir / 'clip.mov')
+    _mkfile(src_dir / '.DS_Store')
+    _mkfile(src_dir / 'fileinfo_list.list')
+    _insert_file_row(str(src_dir), 'clip.mov', 'h1', media_type='video')
+
+    preview = svc.preview_delete([str(src_dir)])
+
+    assert preview.file_count == 1  # system files excluded
+
+
+def test_trashing_directory_carries_along_system_files(db, root_dir):
+    src_dir = root_dir / 'camera'
+    _mkfile(src_dir / 'clip.mov')
+    _mkfile(src_dir / '.DS_Store')
+    _insert_file_row(str(src_dir), 'clip.mov', 'h1', media_type='video')
+
+    result = svc.delete_paths([str(src_dir)])
+
+    assert result.results[0].ok is True
+    trashed = Path(result.results[0].trash_path)
+    assert (trashed / 'clip.mov').exists()
+    assert (trashed / '.DS_Store').exists()  # travels along with the one physical dir rename
+    assert not src_dir.exists()
+
+
 # ---------------------------------------------------------------------------
 # Failure handling: rename failure rolls DB back; commit failure renames back
 # ---------------------------------------------------------------------------
@@ -372,6 +399,49 @@ def test_batch_dir_removed_when_nothing_succeeds(db, root_dir):
 
 
 # ---------------------------------------------------------------------------
+# _prune_empty_dirs (#81): a directory containing only system junk (by name/
+# ._ prefix) counts as empty — removed along with the junk. A sidecar
+# extension (.xmp) is real data, not junk, so it must NOT trigger removal.
+# ---------------------------------------------------------------------------
+
+def test_prune_empty_dirs_removes_dir_containing_only_system_files(root_dir):
+    target = root_dir / 'onlyjunk'
+    _mkfile(target / '.DS_Store')
+    _mkfile(target / 'Thumbs.db')
+    _mkfile(target / '._sidecar')
+
+    svc._prune_empty_dirs(target)
+
+    assert not target.exists()
+
+
+def test_prune_empty_dirs_keeps_dir_containing_real_sidecar(root_dir, monkeypatch):
+    monkeypatch.setenv('BROWSER_HIDDEN_EXTENSIONS', '.xmp')
+    target = root_dir / 'hasdata'
+    _mkfile(target / 'photo.xmp')
+    _mkfile(target / '.DS_Store')
+
+    svc._prune_empty_dirs(target)
+
+    assert target.exists()
+    assert (target / 'photo.xmp').exists()
+    # The junk file alongside the real sidecar is left too — the directory
+    # as a whole isn't "empty", so nothing inside it is touched.
+    assert (target / '.DS_Store').exists()
+
+
+def test_prune_empty_dirs_recurses_into_subdirectories(root_dir):
+    target = root_dir / 'batch'
+    nested = target / 'nested'
+    _mkfile(nested / '.DS_Store')
+
+    svc._prune_empty_dirs(target)
+
+    assert not nested.exists()
+    assert not target.exists()
+
+
+# ---------------------------------------------------------------------------
 # .trash-old must never be mistaken for the trash.
 # ---------------------------------------------------------------------------
 
@@ -431,3 +501,25 @@ def test_scan_directory_skips_files_inside_trash(root_dir):
     names = {r.file_name for r in results}
     assert 'photo.jpg' in names
     assert 'old.jpg' not in names
+
+
+# ---------------------------------------------------------------------------
+# Scanning never tracks system files (#81) — .DS_Store/Thumbs.db/desktop.ini
+# have no extension-based filtering today, so the scanner never finds them
+# on the media-extension whitelist anyway; this exercises the shared
+# predicate's name check directly to keep the rule exercised in one place.
+# ---------------------------------------------------------------------------
+
+def test_scanner_ignores_system_files(root_dir):
+    from scanner.scanner import Scanner
+
+    (root_dir / 'photo.jpg').write_bytes(b'x')
+    (root_dir / '.DS_Store').write_bytes(b'x')
+    (root_dir / 'Thumbs.db').write_bytes(b'x')
+    (root_dir / 'desktop.ini').write_bytes(b'x')
+    (root_dir / '._photo.jpg').write_bytes(b'x')
+
+    results = Scanner().scan_directory(root_dir)
+
+    names = {r.file_name for r in results}
+    assert names == {'photo.jpg'}

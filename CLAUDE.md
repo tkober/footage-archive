@@ -75,7 +75,8 @@ MEDIA_TYPE_VIDEO=.mov,.mp4
 MEDIA_TYPE_PHOTO=.jpg,.jpeg,.rw2,.dng
 MEDIA_TYPE_360_VIDEO=.insv
 MEDIA_TYPE_360_PHOTO=.insp
-BROWSER_HIDDEN_EXTENSIONS=.xmp,.acr,.psd,.lrv,.identifier
+BROWSER_HIDDEN_EXTENSIONS=.xmp,.acr,.psd,.lrv,.identifier,.list
+BROWSER_HIDDEN_NAMES=.DS_Store,Thumbs.db,desktop.ini
 # Delete-to-trash (#60): single folder name under ROOT_DIR; invalid values fail startup.
 TRASH_DIR_NAME=.trash
 # Google Maps (served to the frontend via /config). Blank = maps disabled.
@@ -164,7 +165,8 @@ Docker env vars to set on Unraid:
 - `MEDIA_TYPE_PHOTO=.jpg,.jpeg,.rw2,.dng`
 - `MEDIA_TYPE_360_VIDEO=.insv`
 - `MEDIA_TYPE_360_PHOTO=.insp`
-- `BROWSER_HIDDEN_EXTENSIONS=.xmp,.acr,.psd,.lrv,.identifier`
+- `BROWSER_HIDDEN_EXTENSIONS=.xmp,.acr,.psd,.lrv,.identifier,.list`
+- `BROWSER_HIDDEN_NAMES=.DS_Store,Thumbs.db,desktop.ini` (default, optional) — exact (case-insensitive) file names hidden from the browser (#81), for OS junk with no distinguishing extension
 - `TRASH_DIR_NAME=.trash` (default, optional) — single folder name (no `/`/`\`, not `.`/`..`) for the delete-to-trash directory created under `ROOT_DIR` (#60); an invalid value fails startup
 - `GOOGLE_MAPS_API_KEY=...` / `GOOGLE_MAPS_MAP_ID=...` (optional; enable the maps — see `GOOGLE_SETUP.md`)
 - `TASK_POLL_INTERVAL_MS=5000` (default, optional)
@@ -211,7 +213,7 @@ footage-archive/
 │   └── versions/           # Migration scripts (0001_initial_schema.py = full baseline, 0007_preview_status.py adds PreviewStatus, #77)
 ├── alembic.ini             # Alembic config (script_location, file_template, logging)
 ├── dbeaver/dev/            # One-off SQL to provision the dev Postgres (roles, db, grants)
-├── scanner/scanner.py      # recursive dir walk + MD5 hashing, media_type assignment; skips anything inside the trash (fileops/trash.py::is_in_trash, #60)
+├── scanner/scanner.py      # recursive dir walk + MD5 hashing, media_type assignment; skips anything inside the trash (fileops/trash.py::is_in_trash, #60) or a hidden system file (env/hidden_files.py::is_hidden_system_file, #81)
 ├── ffmpeg/ffmpeg.py        # FFprobe (full stream info → VideoProbeResult) + clip preview. `_build_frame_command` (#80) keeps the source aspect ratio: `scale=W:H:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=W:H:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1` (W/H = 320/180), so a non-16:9 source (portrait phone video, 360 dual-fisheye) is letter/pillarboxed within the exact WxH frame the filmstrip geometry relies on, instead of the old plain `scale=W:H` stretch; ffmpeg's default autorotate (no `-noautorotate`) means a rotated portrait phone video is already upright before this filter runs. Only regenerating a preview (Rescan) applies the new filter — existing stored previews aren't migrated.
 ├── photos/exif.py          # exiftool EXIF extraction → PhotoProbeResult (all photo formats); full-tag dump_all_exif(); Pillow/rawpy thumbnail generation — `generate_photo_thumbnail()` returns `(bytes|None, status, reason)` (#77) for `generate_preview`: PIL's `UnidentifiedImageError` on an extension Pillow doesn't handle → 'unsupported'; any `RAW_EXTENSIONS` format (`.rw2`/`.dng`/`.cr2`/`.cr3`/`.nef`/`.arw`/`.orf`/`.raf`, #78) always goes through rawpy instead of Pillow, so it's never 'unsupported', only 'failed' on a rawpy/libraw error, same as any other failure (incl. a corrupt .jpg); thumbnail/full-raw failures log at `warning`, not `debug`. RAW thumbnailing/full-image rendering (`_raw_thumbnail`/`render_full_raw`) prefers the camera's embedded preview (`_extract_raw_preview`, via rawpy's `extract_thumb()`) when it's wide enough, else falls back to a full libraw demosaic (`_postprocess_raw`, renamed from `_open_rw2` in #78, since it's no longer RW2-specific). Insta360 (`Make == 'Arashi Vision'`, detected via one cheap `exiftool -Make` call, #78): `use_auto_wb` instead of `use_camera_wb` (camera WB renders a strong magenta cast) and the two fisheye circles libraw returns stacked (portrait) are placed side by side (top → left, bottom → right) like the camera's own 2:1 `.insp` — every other camera is unaffected
 ├── davinci/davinciresolve.py  # DaVinci Resolve CSV metadata parser
@@ -219,6 +221,7 @@ footage-archive/
 ├── tasks/taskmanager.py    # in-memory singleton background task queue
 ├── tasks/preview_registry.py  # `pending_previews(hashes)` context manager + `discard()`/`is_pending()` (#77) — process-wide, thread-safe set of md5 hashes whose preview is queued/being generated right now (same single-process reasoning as fileops/pathlocks.py); wrapped around the scan/rescan/rediscover/missing-preview-repair batches so `preview_status`'s "generating" value is accurate while they run
 ├── env/environment.py      # env var reader with fallbacks; builds DB URLs from DB_URL + DB_USER/DB_OWNER_USER; get_trash_dir_name()/get_trash_dir() validate TRASH_DIR_NAME (single folder name, no '/'/'\', not '.'/'..') and raise ValueError on an invalid value (#60)
+├── env/hidden_files.py     # `is_hidden_system_file`/`is_system_junk_name` (#81) — shared predicates for OS/system junk (.DS_Store, Thumbs.db, desktop.ini, AppleDouble ._*), used by scanner/scanner.py, api/files.py and fileops/service.py so the rule lives in one place
 ├── sql/                    # LEGACY raw-SQL files (setup.sql etc.) — superseded by Alembic + db/models.py, no longer loaded
 └── frontend/               # Angular 21 app
     ├── Dockerfile          # Multi-stage: Node builds the prod bundle → nginx serves it
@@ -410,7 +413,9 @@ bring their own button/menu/toast styles.
 
 **media_type** starts from configurable extension maps (`MEDIA_TYPE_*` env vars): `video`, `photo`, `360_video`, `360_photo`, or NULL for unrecognised extensions — that's the family (video/photo) and, for `.insp`/`.insv` (proprietary, metadata-less Insta360 formats), the 360-ness too. For any other extension, `scanner/media_type.py::classify_media_type()` (#79) refines 360-ness from the file's actual metadata once it's probed (`_probe_and_save` in `api/tracking.py`): a photo is `360_photo` only if its EXIF `Make` is `Arashi Vision` (Insta360) or it carries an equirectangular/GPano projection tag, a video only if it carries an equirectangular/spherical projection tag (ffprobe `side_data_list` or exiftool `ProjectionType`) — `Make` alone is never enough for video, since an Insta360 camera's reframed flat MP4 exports must stay `video`. This means a `.dng` is no longer 360 just because it came from an Insta360 camera's extension list; a probe that disagrees with the stored value corrects it (`Database.set_media_type`) on the next scan/rescan of that file.
 
-**Sidecar/proxy files** (`.xmp`, `.acr`, `.psd`, `.lrv`, `.identifier`) are hidden from the browser via `BROWSER_HIDDEN_EXTENSIONS` but not prevented from being tracked if explicitly requested.
+**Sidecar/proxy files** (`.xmp`, `.acr`, `.psd`, `.lrv`, `.identifier`, Insta360's segmented-recording index `.list`) are hidden from the browser via `BROWSER_HIDDEN_EXTENSIONS` but not prevented from being tracked if explicitly requested.
+
+**OS/system junk files** (`.DS_Store`, `Thumbs.db`, `desktop.ini`, macOS AppleDouble `._*` sidecars, #81) are hidden from the browser, never tracked by the scanner, and excluded from every file count (directory listing's `file_count`, move/delete preview counts) via the shared predicate in `env/hidden_files.py` (`is_hidden_system_file`/`is_system_junk_name`, driven by `BROWSER_HIDDEN_NAMES` + the `._` prefix + `BROWSER_HIDDEN_EXTENSIONS`). Unlike the sidecar extensions above, they are pure junk — a directory whose only contents are junk files counts as *empty* for `fileops/service.py::_prune_empty_dirs` (junk deleted, then the now-empty directory itself); `is_system_junk_name` deliberately excludes `BROWSER_HIDDEN_EXTENSIONS` from that emptiness check, since a lone `.xmp` is real companion data, not junk. A directory move/rename/delete is one physical `os.rename`, so junk files inside travel along (or get trashed) with everything else automatically — nothing extra was needed there.
 
 ---
 

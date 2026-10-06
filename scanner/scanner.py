@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import BaseModel, StrictStr
 
 from env.environment import Environment
+from env.hidden_files import is_hidden_system_file
 from tasks.workerpool import parallel_map
 
 
@@ -31,6 +32,8 @@ class Scanner:
         env = Environment()
         considered_file_extensions = env.get_scanning_file_extensions()
         media_type_map = env.get_media_type_map()
+        hidden_extensions = set(env.get_browser_hidden_extensions())
+        hidden_names = set(env.get_browser_hidden_names())
         # Resolved once per scan: resolving every walked path would cost
         # extra syscalls per file on the NAS, so files are compared by abspath.
         trash_dir = env.get_trash_dir().resolve()
@@ -38,7 +41,12 @@ class Scanner:
         candidates = []
         for f in files:
             f_path = Path(f)
-            if f_path.name.startswith('._'):  # macOS AppleDouble sidecars, hidden in the browser too
+            # System files (.DS_Store, Thumbs.db, desktop.ini, AppleDouble
+            # ._* sidecars, #81) are never tracked. Their extension isn't in
+            # considered_file_extensions anyway, but the name check (._*,
+            # BROWSER_HIDDEN_NAMES) needs this explicit skip, and routing it
+            # through the shared predicate keeps the rule in one place.
+            if is_hidden_system_file(f_path.name, hidden_extensions, hidden_names):
                 continue
             if Path(os.path.abspath(f_path)).is_relative_to(trash_dir):  # never (re)track anything inside the trash
                 continue

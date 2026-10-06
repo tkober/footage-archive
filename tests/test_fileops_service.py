@@ -403,6 +403,40 @@ def test_preview_move_counts_files_and_tracked_and_sidecars(db, root_dir, monkey
     assert preview.sidecars == [str(sidecar)]
 
 
+def test_preview_move_counts_exclude_system_files(db, root_dir):
+    src_dir = root_dir / 'camera'
+    _mkfile(src_dir / 'clip.mov')
+    _mkfile(src_dir / '.DS_Store')
+    _mkfile(src_dir / 'Thumbs.db')
+    _insert_file_row(str(src_dir), 'clip.mov', 'h1', media_type='video')
+
+    target = root_dir / 'target'
+    target.mkdir()
+
+    preview = svc.preview_move([str(src_dir)], str(target))
+
+    assert preview.file_count == 1  # system files excluded
+    assert preview.tracked_count == 1
+
+
+def test_moving_directory_carries_along_system_files(db, root_dir):
+    src_dir = root_dir / 'camera'
+    _mkfile(src_dir / 'clip.mov')
+    _mkfile(src_dir / '.DS_Store')
+    _insert_file_row(str(src_dir), 'clip.mov', 'h1', media_type='video')
+
+    target = root_dir / 'target'
+    target.mkdir()
+
+    results = svc.move_paths([str(src_dir)], str(target))
+
+    assert results[0].ok is True
+    new_dir = Path(results[0].new_path)
+    assert (new_dir / 'clip.mov').exists()
+    assert (new_dir / '.DS_Store').exists()  # travels along with the one physical dir rename
+    assert not src_dir.exists()
+
+
 # ---------------------------------------------------------------------------
 # TOCTOU: target appearing between up-front validation and the physical
 # rename must never be silently overwritten by os.rename.

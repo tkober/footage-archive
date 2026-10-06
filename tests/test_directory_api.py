@@ -359,3 +359,65 @@ def test_trash_dir_is_hidden_from_directory_listing(db, root_dir):
     assert '.trash' not in names
     assert '.trash-old' in names
     assert 'photo.jpg' in names
+
+
+# ---------------------------------------------------------------------------
+# System files hidden from the browser (#81): .DS_Store, Thumbs.db,
+# desktop.ini, Insta360's fileinfo_list.list, AppleDouble ._* sidecars.
+# ---------------------------------------------------------------------------
+
+def test_system_files_excluded_from_listing_and_counts(db, root_dir):
+    client = _make_client()
+
+    (root_dir / 'photo.jpg').write_bytes(b'x')
+    (root_dir / '.DS_Store').write_bytes(b'x')
+    (root_dir / 'Thumbs.db').write_bytes(b'x')
+    (root_dir / 'THUMBS.DB').write_bytes(b'x')  # case-insensitive match — same name as above on a
+                                                 # case-sensitive filesystem these coexist, that's fine
+    (root_dir / 'desktop.ini').write_bytes(b'x')
+    (root_dir / 'fileinfo_list.list').write_bytes(b'x')
+    (root_dir / '._photo.jpg').write_bytes(b'x')
+    (root_dir / 'a_real_untracked_file.txt').write_bytes(b'x')
+    _insert_file_row(str(root_dir), 'photo.jpg', 'h1', media_type='photo')
+
+    body = _list_dir(client, root_dir)
+    names = {e['name'] for e in body['items']}
+    assert names == {'photo.jpg', 'a_real_untracked_file.txt'}
+    assert body['counts'] == {
+        'directories': 0, 'video': 0, 'photo': 1, 'untracked': 1,
+        'extensions': {'.jpg': 1, '.txt': 1},
+    }
+
+
+def test_file_count_excludes_system_files(db, root_dir):
+    client = _make_client()
+
+    sub = root_dir / 'sub'
+    sub.mkdir()
+    (sub / 'a.jpg').write_bytes(b'x')
+    (sub / '.DS_Store').write_bytes(b'x')
+    (sub / 'Thumbs.db').write_bytes(b'x')
+    (sub / 'desktop.ini').write_bytes(b'x')
+    (sub / 'fileinfo_list.list').write_bytes(b'x')
+    (sub / '._a.jpg').write_bytes(b'x')
+
+    only_system_files = root_dir / 'Camera01'
+    only_system_files.mkdir()
+    (only_system_files / '.DS_Store').write_bytes(b'x')
+
+    body = _list_dir(client, root_dir)
+    by_name = {e['name']: e for e in body['items']}
+    assert by_name['sub']['file_count'] == 1
+    assert by_name['Camera01']['file_count'] == 0
+
+
+def test_browser_hidden_names_env_override(db, root_dir, monkeypatch):
+    monkeypatch.setenv('BROWSER_HIDDEN_NAMES', 'custom_junk.dat')
+    client = _make_client()
+
+    (root_dir / 'custom_junk.dat').write_bytes(b'x')
+    (root_dir / '.DS_Store').write_bytes(b'x')  # no longer hidden — override replaces the default
+
+    body = _list_dir(client, root_dir)
+    names = {e['name'] for e in body['items']}
+    assert names == {'.DS_Store'}

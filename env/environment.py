@@ -142,5 +142,12 @@ class Environment:
         return mapping
 
     def get_browser_hidden_extensions(self) -> list[str]:
-        raw = self.loadEnvironmentVariable("BROWSER_HIDDEN_EXTENSIONS", ".xmp,.acr,.psd,.lrv,.identifier")
+        raw = self.loadEnvironmentVariable("BROWSER_HIDDEN_EXTENSIONS", ".xmp,.acr,.psd,.lrv,.identifier,.list")
         return [e.strip().lower() for e in raw.split(",") if e.strip()]
+
+    def get_browser_hidden_names(self) -> list[str]:
+        # Exact (case-insensitive) file names hidden from the browser (#81) —
+        # OS-generated junk that doesn't carry a distinguishing extension, so
+        # BROWSER_HIDDEN_EXTENSIONS can't filter it (e.g. .DS_Store has none).
+        raw = self.loadEnvironmentVariable("BROWSER_HIDDEN_NAMES", ".DS_Store,Thumbs.db,desktop.ini")
+        return [n.strip().lower() for n in raw.split(",") if n.strip()]

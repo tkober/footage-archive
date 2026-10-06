@@ -26,6 +26,7 @@ from typing import Optional
 
 from db.database import Database, UndoRenameFailedError
 from env.environment import Environment
+from env.hidden_files import is_hidden_system_file, is_system_junk_name
 from fileops.pathlocks import PathLockedError, try_exclusive
 from fileops.trash import ensure_trash_dir, is_in_trash
 
@@ -113,6 +114,10 @@ def _hidden_extensions() -> set[str]:
     return set(Environment().get_browser_hidden_extensions())
 
 
+def _hidden_names() -> set[str]:
+    return set(Environment().get_browser_hidden_names())
+
+
 def _validate_name(name: str) -> str:
     name = name.strip()
     if not name or '/' in name or '\\' in name or name in ('.', '..'):
@@ -163,9 +168,16 @@ def _sidecars_for(file_path: Path) -> list[Path]:
 
 
 def _count_files_recursive(directory: Path) -> int:
+    """Recursive file count used by preview_move/preview_delete and the
+    trashed-directory untracked-count in _delete_one. Excludes hidden system
+    files (#81: ._* AppleDouble sidecars, BROWSER_HIDDEN_NAMES, and
+    BROWSER_HIDDEN_EXTENSIONS sidecars) — a folder containing only a
+    .DS_Store shouldn't inflate a move/delete's reported file count."""
+    hidden_extensions = _hidden_extensions()
+    hidden_names = _hidden_names()
     total = 0
     for _root_dir, _dirs, files in os.walk(directory):
-        total += len(files)
+        total += sum(1 for f in files if not is_hidden_system_file(f, hidden_extensions, hidden_names))
     return total
 
 
@@ -529,13 +541,28 @@ def _make_batch_dir() -> Path:
 def _prune_empty_dirs(directory: Path) -> None:
     """Remove `directory` and any empty subdirectory left behind by a
     partially/wholly failed batch (e.g. a target's parent dirs were created
-    but the rename itself never happened)."""
+    but the rename itself never happened).
+
+    A directory whose only entries are system junk (#81: ._* AppleDouble
+    sidecars or a BROWSER_HIDDEN_NAMES match — never a BROWSER_HIDDEN_EXTENSIONS
+    sidecar like .xmp, which is real companion data) counts as empty too:
+    those junk files are deleted, then the directory itself. os.walk with
+    topdown=False visits children first, so by the time a parent is checked
+    any subdirectory that was itself prunable is already gone — a remaining
+    subdirectory correctly keeps the parent from being treated as empty."""
     if not directory.exists():
         return
+    hidden_names = _hidden_names()
     for dirpath, _dirnames, _filenames in os.walk(directory, topdown=False):
         p = Path(dirpath)
         try:
-            if not any(p.iterdir()):
+            entries = list(p.iterdir())
+            if not entries:
+                p.rmdir()
+                continue
+            if all(e.is_file() and is_system_junk_name(e.name, hidden_names) for e in entries):
+                for e in entries:
+                    e.unlink()
                 p.rmdir()
         except OSError:
             pass
