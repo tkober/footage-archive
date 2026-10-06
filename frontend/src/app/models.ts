@@ -221,7 +221,15 @@ export interface MapPoint {
   bbox_south: number | null;
   bbox_east: number | null;
   bbox_north: number | null;
-  // Per-member details for small all-stills clusters (inline thumbnails)
+  // Date range (EXIF text, "YYYY:MM:DD HH:MM:SS") spanning every member;
+  // null if no member in the cluster has a recorded_at.
+  date_from: string | null;
+  date_to: string | null;
+  // Most common place name among members (city, falling back to country);
+  // null if no member has a location.
+  place: string | null;
+  // Per-member preview (up to 7, newest first) for every cluster — small
+  // clusters can show each photo inline, larger ones a representative sample.
   members: MapMember[] | null;
 }
 

@@ -5,6 +5,8 @@ from typing import Callable, Optional
 
 import pandas as pd
 from sqlalchemy import and_, case, delete, func, select, tuple_, update
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.dialects.postgresql import aggregate_order_by
 from sqlalchemy.exc import IntegrityError
 
 from db.engine import get_engine, upsert, upsert_ignore
@@ -366,6 +368,9 @@ class Database:
                 files_table.c.media_type,
                 coalesce_lat.label('lat'),
                 coalesce_lon.label('lon'),
+                file_details_table.c.recorded_at,
+                locations_table.c.city,
+                locations_table.c.country,
             )
             .select_from(
                 files_table
@@ -394,6 +399,25 @@ class Database:
         lon_cell = func.round(subq.c.lon / cell) * cell
         is_video_expr = subq.c.media_type.in_(['video', '360_video'])
 
+        # Preview members, newest first (NULL recorded_at last), capped at 7
+        # *inside SQL* — aggregating every member and trimming in Python would
+        # mean pulling and discarding the full member list for every large
+        # cluster. `recorded_at` is EXIF text (`YYYY:MM:DD HH:MM:SS`), so it
+        # sorts correctly as text; md5_hash breaks ties deterministically.
+        member_order = aggregate_order_by(
+            func.json_build_object(
+                'md5_hash', subq.c.md5_hash,
+                'file_name', subq.c.file_name,
+                'directory', subq.c.directory,
+                'media_type', subq.c.media_type,
+            ),
+            subq.c.recorded_at.desc().nullslast(),
+            subq.c.md5_hash.asc(),
+        )
+        members_expr = func.to_json(
+            func.array_agg(member_order, type_=postgresql.ARRAY(postgresql.JSONB))[1:7]
+        )
+
         cluster_stmt = (
             select(
                 func.avg(subq.c.lat).label('latitude'),
@@ -412,17 +436,21 @@ class Database:
                 func.max(subq.c.lat).label('bbox_north'),
                 func.min(subq.c.lon).label('bbox_west'),
                 func.max(subq.c.lon).label('bbox_east'),
-                # Per-member details so a small all-stills leaf can show each photo
-                # inline (kept only for those clusters — see trim below — so the
-                # payload stays small for large clusters).
-                func.json_agg(
-                    func.json_build_object(
-                        'md5_hash', subq.c.md5_hash,
-                        'file_name', subq.c.file_name,
-                        'directory', subq.c.directory,
-                        'media_type', subq.c.media_type,
-                    )
-                ).label('members'),
+                # Date range over every member (min/max ignore NULLs; None if
+                # no member in the cluster has a recorded_at at all).
+                func.min(subq.c.recorded_at).label('date_from'),
+                func.max(subq.c.recorded_at).label('date_to'),
+                # Most common place name among members: city, falling back to
+                # country when no member has a city, else None. mode() WITHIN
+                # GROUP ignores NULL inputs as long as at least one row isn't NULL.
+                func.coalesce(
+                    func.mode().within_group(subq.c.city),
+                    func.mode().within_group(subq.c.country),
+                ).label('place'),
+                # Per-member preview, at most 7, newest first — every cluster
+                # gets one now (not just small all-stills leaves), so the map
+                # can show a preview strip regardless of cluster size/content.
+                members_expr.label('members'),
             )
             .select_from(subq)
             .group_by(lat_cell, lon_cell)
@@ -430,15 +458,7 @@ class Database:
 
         with get_engine().connect() as conn:
             rows = conn.execute(cluster_stmt).fetchall()
-        result = []
-        for row in rows:
-            r = row._asdict()
-            # Only expose member lists for small, all-stills clusters (the map
-            # renders their thumbnails); drop otherwise to keep responses lean.
-            if not (1 < r['count'] < 5 and r['video_count'] == 0):
-                r['members'] = None
-            result.append(r)
-        return result
+        return [row._asdict() for row in rows]
 
     _FACET_COLS = {
         'camera_make':  photo_details_table.c.camera_make,

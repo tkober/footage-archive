@@ -338,7 +338,15 @@ class MapPoint(BaseModel):
     bbox_south: Optional[float] = None
     bbox_east: Optional[float] = None
     bbox_north: Optional[float] = None
-    # Per-member details for small all-stills clusters (inline thumbnails).
+    # Date range (EXIF text, "YYYY:MM:DD HH:MM:SS") spanning every member;
+    # None if no member in the cluster has a recorded_at.
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    # Most common place name among members (city, falling back to country);
+    # None if no member has a location.
+    place: Optional[str] = None
+    # Per-member preview (up to 7, newest first) for every cluster — small
+    # clusters can show each photo inline, larger ones a representative sample.
     members: Optional[list[MapMember]] = None
 
 
