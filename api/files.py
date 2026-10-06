@@ -26,8 +26,8 @@ FilesApi = APIRouter(prefix='/files')
 _env = Environment()
 
 # Full-image endpoint: JPEG-family stills are served as-is; RAW stills
-# (RAW_EXTENSIONS, #78) return their embedded preview JPEG when the camera
-# wrote one, else a full rawpy render. (.insp is JPEG-based → passthrough.)
+# (RAW_EXTENSIONS, #78) get a full-resolution rawpy render (render_full_raw).
+# (.insp is JPEG-based → passthrough.)
 _FULL_IMAGE_JPEG_EXTS = {'.jpg', '.jpeg', '.insp'}
 
 # Media-type classification mirroring the frontend's VIDEO_TYPES/PHOTO_TYPES

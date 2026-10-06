@@ -1,7 +1,7 @@
 """Tests for RAW thumbnail/full-image generation (#78): every extension in
 `RAW_EXTENSIONS` is sent through rawpy — never Pillow — so a RAW file is
 never recorded 'unsupported'; and the Insta360 (Arashi Vision) correction
-(auto WB instead of camera WB + landscape rotation) is applied only for that
+(auto WB instead of camera WB + fisheyes side by side) is applied only for that
 make. Pure-unit tests below monkeypatch rawpy/exiftool so they don't need
 real footage; the two at the bottom use the real Nagasaki DNG + atami RW2
 and are skipped if that footage isn't present (see CLAUDE.md "Test footage")."""
@@ -56,8 +56,8 @@ def test_garbage_non_raw_extension_is_unsupported(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Insta360 rule: Arashi Vision → use_auto_wb + rotation; every other make
-# keeps use_camera_wb and no rotation. Mock exiftool's Make lookup and
+# Insta360 rule: Arashi Vision → use_auto_wb + fisheyes side by side; every other make
+# keeps use_camera_wb and no rearranging. Mock exiftool's Make lookup and
 # rawpy.imread so no real footage is needed.
 # ---------------------------------------------------------------------------
 
@@ -79,25 +79,31 @@ class _FakeRawPostprocess:
         raise rawpy.LibRawNoThumbnailError('no thumb')
 
 
-def test_insta360_make_gets_auto_wb_and_rotation(tmp_path, monkeypatch):
+def test_insta360_make_gets_auto_wb_and_fisheyes_side_by_side(tmp_path, monkeypatch):
     dng = tmp_path / 'fake.dng'
     dng.write_bytes(b'x')
 
     monkeypatch.setattr(exif_module, '_camera_make', lambda path: 'Arashi Vision')
-    # Portrait raw (height > width), like a real Insta360 DNG.
-    fake = _FakeRawPostprocess(_fake_rgb(width=40, height=80))
+    # Portrait raw (height > width), like a real Insta360 DNG: red top
+    # fisheye, blue bottom fisheye.
+    rgb = _fake_rgb(width=40, height=80)
+    rgb[:40] = (255, 0, 0)
+    rgb[40:] = (0, 0, 255)
+    fake = _FakeRawPostprocess(rgb)
     monkeypatch.setattr(rawpy, 'imread', lambda path: fake)
 
     img = exif_module._postprocess_raw(str(dng), half_size=True)
 
     assert fake.postprocess_kwargs['use_auto_wb'] is True
     assert 'use_camera_wb' not in fake.postprocess_kwargs
-    # Portrait input (40x80) rotated 90° → landscape (80x40).
+    # Stacked fisheyes (40x80) → side by side (80x40), top half on the left.
     assert img.width == 80
     assert img.height == 40
+    assert img.getpixel((0, 0)) == (255, 0, 0)
+    assert img.getpixel((40, 0)) == (0, 0, 255)
 
 
-def test_non_insta360_make_keeps_camera_wb_no_rotation(tmp_path, monkeypatch):
+def test_non_insta360_make_keeps_camera_wb_unchanged_layout(tmp_path, monkeypatch):
     rw2 = tmp_path / 'fake.rw2'
     rw2.write_bytes(b'x')
 
@@ -109,7 +115,7 @@ def test_non_insta360_make_keeps_camera_wb_no_rotation(tmp_path, monkeypatch):
 
     assert fake.postprocess_kwargs['use_camera_wb'] is True
     assert 'use_auto_wb' not in fake.postprocess_kwargs
-    # No rotation — stays portrait.
+    # Not rearranged — stays portrait.
     assert img.width == 40
     assert img.height == 80
 

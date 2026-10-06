@@ -17,9 +17,9 @@ from tasks.loadcontrol import heavy_slot, run_niced
 RAW_EXTENSIONS = {'.rw2', '.dng', '.cr2', '.cr3', '.nef', '.arw', '.orf', '.raf'}
 
 # Insta360 X3 (and presumably other Insta360 models) write their DNG's Make tag
-# as this value. Those DNGs decode with a strong magenta cast under camera WB
-# and come out of libraw portrait instead of the camera's own landscape 2:1
-# (.insp) framing — both corrected in _postprocess_raw (#78).
+# as this value. Those DNGs decode with a strong magenta cast under camera WB,
+# and libraw returns the two fisheye circles stacked (portrait) instead of side
+# by side like the camera's own 2:1 .insp — both corrected in _postprocess_raw (#78).
 _INSTA360_MAKE = 'Arashi Vision'
 
 
@@ -189,18 +189,14 @@ def _raw_thumbnail(file_path: str, max_width: int) -> Image.Image | None:
 def render_full_raw(file_path: str) -> bytes | None:
     """Native-resolution JPEG from a RAW file (any `RAW_EXTENSIONS` format, #78).
 
-    Prefers the camera's embedded preview when the RAW carries one (fast —
-    e.g. the ~500KB JPEG Lumix RW2 embeds); otherwise falls back to the full
-    libraw postprocess to get the original sensor resolution (slower, but
-    this backs the detailed comparison view where resolution is the whole
-    point). Insta360 .dng carries no embedded preview, so it always takes the
-    postprocess path.
+    The camera's *embedded* preview is only a reduced-size JPEG (e.g. 1920×1440 on
+    Lumix), so we run the full libraw postprocess instead to get the original
+    resolution. Slower than reading the embedded thumb, but this backs the
+    detailed comparison view where resolution is the whole point.
     """
     try:
         with heavy_slot(f'full raw render {file_path}'):
-            img = _extract_raw_preview(file_path)
-            if img is None:
-                img = _postprocess_raw(file_path, half_size=False)
+            img = _postprocess_raw(file_path, half_size=False)
             if img is None:
                 return None
             if img.mode not in ('RGB', 'L'):
@@ -238,11 +234,11 @@ def _postprocess_raw(file_path: str, half_size: bool = False) -> Image.Image | N
     """Full libraw demosaic (works for any libraw RAW format, not just RW2 —
     renamed from `_open_rw2` in #78). Insta360 (Make == 'Arashi Vision', #78):
     `use_auto_wb` instead of `use_camera_wb` (camera WB renders a strong
-    magenta cast on these), and — since libraw decodes the DNG portrait while
-    the camera's own .insp preview is landscape 2:1 — a 90° counterclockwise
-    rotation of a portrait result, the direction confirmed empirically by
-    rendering both ways and comparing against the sibling .insp (see #78 PR).
-    Every other camera keeps the original `use_camera_wb=True`, no rotation."""
+    magenta cast on these), and — since libraw returns the two upright fisheye
+    circles stacked (front on top) while the camera's own .insp has them side
+    by side — a portrait result is split into its top and bottom halves, which
+    are placed left and right (checked against the sibling .insp). Every other
+    camera keeps the original `use_camera_wb=True`, no rearranging."""
     is_insta360 = _camera_make(file_path) == _INSTA360_MAKE
     postprocess_kwargs = dict(half_size=half_size, no_auto_bright=False, output_bps=8)
     if is_insta360:
@@ -253,13 +249,22 @@ def _postprocess_raw(file_path: str, half_size: bool = False) -> Image.Image | N
         rgb = raw.postprocess(**postprocess_kwargs)
     img = Image.fromarray(np.asarray(rgb, dtype=np.uint8))
     if is_insta360 and img.height > img.width:
-        img = img.rotate(90, expand=True)
+        img = _fisheyes_side_by_side(img)
     return img
+
+
+def _fisheyes_side_by_side(img: Image.Image) -> Image.Image:
+    """Stacked dual-fisheye frame (top, bottom) → side by side (left, right)."""
+    half = img.height // 2
+    out = Image.new(img.mode, (img.width * 2, half))
+    out.paste(img.crop((0, 0, img.width, half)), (0, 0))
+    out.paste(img.crop((0, half, img.width, half * 2)), (img.width, 0))
+    return out
 
 
 def _camera_make(file_path: str) -> str | None:
     """Single cheap exiftool tag read, used only on the RAW postprocess path
-    (#78) to detect an Insta360 DNG needing its own WB/rotation correction."""
+    (#78) to detect an Insta360 DNG needing its own WB/fisheye-layout correction."""
     try:
         result = run_niced(
             ['exiftool', '-json', '-Make', file_path],
