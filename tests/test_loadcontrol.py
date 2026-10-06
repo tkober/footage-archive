@@ -144,3 +144,21 @@ def test_throttle_guard_waits_then_proceeds(monkeypatch):
     snapshot = loadcontrol.diagnostics()
     assert snapshot['throttled'] is False
     assert snapshot['throttle_events'] == 1
+
+
+def test_cpu_times_parsed_from_proc_stat(tmp_path):
+    stat = tmp_path / 'stat'
+    # user nice system idle iowait irq softirq steal guest guest_nice
+    stat.write_text('cpu  100 0 50 800 50 0 0 0 30 0\ncpu0 1 2 3 4 5 6 7 8 9 10\n')
+    busy, total = loadcontrol.read_cpu_times(stat)
+    assert total == 1000  # guest (30) is already part of user and not added again
+    assert busy == 150
+
+
+def test_cpu_times_none_when_unreadable(tmp_path):
+    assert loadcontrol.read_cpu_times(tmp_path / 'missing') is None
+
+
+def test_cpu_usage_between_readings():
+    assert loadcontrol.cpu_usage_between((100, 1000), (400, 2000)) == 30.0
+    assert loadcontrol.cpu_usage_between((100, 1000), (100, 1000)) is None

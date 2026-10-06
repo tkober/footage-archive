@@ -36,6 +36,16 @@ THROTTLE_SLEEP_S = 5
 HWMON_ROOT = Path('/sys/class/hwmon')
 THERMAL_ZONE_ROOT = Path('/sys/class/thermal')
 CGROUP_CPU_MAX = Path('/sys/fs/cgroup/cpu.max')
+# Not namespaced: inside a container this is the whole host, which is what
+# matters for heat.
+PROC_STAT = Path('/proc/stat')
+
+# Previous /proc/stat reading (monotonic time, busy jiffies, total jiffies) —
+# CPU usage is the delta to it, so pollers get "usage since my last poll".
+_CPU_SAMPLE_MAX_AGE_S = 60
+_CPU_SAMPLE_WINDOW_S = 0.25
+_cpu_sample: tuple[float, int, int] | None = None
+_cpu_sample_lock = threading.Lock()
 
 _HWMON_NAMES = {'coretemp', 'k10temp', 'zenpower', 'cpu_thermal'}
 
@@ -141,6 +151,54 @@ def read_cpu_limit(cgroup_cpu_max: Path = CGROUP_CPU_MAX) -> float | None:
         return None
 
 
+def read_cpu_times(proc_stat: Path = PROC_STAT) -> tuple[int, int] | None:
+    """(busy, total) jiffies from the aggregate `cpu` line of /proc/stat, or
+    None if unreadable. Idle = idle + iowait; guest time is already included
+    in user/nice, so only the first eight fields are summed."""
+    try:
+        with proc_stat.open() as f:
+            fields = f.readline().split()
+        if not fields or fields[0] != 'cpu':
+            return None
+        values = [int(v) for v in fields[1:9]]
+    except (OSError, ValueError):
+        return None
+    total = sum(values)
+    idle = values[3] + (values[4] if len(values) > 4 else 0)
+    return total - idle, total
+
+
+def cpu_usage_between(previous: tuple[int, int], current: tuple[int, int]) -> float | None:
+    """CPU usage in percent between two `read_cpu_times()` readings."""
+    busy = current[0] - previous[0]
+    total = current[1] - previous[1]
+    if total <= 0:
+        return None
+    return round(max(0.0, min(100.0, 100.0 * busy / total)), 1)
+
+
+def read_cpu_usage() -> float | None:
+    """Host-wide CPU usage in percent since the previous call (the frontend
+    polls every few seconds). Without a recent previous reading it samples
+    over a short window instead, which blocks briefly — call it off the
+    event loop."""
+    global _cpu_sample
+    with _cpu_sample_lock:
+        now = time.monotonic()
+        previous = _cpu_sample
+        if previous is None or now - previous[0] > _CPU_SAMPLE_MAX_AGE_S:
+            first = read_cpu_times()
+            if first is None:
+                return None
+            time.sleep(_CPU_SAMPLE_WINDOW_S)
+            previous = (time.monotonic(), *first)
+        current = read_cpu_times()
+        if current is None:
+            return None
+        _cpu_sample = (time.monotonic(), *current)
+        return cpu_usage_between(previous[1:], current)
+
+
 def _throttle_reason() -> str | None:
     """Returns a human-readable reason if the host is currently over its
     configured temperature/load limits, else None. Either check is skipped
@@ -163,27 +221,31 @@ def _throttle_reason() -> str | None:
 
 
 def _wait_while_throttled():
+    # Start/end are logged on the global state transition, so several waiting
+    # jobs produce one warning per throttle episode, not one each.
     was_throttled = False
     while True:
         reason = _throttle_reason()
         if reason is None:
             break
         with _stats_lock:
-            already_warned = _stats['throttled']
+            started = not _stats['throttled']
             _stats['throttled'] = True
             _stats['throttle_reason'] = reason
-            if not already_warned:
+            if started:
                 _stats['throttle_events'] += 1
-        if not was_throttled:
+        if started:
             logger.warning(f'Throttling heavy jobs: {reason}')
-            was_throttled = True
+        was_throttled = True
         time.sleep(THROTTLE_SLEEP_S)
 
     if was_throttled:
         with _stats_lock:
+            ended = _stats['throttled']
             _stats['throttled'] = False
             _stats['throttle_reason'] = None
-        logger.info('Throttling ended, resuming heavy jobs')
+        if ended:
+            logger.info('Throttling ended, resuming heavy jobs')
 
 
 @contextmanager
@@ -197,14 +259,17 @@ def heavy_slot(label: str):
     not each individual ffmpeg call within it) so the semaphore reflects real
     concurrent heavy work.
     """
-    _wait_while_throttled()
-
+    # "waiting" covers both a throttle pause and a full semaphore.
     with _stats_lock:
         _stats['waiting'] += 1
-    semaphore = _get_semaphore()
-    semaphore.acquire()
+    try:
+        _wait_while_throttled()
+        semaphore = _get_semaphore()
+        semaphore.acquire()
+    finally:
+        with _stats_lock:
+            _stats['waiting'] -= 1
     with _stats_lock:
-        _stats['waiting'] -= 1
         _stats['active'] += 1
 
     start = time.monotonic()
@@ -260,6 +325,7 @@ def diagnostics() -> dict:
         'cpu_count': os.cpu_count(),
         'cpu_limit': read_cpu_limit(),
         'load_avg': {'1m': load1, '5m': load5, '15m': load15},
+        'cpu_usage_percent': read_cpu_usage(),
         'cpu_temperature_c': read_cpu_temperature(),
         'throttled': stats['throttled'],
         'throttle_reason': stats['throttle_reason'],

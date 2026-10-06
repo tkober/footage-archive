@@ -5,6 +5,7 @@ import { filter } from 'rxjs';
 import { ApiService } from './services/api.service';
 import { ThemeService } from './services/theme.service';
 import { HeaderService, HeaderCrumb } from './services/header.service';
+import { SystemWidgetComponent } from './system-widget/system-widget.component';
 import { TasksWidgetComponent } from './tasks-widget/tasks-widget.component';
 import { QuickJumpComponent } from './shared/quick-jump/quick-jump.component';
 import { ToastOutletComponent } from './shared/toast/toast-outlet.component';
@@ -35,7 +36,7 @@ const NAV_ENTRIES: NavEntry[] = [
   standalone: true,
   imports: [
     RouterOutlet, RouterLink, RouterLinkActive,
-    TasksWidgetComponent, QuickJumpComponent, ToastOutletComponent,
+    SystemWidgetComponent, TasksWidgetComponent, QuickJumpComponent, ToastOutletComponent,
     MenuComponent, IconComponent,
   ],
   templateUrl: './app.component.html',

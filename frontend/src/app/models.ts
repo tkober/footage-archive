@@ -455,6 +455,7 @@ export interface SystemDiagnostics {
   cpu_count: number | null;
   cpu_limit: number | null;
   load_avg: LoadAvg;
+  cpu_usage_percent: number | null;
   cpu_temperature_c: number | null;
   throttled: boolean;
   throttle_reason: string | null;

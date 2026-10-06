@@ -9,8 +9,10 @@ SystemApi = APIRouter(prefix='/system')
 _env = Environment()
 
 
+# Sync on purpose: the CPU-usage reading may sleep briefly for its first
+# sample, so it runs in the threadpool instead of blocking the event loop.
 @SystemApi.get('/diagnostics')
-async def get_diagnostics() -> SystemDiagnosticsResponse:
+def get_diagnostics() -> SystemDiagnosticsResponse:
     """Read-only snapshot of the effective load-management settings plus
     live runtime diagnostics (CPU temperature, load average, heavy-job
     throttling) — see #71. Settings become editable here in a follow-up."""
@@ -33,6 +35,7 @@ async def get_diagnostics() -> SystemDiagnosticsResponse:
             cpu_count=snapshot['cpu_count'],
             cpu_limit=snapshot['cpu_limit'],
             load_avg=LoadAvg(load_1m=load_avg['1m'], load_5m=load_avg['5m'], load_15m=load_avg['15m']),
+            cpu_usage_percent=snapshot['cpu_usage_percent'],
             cpu_temperature_c=snapshot['cpu_temperature_c'],
             throttled=snapshot['throttled'],
             throttle_reason=snapshot['throttle_reason'],

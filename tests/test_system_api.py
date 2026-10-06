@@ -28,7 +28,7 @@ def test_diagnostics_shape():
 
     runtime = body['runtime']
     for key in (
-        'cpu_count', 'cpu_limit', 'load_avg', 'cpu_temperature_c', 'throttled',
+        'cpu_count', 'cpu_limit', 'load_avg', 'cpu_usage_percent', 'cpu_temperature_c', 'throttled',
         'throttle_reason', 'active_heavy_jobs', 'waiting_heavy_jobs',
         'heavy_jobs_total', 'heavy_jobs_seconds_total', 'throttle_events', 'last_slow_job',
     ):

@@ -1,0 +1,36 @@
+<button #triggerBtn type="button" class="chip-btn" [class.warm]="state() === 'warm'" [class.throttled]="state() === 'throttled'"
+        (click)="toggle()" [title]="title()" [attr.aria-label]="title()">
+  <span class="lbl">CPU</span>
+  <span class="val">{{ cpuLabel() }}</span>
+  <span class="sep" aria-hidden="true"></span>
+  <span class="val">{{ tempLabel() }}</span>
+</button>
+
+@if (open() && triggerBtnRef) {
+  <app-popover [anchor]="triggerBtnRef.nativeElement" [width]="panelWidth()" (closed)="close()">
+    <header class="pop-header">
+      <span>System</span>
+      @if (state() === 'throttled') {
+        <span class="pill pill-throttled">Paused</span>
+      } @else if (state() === 'warm') {
+        <span class="pill pill-warm">Warm</span>
+      }
+    </header>
+    @if (data(); as d) {
+      <dl class="rows">
+        <div><dt>CPU usage</dt><dd>{{ cpuLabel() }}</dd></div>
+        <div><dt>CPU temperature</dt><dd>{{ d.runtime.cpu_temperature_c == null ? 'no sensor' : d.runtime.cpu_temperature_c.toFixed(1) + '°C' }} <small>{{ tempLimitLabel() }}</small></dd></div>
+        <div><dt>Load (1 / 5 / 15 min)</dt><dd>{{ loadLabel() }}</dd></div>
+        <div><dt>Heavy jobs</dt><dd>{{ d.runtime.active_heavy_jobs }} active · {{ d.runtime.waiting_heavy_jobs }} waiting</dd></div>
+      </dl>
+      @if (d.runtime.throttled) {
+        <p class="reason">New previews wait until the host cools down: {{ d.runtime.throttle_reason }}.</p>
+      }
+    } @else {
+      <p class="reason">Waiting for the backend…</p>
+    }
+    <footer class="pop-footer">
+      <a routerLink="/settings" (click)="close()">All performance settings →</a>
+    </footer>
+  </app-popover>
+}

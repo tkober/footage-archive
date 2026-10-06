@@ -456,6 +456,7 @@ class SystemDiagnostics(BaseModel):
     cpu_count: Optional[int] = None
     cpu_limit: Optional[float] = None
     load_avg: LoadAvg
+    cpu_usage_percent: Optional[float] = None
     cpu_temperature_c: Optional[float] = None
     throttled: bool
     throttle_reason: Optional[str] = None

@@ -41,6 +41,10 @@
           <dd>{{ loadAvgLabel() }}</dd>
         </div>
         <div class="kv-row">
+          <dt>CPU usage</dt>
+          <dd>{{ data.runtime.cpu_usage_percent == null ? '—' : data.runtime.cpu_usage_percent + '%' }}</dd>
+        </div>
+        <div class="kv-row">
           <dt>CPU temperature</dt>
           <dd>{{ cpuTemperatureLabel() }}</dd>
         </div>

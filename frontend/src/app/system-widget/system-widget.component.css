@@ -1,0 +1,163 @@
+:host {
+  display: contents;
+}
+
+.chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--muted);
+  font: 500 12px/1 var(--mono);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chip-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.chip-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.chip-btn .val {
+  color: var(--text);
+  min-width: 3ch;
+  text-align: right;
+}
+
+.chip-btn .lbl {
+  font-family: var(--font);
+  font-size: 11px;
+  letter-spacing: .03em;
+}
+
+.sep {
+  width: 1px;
+  height: 12px;
+  background: var(--line-strong);
+}
+
+.chip-btn.warm {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.chip-btn.warm .val:last-child {
+  color: var(--accent);
+}
+
+.chip-btn.throttled {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.chip-btn.throttled .val {
+  color: var(--danger);
+}
+
+/* Popover content (the floating shell itself is app-popover's .pop) */
+.pop-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pill {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.pill-warm {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.pill-throttled {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+.rows {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  display: flex;
+  flex-direction: column;
+}
+
+.rows > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-sm);
+}
+
+.rows > div:last-child {
+  border-bottom: none;
+}
+
+.rows dt {
+  color: var(--muted);
+}
+
+.rows dd {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.rows small {
+  color: var(--faint);
+  margin-left: 4px;
+}
+
+.reason {
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-3);
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+.pop-footer {
+  border-top: 1px solid var(--line);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--fs-sm);
+}
+
+.pop-footer a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.pop-footer a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 760px) {
+  .chip-btn {
+    padding: 0 8px;
+    gap: 5px;
+  }
+
+  .chip-btn .lbl {
+    display: none;
+  }
+}
