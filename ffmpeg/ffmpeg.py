@@ -83,8 +83,26 @@ def _build_frame_command(file_path: str, timestamp: str, width: int, height: int
     the output is the first keyframe at/after `timestamp` instead of a frame
     decoded forward from the previous keyframe, which is several times
     cheaper on long-GOP 4K/HEVC footage. Past the last keyframe it yields
-    nothing, so callers fall back to `keyframes_only=False`."""
+    nothing, so callers fall back to `keyframes_only=False`.
+
+    The filter (#80) scales down to fit the `width`x`height` box keeping the
+    source aspect ratio (`force_original_aspect_ratio=decrease`,
+    `force_divisible_by=2` so an odd scaled dimension never trips ffmpeg),
+    then pads the box with black to land on an exact `width`x`height` frame —
+    every caller (the filmstrip preview and the classifier's frame grabs, both
+    of which rely on a fixed per-frame size) keeps that exact geometry, but
+    a non-16:9 source (portrait phone video, 360 dual-fisheye) is pillarboxed/
+    letterboxed instead of stretched/distorted. `setsar=1` normalizes the
+    output's sample aspect ratio so a non-square-pixel source doesn't still
+    look off after the above. ffmpeg autorotates by default (no
+    `-noautorotate`), so a rotated portrait phone video is already upright
+    before this filter runs, and comes out pillarboxed as expected."""
     threads = str(Environment().get_ffmpeg_threads())
+    vf = (
+        f'scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2,'
+        f'pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,'
+        f'setsar=1'
+    )
     return [
         'ffmpeg', '-nostdin', '-y',
         '-threads', threads,
@@ -93,7 +111,7 @@ def _build_frame_command(file_path: str, timestamp: str, width: int, height: int
         '-i', file_path,
         '-an', '-sn', '-dn',
         '-vframes', '1',
-        '-vf', f'scale={width}:{height}',
+        '-vf', vf,
         '-threads', threads,
         '-q:v', '2',
         out_file,
