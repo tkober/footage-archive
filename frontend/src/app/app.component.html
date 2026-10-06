@@ -22,13 +22,13 @@
       </a>
     }
 
-    <div class="ver" [title]="'Frontend ' + frontendVersion + ' · Backend ' + backendVersion()">
-      <div>fe {{ frontendVersion }}</div>
-      <div>be {{ backendVersion() }}</div>
-    </div>
+    <button type="button" class="nav extra" #versionBtn [class.active]="versionOpen()" (click)="openVersion(versionBtn, 'right')">
+      <app-icon name="info" [size]="20" />
+      Version
+    </button>
   </nav>
 
-  <!-- Mobile bottom tab bar: same routes, no brand/spacer/version; Health + Settings move into "More". -->
+  <!-- Mobile bottom tab bar: same routes, no brand/spacer; Health, Settings and Version move into "More". -->
   <nav class="tabbar" aria-label="Main">
     @for (entry of mainNavEntries; track entry.path) {
       <a class="nav" [routerLink]="entry.path" routerLinkActive="active">
@@ -84,5 +84,11 @@
   </div>
 
 </div>
+
+<!-- Outside .app: the flyout's host element would otherwise take a grid cell
+     (only its inner app-popover teleports itself to <body>). -->
+@if (versionOpen() && versionAnchor(); as anchor) {
+  <app-version-flyout [anchor]="anchor" [side]="versionSide()" (closed)="closeVersion()" />
+}
 
 <app-toast-outlet />

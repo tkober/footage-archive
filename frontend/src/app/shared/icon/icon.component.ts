@@ -5,7 +5,7 @@ import { inject } from '@angular/core';
 /** Inline-SVG path markup per icon, Lucide-like stroke style (viewBox 0 0 24 24).
     Paths taken verbatim from the design prototype's `<symbol>`s where one
     exists; the rest (upload/trash/download/more-vertical/filter/calendar/
-    camera/film/image/alert) are drawn in the same style. Keys are static
+    camera/film/image/alert/info) are drawn in the same style. Keys are static
     and never derived from user input — see ICONS below. */
 const ICONS: Record<string, string> = {
   grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
@@ -44,6 +44,7 @@ const ICONS: Record<string, string> = {
   film: '<rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M7 4v16M17 4v16M3 9h4M17 9h4M3 15h4M17 15h4"/>',
   image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m21 16-5-5a2 2 0 0 0-3 0l-7 7"/>',
   alert: '<path d="M12 2 1 21h22z"/><path d="M12 9v5M12 17h.01"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
 };
 
 /**

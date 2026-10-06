@@ -1,0 +1,40 @@
+<app-popover [anchor]="anchor()" [side]="side()" [width]="300" (closed)="closed.emit()">
+  <header class="pop-header">
+    <span>Version</span>
+    @switch (state()) {
+      @case ('ok') { <span class="pill pill-ok">In sync</span> }
+      @case ('mismatch') { <span class="pill pill-warn">Mismatch</span> }
+      @case ('unreachable') { <span class="pill pill-warn">Backend offline</span> }
+    }
+  </header>
+
+  <dl class="rows">
+    <div>
+      <dt>Frontend<small>Web UI</small></dt>
+      <dd>{{ frontendVersion }}</dd>
+    </div>
+    <div>
+      <dt>Backend<small>API server</small></dt>
+      <dd [class.muted]="state() === 'loading' || state() === 'unreachable'">
+        @switch (state()) {
+          @case ('loading') { … }
+          @case ('unreachable') { unreachable }
+          @default { {{ backendVersion() }} }
+        }
+      </dd>
+    </div>
+  </dl>
+
+  @if (state() === 'mismatch') {
+    <p class="note">Frontend and backend run different versions. Reload the page after a deploy; if it persists, one of the two images is outdated.</p>
+  } @else if (state() === 'unreachable') {
+    <p class="note">The backend didn't answer <code>GET /version</code>.</p>
+  }
+
+  <footer class="pop-footer">
+    <button type="button" class="btn btn-ghost btn-sm" (click)="copy()">
+      <app-icon name="copy" [size]="14" />
+      Copy
+    </button>
+  </footer>
+</app-popover>
