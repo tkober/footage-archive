@@ -224,7 +224,7 @@ def render_full_raw(file_path: str) -> bytes | None:
     detailed comparison view where resolution is the whole point.
     """
     try:
-        with heavy_slot(f'full raw render {file_path}'):
+        with heavy_slot(f'full raw render {file_path}', interactive=True):
             img = _postprocess_raw(file_path, half_size=False)
             if img is None:
                 return None

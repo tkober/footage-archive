@@ -2,12 +2,17 @@
 TestClient — exercising the router wiring + exception-to-HTTPException
 mapping once, on top of the already-thorough fileops/service.py unit tests."""
 
+import asyncio
+import threading
+import time
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import api.files as files_api
 from api.config import ConfigApi
 from api.files import FilesApi
 from db.engine import get_engine
@@ -145,6 +150,69 @@ def test_move_into_trash_is_rejected_via_api(db, root_dir):
 
     resp = client.post('/files/move', json={'paths': [str(src)], 'target_directory': str(trash_dir)})
     assert resp.status_code == 400
+
+
+def test_full_image_render_does_not_block_other_requests(db, root_dir, monkeypatch):
+    """Regression test for #92: a slow full-resolution RAW render used to run
+    directly on the event loop (get_full_image was `async def`), freezing
+    every other request for the duration. It must now run in the threadpool,
+    so a concurrent request (e.g. file details) completes quickly instead of
+    waiting for the render.
+
+    Uses httpx's ASGI transport + asyncio.gather (rather than the sync
+    TestClient) so both requests genuinely share one event loop, the way
+    uvicorn's real requests do — a sync TestClient's portal doesn't
+    reproduce the freeze.
+    """
+    raw_path = root_dir / 'photo.dng'
+    raw_path.write_bytes(b'raw-bytes')
+    _insert_file_row(str(root_dir), 'photo.dng', 'rawhash', media_type='photo')
+
+    other_path = root_dir / 'other.jpg'
+    other_path.write_bytes(b'x')
+    _insert_file_row(str(root_dir), 'other.jpg', 'otherhash', media_type='photo')
+
+    # Released by a plain background thread (independent of the event loop),
+    # after a short real delay — simulating the render taking a while.
+    render_delay_s = 0.3
+    release_render = threading.Event()
+    threading.Timer(render_delay_s, release_render.set).start()
+
+    def slow_render(file_path):
+        assert release_render.wait(timeout=5), 'test never released the slow render'
+        return b'jpeg-bytes'
+
+    monkeypatch.setattr(files_api, 'render_full_raw', slow_render)
+
+    app = FastAPI()
+    app.include_router(FilesApi)
+
+    async def run(start):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url='http://test') as client:
+            async def timed(coro):
+                resp = await coro
+                return resp, time.monotonic() - start
+
+            return await asyncio.gather(
+                timed(client.get('/files/full-image/rawhash')),
+                timed(client.get('/files/details', params={'path': str(other_path)})),
+            )
+
+    overall_start = time.monotonic()
+    (full_resp, full_elapsed), (other_resp, other_elapsed) = asyncio.run(run(overall_start))
+
+    assert full_resp.status_code == 200
+    assert full_resp.content == b'jpeg-bytes'
+    assert other_resp.status_code == 200
+    # Measured from before either request was issued: the "other" request
+    # must come back well before the render releases — i.e. it must have
+    # actually run concurrently with the render, not merely been fast once
+    # its turn finally came after the render blocked everything else.
+    assert other_elapsed < render_delay_s / 2, (
+        f'other request took {other_elapsed:.2f}s since both were issued '
+        f'(render delay {render_delay_s}s) — looks like it was blocked behind the render'
+    )
 
 
 def test_config_reports_trash_dir_name(root_dir, monkeypatch):

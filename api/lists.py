@@ -112,7 +112,7 @@ async def remove_file_from_list(list_id: int, md5_hash: str) -> None:
 
 
 @ListsApi.get('/{list_id}/export.pdf')
-async def export_list_pdf(
+def export_list_pdf(
     list_id: int,
     cols: int = Query(default=4, ge=1, le=8),
     rows: int = Query(default=7, ge=1, le=12),
