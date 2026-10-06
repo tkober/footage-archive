@@ -11,7 +11,7 @@ import { QuickJumpComponent } from './shared/quick-jump/quick-jump.component';
 import { ToastOutletComponent } from './shared/toast/toast-outlet.component';
 import { MenuComponent, MenuItem } from './shared/menu/menu.component';
 import { IconComponent } from './shared/icon/icon.component';
-import { APP_VERSION } from '../version';
+import { VersionFlyoutComponent } from './version-flyout/version-flyout.component';
 
 /** Rail / bottom-tab-bar entries, in display order. `extra` marks the ones
     that disappear from the mobile tab bar into the "More" menu. */
@@ -31,13 +31,16 @@ const NAV_ENTRIES: NavEntry[] = [
   { path: '/settings', label: 'Settings', icon: 'cog', extra: true },
 ];
 
+/** "More" menu id of the Version entry — not a route, opens the flyout. */
+const VERSION_MENU_ID = 'version';
+
 @Component({
   selector: 'app-root',
   standalone: true,
   imports: [
     RouterOutlet, RouterLink, RouterLinkActive,
     SystemWidgetComponent, TasksWidgetComponent, QuickJumpComponent, ToastOutletComponent,
-    MenuComponent, IconComponent,
+    MenuComponent, IconComponent, VersionFlyoutComponent,
   ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css'
@@ -58,8 +61,9 @@ export class AppComponent implements OnInit {
 
   pageTitle = signal('Footage Archive');
   taskPollIntervalMs = signal(5000);
-  frontendVersion = APP_VERSION;
-  backendVersion = signal('…');
+  versionOpen = signal(false);
+  versionAnchor = signal<HTMLElement | null>(null);
+  versionSide = signal<'below' | 'right'>('right');
   conflictsCount = signal(0);
 
   /** What the topbar actually renders: the page's own breadcrumbs when it
@@ -90,11 +94,6 @@ export class AppComponent implements OnInit {
       next: config => this.taskPollIntervalMs.set(config.task_poll_interval_ms),
     });
 
-    this.api.getBackendVersion().subscribe({
-      next: res => this.backendVersion.set(res.version),
-      error: () => this.backendVersion.set('unknown'),
-    });
-
     this.refreshConflictsCount();
     this.api.conflictsChanged$.subscribe(() => this.refreshConflictsCount());
   }
@@ -116,10 +115,27 @@ export class AppComponent implements OnInit {
   }
 
   moreMenuItems(): MenuItem[] {
-    return this.moreNavEntries.map(e => ({ id: e.path, label: e.label, icon: e.icon }));
+    return [
+      ...this.moreNavEntries.map(e => ({ id: e.path, label: e.label, icon: e.icon })),
+      { id: VERSION_MENU_ID, label: 'Version', icon: 'info' },
+    ];
   }
 
-  onMoreSelect(path: string) {
-    this.router.navigateByUrl(path);
+  onMoreSelect(id: string) {
+    if (id === VERSION_MENU_ID) {
+      this.openVersion(this.moreAnchor()!, 'below');
+      return;
+    }
+    this.router.navigateByUrl(id);
+  }
+
+  openVersion(anchor: HTMLElement, side: 'below' | 'right') {
+    this.versionAnchor.set(anchor);
+    this.versionSide.set(side);
+    this.versionOpen.set(true);
+  }
+
+  closeVersion() {
+    this.versionOpen.set(false);
   }
 }

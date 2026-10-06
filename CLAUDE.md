@@ -125,7 +125,7 @@ browser ──▶ frontend (nginx :8080) ──┬─▶ static Angular bundle
 
 ## Versioning
 
-Both images carry a version that is visible at runtime in the bottom of the frontend sidebar (**Frontend** = the bundle's own version, **Backend** = fetched live from `GET /version`).
+Both images carry a version that is visible at runtime via the **Version** item at the bottom of the frontend rail (below Settings; on mobile in the "More" menu), which opens `version-flyout/` (#95): **Frontend** = the bundle's own version, **Backend** = fetched live from `GET /version` each time the flyout opens, plus an "In sync"/"Mismatch"/"Backend offline" pill and a Copy button.
 
 **Single source of truth = the git tag.** CI (`docker/metadata-action`) already derives a semver from `v*.*.*` tags and stamps it onto each image (tag + OCI labels). On top of that, both workflows pass the version into the build as the `APP_VERSION` build-arg:
 - **Backend** — `APP_VERSION` is set as an `ENV` in the `Dockerfile`; `Environment.get_version()` reads it. Local-dev fallback: the `version` in `pyproject.toml`. `GET /version` returns `{"version": ...}`.
@@ -231,10 +231,11 @@ footage-archive/
     │   ├── environment.ts             # dev: apiUrl http://localhost:8051
     │   └── environment.production.ts  # prod: apiUrl /api (swapped in via angular.json fileReplacements)
     └── src/app/
-        ├── app.component.*         # shell (#38): 72px left rail (brand, Browse/Search/Lists/Map/Health/Settings, version) that
-        │                           #   becomes a bottom tab bar under 760px ("More" opens a `MenuComponent` with Health/Settings);
+        ├── app.component.*         # shell (#38): 72px left rail (brand, Browse/Search/Lists/Map/Health/Settings/Version) that
+        │                           #   becomes a bottom tab bar under 760px ("More" opens a `MenuComponent` with Health/Settings/Version);
         │                           #   52px topbar with a breadcrumb slot (see `services/header.service.ts`), `app-quick-jump`,
         │                           #   `app-tasks-widget`
+        ├── version-flyout/         # Version flyout (#95): frontend + live backend version, sync pill, Copy (opens right of the rail item)
         ├── app.routes.ts           # lazy-loaded routes
         ├── app.config.ts           # provideRouter + provideHttpClient
         ├── models.ts               # TypeScript interfaces

@@ -78,13 +78,6 @@
 
 .rail .spacer { flex: 1; }
 
-.rail .ver {
-  font: 400 10px/1.4 var(--mono);
-  color: var(--faint);
-  text-align: center;
-  padding-top: var(--space-2);
-}
-
 /* Mobile bottom tab bar: same markup as the rail's main items, hidden on desktop */
 .tabbar {
   display: none;

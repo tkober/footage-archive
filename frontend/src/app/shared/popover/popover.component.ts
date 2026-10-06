@@ -37,6 +37,10 @@ export class PopoverComponent implements OnInit, AfterViewInit, OnDestroy {
   /** Edge of the anchor the panel lines up with: `end` (right edges, the
       default, for header buttons) or `start` (left edges, e.g. a grid tile). */
   align = input<'start' | 'end'>('end');
+  /** Which side of the anchor the panel opens on: `below` (the default,
+      flipping above when it doesn't fit) or `right` (a flyout next to a
+      rail item, bottom-aligned with it when it doesn't fit downwards). */
+  side = input<'below' | 'right'>('below');
 
   closed = output<void>();
 
@@ -69,6 +73,14 @@ export class PopoverComponent implements OnInit, AfterViewInit, OnDestroy {
     const rect = popEl.getBoundingClientRect();
     const a = this.anchor().getBoundingClientRect();
     const margin = 8;
+
+    if (this.side() === 'right') {
+      const top = Math.min(a.top, window.innerHeight - rect.height - margin);
+      const left = Math.min(a.right + 6, window.innerWidth - rect.width - margin);
+      this.top.set(Math.max(margin, top));
+      this.left.set(Math.max(margin, left));
+      return;
+    }
 
     const fitsBelow = a.bottom + 6 + rect.height <= window.innerHeight - margin;
     const top = fitsBelow ? a.bottom + 6 : Math.max(margin, a.top - 6 - rect.height);

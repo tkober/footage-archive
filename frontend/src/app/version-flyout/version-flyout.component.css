@@ -1,0 +1,90 @@
+/* Popover content (the floating shell itself is app-popover's .pop) */
+.pop-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pill {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.pill-ok {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+
+.pill-warn {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+.rows {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  display: flex;
+  flex-direction: column;
+}
+
+.rows > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.rows > div:last-child {
+  border-bottom: none;
+}
+
+.rows dt {
+  display: flex;
+  flex-direction: column;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+
+.rows dt small {
+  color: var(--faint);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+}
+
+.rows dd {
+  margin: 0;
+  color: var(--text);
+  font: 500 var(--fs-md)/1 var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.rows dd.muted {
+  color: var(--muted);
+}
+
+.note {
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-3);
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+.note code {
+  font-family: var(--mono);
+}
+
+.pop-footer {
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+  padding: var(--space-2) var(--space-3);
+}
