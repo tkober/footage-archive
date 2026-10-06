@@ -215,6 +215,20 @@ class Database:
                 .values(last_indexed_at=func.now())
             )
 
+    def set_media_type(self, md5_hash: str, media_type: str | None) -> None:
+        """Update Files.media_type for an already-tracked hash (#79) — used
+        by `_probe_and_save` (api/tracking.py) to correct a file's
+        extension-based classification once its metadata (EXIF make /
+        projection tag) has actually been probed, without touching any
+        other column (notably not `last_indexed_at`, which the caller
+        already bumps itself via `insert_scan_results`/`touch_last_indexed_at`)."""
+        with get_engine().begin() as conn:
+            conn.execute(
+                update(files_table)
+                .where(files_table.c.md5_hash == md5_hash)
+                .values(media_type=media_type)
+            )
+
     def get_file_by_hash(self, md5_hash: str) -> Optional[dict]:
         stmt = select(files_table).where(files_table.c.md5_hash == md5_hash)
         with get_engine().connect() as conn:

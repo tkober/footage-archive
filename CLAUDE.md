@@ -72,9 +72,9 @@ DB_OWNER_USER=footage_archive_dev_owner   # owner role: used by Alembic for DDL
 DB_OWNER_PASSWORD=...
 ROOT_DIR=./footage
 MEDIA_TYPE_VIDEO=.mov,.mp4
-MEDIA_TYPE_PHOTO=.jpg,.jpeg,.rw2
+MEDIA_TYPE_PHOTO=.jpg,.jpeg,.rw2,.dng
 MEDIA_TYPE_360_VIDEO=.insv
-MEDIA_TYPE_360_PHOTO=.insp,.dng
+MEDIA_TYPE_360_PHOTO=.insp
 BROWSER_HIDDEN_EXTENSIONS=.xmp,.acr,.psd,.lrv,.identifier
 # Delete-to-trash (#60): single folder name under ROOT_DIR; invalid values fail startup.
 TRASH_DIR_NAME=.trash
@@ -161,9 +161,9 @@ Docker env vars to set on Unraid:
 - `DB_OWNER_USER=...` / `DB_OWNER_PASSWORD=...` (owner role, used for Alembic migrations on startup)
 - `ROOT_DIR=/mnt/user/footage`
 - `MEDIA_TYPE_VIDEO=.mov,.mp4`
-- `MEDIA_TYPE_PHOTO=.jpg,.jpeg,.rw2`
+- `MEDIA_TYPE_PHOTO=.jpg,.jpeg,.rw2,.dng`
 - `MEDIA_TYPE_360_VIDEO=.insv`
-- `MEDIA_TYPE_360_PHOTO=.insp,.dng`
+- `MEDIA_TYPE_360_PHOTO=.insp`
 - `BROWSER_HIDDEN_EXTENSIONS=.xmp,.acr,.psd,.lrv,.identifier`
 - `TRASH_DIR_NAME=.trash` (default, optional) — single folder name (no `/`/`\`, not `.`/`..`) for the delete-to-trash directory created under `ROOT_DIR` (#60); an invalid value fails startup
 - `GOOGLE_MAPS_API_KEY=...` / `GOOGLE_MAPS_MAP_ID=...` (optional; enable the maps — see `GOOGLE_SETUP.md`)
@@ -408,7 +408,7 @@ bring their own button/menu/toast styles.
 
 **Keyword normalization** — keywords are deduplicated in `Keywords` and associated to files through `FileKeywords` (replacing the earlier denormalized `md5_hash + keyword` table). Upserts use `ON CONFLICT DO NOTHING` on the keyword string, then link via the join table.
 
-**media_type** is assigned at scan time from configurable extension maps (`MEDIA_TYPE_*` env vars): `video`, `photo`, `360_video`, `360_photo`, or NULL for unrecognised extensions.
+**media_type** starts from configurable extension maps (`MEDIA_TYPE_*` env vars): `video`, `photo`, `360_video`, `360_photo`, or NULL for unrecognised extensions — that's the family (video/photo) and, for `.insp`/`.insv` (proprietary, metadata-less Insta360 formats), the 360-ness too. For any other extension, `scanner/media_type.py::classify_media_type()` (#79) refines 360-ness from the file's actual metadata once it's probed (`_probe_and_save` in `api/tracking.py`): a photo is `360_photo` only if its EXIF `Make` is `Arashi Vision` (Insta360) or it carries an equirectangular/GPano projection tag, a video only if it carries an equirectangular/spherical projection tag (ffprobe `side_data_list` or exiftool `ProjectionType`) — `Make` alone is never enough for video, since an Insta360 camera's reframed flat MP4 exports must stay `video`. This means a `.dng` is no longer 360 just because it came from an Insta360 camera's extension list; a probe that disagrees with the stored value corrects it (`Database.set_media_type`) on the next scan/rescan of that file.
 
 **Sidecar/proxy files** (`.xmp`, `.acr`, `.psd`, `.lrv`, `.identifier`) are hidden from the browser via `BROWSER_HIDDEN_EXTENSIONS` but not prevented from being tracked if explicitly requested.
 

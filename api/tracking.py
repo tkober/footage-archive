@@ -28,6 +28,7 @@ from fileops.rediscover import apply as apply_rediscover, classify as classify_r
 from fileops.trash import is_in_trash
 from ffmpeg.ffmpeg import FFmpegInput, FFmpeg, FFprobe, VideoProbeResult
 from photos.exif import probe_photo, generate_photo_thumbnail
+from scanner.media_type import classify_media_type
 from scanner.scanner import Scanner, ScanResult
 from tasks.preview_registry import discard as discard_pending_preview, pending_previews
 from tasks.taskmanager import TaskManager, TaskRequest
@@ -569,13 +570,42 @@ def refresh_tracked_files(query: RefreshQuery, report: Callable[[str], None]):
     report(' · '.join(parts))
 
 
+def _refine_media_type(sc: ScanResult, db: Database, *,
+                       make: str | None = None, projection: str | None = None) -> str | None:
+    """Re-derive `sc`'s media_type from its extension (via the *current*
+    env map, not whatever is already stored) plus whatever metadata the
+    probe above just produced (#79, `scanner/media_type.py`), and persist
+    the correction if it differs from what's stored — e.g. a `.dng`
+    previously (mis)classified `360_photo` by an older extension map gets
+    downgraded to `photo` here once its EXIF `Make` says it isn't an
+    Insta360 file, on the very next scan/rescan of it. `make`/`projection`
+    are both None when the probe failed, which correctly resolves to the
+    non-360 family (unknown metadata never upgrades a file to 360). Returns
+    the refined value and mutates `sc.media_type` in place so every
+    subsequent use in this call (generate_preview, the caller's return
+    value) sees the corrected type."""
+    refined = classify_media_type(
+        sc.file_extension, Environment().get_media_type_map(),
+        make=make, projection=projection,
+    )
+    if refined != sc.media_type:
+        db.set_media_type(sc.md5_hash, refined)
+        sc.media_type = refined
+    return refined
+
+
 def _probe_and_save(sc: ScanResult, db: Database, generate_clip_preview: bool) -> bool:
     """Probes `sc`'s media type and saves the resulting details. Returns
     whether the file has a preview after this call — only meaningful when
     `generate_clip_preview` is True; always False otherwise. Non-media files
     (`sc.media_type` None) never get a preview. Used by the rescan task
     (#64) to count files left "without preview" (e.g. FFprobe returned None,
-    or ffmpeg/the thumbnailer silently produced nothing)."""
+    or ffmpeg/the thumbnailer silently produced nothing).
+
+    Also the one place that refines `sc.media_type` from real metadata
+    (#79, see `_refine_media_type`) instead of trusting the scanner's
+    extension-only guess — before any VideoDetails/PhotoDetails insert or
+    preview generation, so both use the corrected type."""
     file_path = sc.directory + '/' + sc.file_name
     last_modified_at = datetime.fromtimestamp(Path(file_path).stat().st_mtime).isoformat()
 
@@ -583,6 +613,7 @@ def _probe_and_save(sc: ScanResult, db: Database, generate_clip_preview: bool) -
         probe = FFprobe().probe_file(md5_hash=sc.md5_hash, file_path=file_path)
         if probe is None:
             logging.warning(f'FFprobe failed for {file_path}')
+            _refine_media_type(sc, db)
             _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=None)
             if generate_clip_preview:
                 # No generate_preview call on this path, so record the outcome
@@ -591,6 +622,7 @@ def _probe_and_save(sc: ScanResult, db: Database, generate_clip_preview: bool) -
                 discard_pending_preview(sc.md5_hash)
             return False
 
+        _refine_media_type(sc, db, projection=probe.projection)
         _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=probe.recorded_at)
         db.insert_video_details(pd.DataFrame([probe.model_dump()]))
 
@@ -601,8 +633,10 @@ def _probe_and_save(sc: ScanResult, db: Database, generate_clip_preview: bool) -
     elif sc.media_type in PHOTO_TYPES:
         probe = probe_photo(md5_hash=sc.md5_hash, file_path=file_path)
         if probe is None:
+            _refine_media_type(sc, db)
             _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=None)
         else:
+            _refine_media_type(sc, db, make=probe.camera_make, projection=probe.projection)
             _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=probe.recorded_at,
                                latitude=probe.latitude, longitude=probe.longitude,
                                altitude=probe.altitude)
