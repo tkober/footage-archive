@@ -1,4 +1,5 @@
 import logging
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
@@ -28,6 +29,7 @@ from fileops.trash import is_in_trash
 from ffmpeg.ffmpeg import FFmpegInput, FFmpeg, FFprobe, VideoProbeResult
 from photos.exif import probe_photo, generate_photo_thumbnail
 from scanner.scanner import Scanner, ScanResult
+from tasks.preview_registry import discard as discard_pending_preview, pending_previews
 from tasks.taskmanager import TaskManager, TaskRequest
 from tasks.workerpool import parallel_map
 
@@ -363,7 +365,13 @@ def rediscover_directory(query: RediscoverQuery, report: Callable[[str], None]):
                 finally:
                     progress.record(sc.file_name, ok)
 
-            parallel_map(to_track, probe)
+            # Registered for just the hashes about to be probed here, not the
+            # whole rediscover (`unchanged`/`relinked` hashes aren't probed by
+            # a rediscover at all), and only when a preview is actually
+            # requested (#77).
+            ctx = pending_previews(sc.md5_hash for sc in to_track) if query.generate_clip_preview else nullcontext()
+            with ctx:
+                parallel_map(to_track, probe)
 
         report('Applying changes…')
         result = apply_rediscover(
@@ -432,27 +440,32 @@ def _scan_and_reconcile(scan_results: list[ScanResult], db: Database, report: Ca
         db.insert_scan_results(batch)
         parallel_map(batch, probe_one)
 
-    report('Applying changes…')
-    result = apply_rediscover(
-        classification, scan_results, db,
-        scanned_directory=scanned_directory,
-        track_new=True,
-        track_new_files=probe_batch,
-        source='scan',
-    )
+    # Every hash that's about to be probed in this scan — registered for the
+    # duration of the whole reconciliation (both probe_batch() calls below),
+    # and only when a preview is actually requested (#77).
+    pending_ctx = pending_previews(md5_hashes) if generate_clip_preview else nullcontext()
+    with pending_ctx:
+        report('Applying changes…')
+        result = apply_rediscover(
+            classification, scan_results, db,
+            scanned_directory=scanned_directory,
+            track_new=True,
+            track_new_files=probe_batch,
+            source='scan',
+        )
 
-    settled: list[ScanResult] = []
-    for md5_hash in classification.unchanged:
-        row = tracked[md5_hash]
-        sc = scan_results_by_path.get(f"{row['directory']}/{row['file_name']}")
-        if sc is not None:
-            settled.append(sc)
-    for r in classification.relinked:
-        sc = scan_results_by_path.get(r.new_path)
-        if sc is not None:
-            settled.append(sc)
+        settled: list[ScanResult] = []
+        for md5_hash in classification.unchanged:
+            row = tracked[md5_hash]
+            sc = scan_results_by_path.get(f"{row['directory']}/{row['file_name']}")
+            if sc is not None:
+                settled.append(sc)
+        for r in classification.relinked:
+            sc = scan_results_by_path.get(r.new_path)
+            if sc is not None:
+                settled.append(sc)
 
-    probe_batch(settled)
+        probe_batch(settled)
 
     indexed = result.new_tracked + len(settled)
     report(f'Indexed {indexed} files · {result.relinked} relinked · {result.conflicts} conflicts')
@@ -541,7 +554,10 @@ def refresh_tracked_files(query: RefreshQuery, report: Callable[[str], None]):
         finally:
             report_progress()
 
-    parallel_map(to_process, process)
+    # Preview generation is always on for a rescan (see docstring above), so
+    # every file about to be processed is registered for the duration (#77).
+    with pending_previews(row['md5_hash'] for row in to_process):
+        parallel_map(to_process, process)
 
     parts = [f"Rescanned {succeeded} file{'' if succeeded == 1 else 's'}"]
     if without_preview:
@@ -568,6 +584,11 @@ def _probe_and_save(sc: ScanResult, db: Database, generate_clip_preview: bool) -
         if probe is None:
             logging.warning(f'FFprobe failed for {file_path}')
             _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=None)
+            if generate_clip_preview:
+                # No generate_preview call on this path, so record the outcome
+                # here — otherwise the file would show "missing" (#77).
+                db.set_preview_status(sc.md5_hash, 'failed', 'FFprobe could not read the file')
+                discard_pending_preview(sc.md5_hash)
             return False
 
         _save_file_details(db, sc.md5_hash, last_modified_at, recorded_at=probe.recorded_at)
@@ -662,36 +683,59 @@ def generate_preview(md5_hash: str, file_path: str, media_type: str | None,
     """Generate+store a preview for a known `media_type`, reporting whether
     one was actually produced. Shared by `_probe_and_save` (#64) and the
     missing-preview repair (#65) so there's exactly one place that decides
-    how a video vs. a photo gets its preview. Video: reuses `probe` when the
-    caller already ran FFprobe (e.g. `_probe_and_save` probing for
-    VideoDetails), otherwise probes fresh; a failed/missing probe means no
-    preview (`False`), never a crash. Photo: thumbnail + `insert_raw_preview`.
-    Any other media_type (incl. None, non-media files) never has a preview."""
-    if media_type in VIDEO_TYPES:
-        if probe is None:
-            probe = FFprobe().probe_file(md5_hash=md5_hash, file_path=file_path)
-        if probe is None:
+    how a video vs. a photo gets its preview — and, as of #77, the one place
+    that records the outcome (`Database.set_preview_status`): 'ok' on
+    success, 'failed'/'unsupported' with a reason on failure. Video: reuses
+    `probe` when the caller already ran FFprobe (e.g. `_probe_and_save`
+    probing for VideoDetails), otherwise probes fresh; a failed/missing
+    probe means no preview (`False`), recorded as 'failed'. Photo: thumbnail
+    + `insert_raw_preview`; an unrecognised format is recorded as
+    'unsupported', any other failure as 'failed'. Any other media_type
+    (incl. None, non-media files) never has a preview and nothing is
+    recorded. Any unexpected exception is recorded as 'failed' with its
+    message, then re-raised — callers already isolate per-file failures.
+    Always discards `md5_hash` from the "pending previews" registry
+    (tasks/preview_registry.py) once this attempt is done, regardless of
+    outcome."""
+    try:
+        if media_type in VIDEO_TYPES:
+            if probe is None:
+                probe = FFprobe().probe_file(md5_hash=md5_hash, file_path=file_path)
+            if probe is None:
+                Database().set_preview_status(md5_hash, 'failed', 'FFprobe could not read the file')
+                return False
+            return create_clip_preview(probe)
+
+        elif media_type in PHOTO_TYPES:
+            thumbnail, status, reason = generate_photo_thumbnail(md5_hash, file_path)
+            if thumbnail:
+                Database().insert_raw_preview(md5_hash, thumbnail, identifier=md5_hash)
+                Database().set_preview_status(md5_hash, 'ok')
+                return True
+            Database().set_preview_status(md5_hash, status, reason)
             return False
-        return create_clip_preview(probe)
 
-    elif media_type in PHOTO_TYPES:
-        thumbnail = generate_photo_thumbnail(md5_hash, file_path)
-        if thumbnail:
-            Database().insert_raw_preview(md5_hash, thumbnail, identifier=md5_hash)
-            return True
         return False
-
-    return False
+    except Exception as e:
+        Database().set_preview_status(md5_hash, 'failed', str(e))
+        raise
+    finally:
+        discard_pending_preview(md5_hash)
 
 
 def create_clip_preview(input: FFmpegInput) -> bool:
     """Generate+store a video clip preview. Returns whether a preview was
     actually produced — ffmpeg can silently come back with no frames (e.g.
     a near-zero-duration or corrupt file), in which case nothing is stored.
-    Used by `_probe_and_save` to report preview success back to the rescan
-    task (#64)."""
+    Used by `_probe_and_save`/`generate_preview` to report preview success
+    back to the rescan task (#64), and directly by the DaVinci
+    import-metadata path (`scan_files_in_metadata`). Records the outcome via
+    `Database.set_preview_status` (#77) so both call sites get it for
+    free."""
     result = FFmpeg(input.md5_hash).generate_clip_preview(input)
     if result is not None:
         Database().insert_clip_preview(result, identifier=input.md5_hash)
+        Database().set_preview_status(input.md5_hash, 'ok')
         return True
+    Database().set_preview_status(input.md5_hash, 'failed', 'ffmpeg produced no frames')
     return False

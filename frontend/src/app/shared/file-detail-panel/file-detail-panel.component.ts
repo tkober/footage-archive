@@ -160,7 +160,20 @@ export class FileDetailPanelComponent implements OnDestroy {
     const file = this.selectedFile();
     if (!file?.md5_hash) return null;
     if (!VIDEO_TYPES.includes(file.media_type as any) && !PHOTO_TYPES.includes(file.media_type as any)) return null;
+    // Don't build a URL (no request) unless the preview is actually ready
+    // (#77) — null/undefined is treated as 'ok' for backwards-compat.
+    if (file.preview_status && file.preview_status !== 'ok') return null;
     return this.api.clipPreviewUrl(file.md5_hash);
+  });
+  /** Stage tile for a status that isn't ready yet (#77) — 'generating' is
+      folded into the plain "No preview yet" message rather than a separate
+      copy, since the stage has no shimmer treatment of its own. */
+  previewTile = computed<'failed' | 'unsupported' | 'missing' | 'generating' | null>(() => {
+    const file = this.selectedFile();
+    const status = file?.preview_status;
+    if (status === 'failed' || status === 'unsupported' || status === 'generating') return status;
+    if (status === 'missing') return 'missing';
+    return null;
   });
 
   // ── High quality (full-resolution still) ──

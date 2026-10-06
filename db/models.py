@@ -141,6 +141,14 @@ path_conflicts_table = Table(
     Column('found_at', DateTime, server_default=func.now()),
 )
 
+preview_status_table = Table(
+    'PreviewStatus', metadata,
+    Column('md5_hash', String, primary_key=True),
+    Column('status', String, nullable=False),
+    Column('reason', String),
+    Column('attempted_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
 Index('idx__Locations__country', locations_table.c.country)
 Index('idx__Locations__city', locations_table.c.city)
 Index('idx__Locations__country_region_city',

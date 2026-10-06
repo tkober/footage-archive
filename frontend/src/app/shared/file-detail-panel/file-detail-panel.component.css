@@ -41,6 +41,35 @@
 .viewer { position: absolute; inset: 0; height: 100%; }
 .stage-msg { display: grid; justify-items: center; gap: var(--space-2); color: var(--faint); font-size: var(--fs-sm); }
 
+/* Failed/unsupported preview tile (#77) — larger stage-sized variant of the
+   media-card's `.fmt` tile, plus the failure reason and a Retry button. */
+.stage-fmt .ext {
+  font: 600 36px/1 var(--mono);
+  letter-spacing: .06em;
+  color: var(--faint);
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--r-md);
+  padding: .3em .45em .26em;
+}
+.stage-fmt .why { font-size: var(--fs-sm); color: var(--faint); display: flex; align-items: center; gap: 6px; }
+.stage-fmt .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.stage-fmt .reason { max-width: 420px; text-align: center; color: var(--faint); font-size: var(--fs-xs); }
+.stage-fmt.failed .why, .stage-fmt.failed .reason { color: var(--preview-fail); }
+.stage-fmt.failed .ext { border-color: var(--preview-fail-line); color: var(--preview-fail); }
+/* The stage is always dark, so the button carries its own light-on-dark look. */
+.stage-retry {
+  margin-top: var(--space-2);
+  padding: 6px 14px;
+  border: 1px solid rgba(255, 255, 255, .28);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, .08);
+  color: #e7e9ec;
+  font: 500 var(--fs-sm) var(--font);
+  cursor: pointer;
+}
+.stage-retry:hover:not(:disabled) { background: rgba(255, 255, 255, .16); }
+.stage-retry:disabled { opacity: .55; cursor: default; }
+
 /* Video: all five frames of the clip preview at their native size */
 .frames {
   width: min(94%, 1040px);

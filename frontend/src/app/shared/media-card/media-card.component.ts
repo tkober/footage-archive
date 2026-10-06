@@ -1,7 +1,13 @@
 import { Component, computed, effect, input, output, signal } from '@angular/core';
 import { IconComponent } from '../icon/icon.component';
+import { PreviewStatus } from '../../models';
 
 export type MediaCardKind = 'video' | 'photo' | 'other';
+
+/** What the thumbnail area actually renders, folding `previewStatus` and a
+    failed `<img>` load into one state (#77). 'other' (non-media untracked
+    files) is handled separately in the template, so it's not part of this. */
+type Tile = 'image' | 'generating' | 'missing' | 'failed' | 'unsupported';
 
 /**
  * Shared grid tile (#39) for a single file — browser, search results and
@@ -27,6 +33,11 @@ export class MediaCardComponent {
   name = input('');
   extension = input<string | null>(null);
   previewUrl = input<string | null>(null);
+  /** Derived preview status (#77) — 'ok' or omitted/null behaves exactly
+      like before (render the image once `previewUrl` is set, shimmer while
+      waiting). 'generating'/'missing'/'failed'/'unsupported' each render
+      their own tile instead of ever requesting `previewUrl`. */
+  previewStatus = input<PreviewStatus | null>(null);
   tracked = input<boolean | null>(true);
   /** Already formatted, e.g. "00:12" or "1:02:03" — see `formatDuration()` callers. */
   duration = input<string | null>(null);
@@ -70,7 +81,19 @@ export class MediaCardComponent {
       : n;
   });
 
-  showPending = computed(() => this.kind() !== 'other' && (!this.previewUrl() || this.imgError()));
+  /** The thumbnail's tile state (#77) — see `Tile`. An `<img>` load error
+      always wins (falls to the 'failed' tile, never the shimmer), no matter
+      what `previewStatus` says. 'ok' (or no `previewStatus` at all, for
+      backwards-compat) renders the image once a URL is available, and
+      shimmers ("Generating preview…") until then — unchanged behaviour. */
+  tile = computed<Tile>(() => {
+    if (this.imgError()) return 'failed';
+    const status = this.previewStatus();
+    if (status === 'unsupported' || status === 'failed' || status === 'missing' || status === 'generating') {
+      return status;
+    }
+    return this.previewUrl() ? 'image' : 'generating';
+  });
 
   /** ".jpg" → "JPG" for badges and the video caption. */
   extLabel = computed(() => (this.extension() ?? '').replace(/^\./, '').toUpperCase());

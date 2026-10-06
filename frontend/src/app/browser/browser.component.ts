@@ -1276,6 +1276,9 @@ export class BrowserComponent implements OnInit {
   entryPreviewUrl(entry: PathChild): string | null {
     if (!entry.md5_hash) return null;
     if (!VIDEO_TYPES.includes(entry.media_type as any) && !PHOTO_TYPES.includes(entry.media_type as any)) return null;
+    // Don't build a URL (no request) unless the preview is actually ready
+    // (#77) — null/undefined is treated as 'ok' for backwards-compat.
+    if (entry.preview_status && entry.preview_status !== 'ok') return null;
     return this.api.clipPreviewUrl(entry.md5_hash);
   }
 

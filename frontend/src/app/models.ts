@@ -24,6 +24,16 @@ export interface Task {
 
 export type PathType = 'file' | 'directory';
 
+/** Derived preview status (#77) for a tracked, previewable file:
+    - 'ok' (or absent, for backwards-compat): preview ready, render as today.
+    - 'generating': a scan/rescan/repair task has it queued or in flight right now.
+    - 'missing': never attempted.
+    - 'failed': attempted, but the preview generator errored.
+    - 'unsupported': attempted, but the format isn't one the preview
+      generator can read at all (e.g. an Insta360 .dng).
+    Untracked or non-media files carry no `preview_status` at all. */
+export type PreviewStatus = 'ok' | 'generating' | 'missing' | 'failed' | 'unsupported';
+
 export interface PathChild {
   name: string;
   path: string;
@@ -38,6 +48,7 @@ export interface PathChild {
   /** Tracked video files only (#39): `HH:MM:SS:FF` from `VideoDetails.duration_tc`,
       loaded in the same directory-listing query. Null for photos/untracked/directories. */
   duration_tc?: string | null;
+  preview_status?: PreviewStatus | null;
 }
 
 /** Counts for the whole directory (#46) — independent of pagination and of
@@ -171,6 +182,7 @@ export interface SearchResult {
   country: string | null;
   city: string | null;
   item_code?: string | null;
+  preview_status?: PreviewStatus | null;
 }
 
 export interface SearchResponse {
@@ -231,6 +243,9 @@ export interface FileInfo {
   longitude?: number | null;
   altitude?: number | null;
   lists?: FileListMembership[];
+  preview_status?: PreviewStatus | null;
+  preview_error?: string | null;
+  preview_attempted_at?: string | null;
 }
 
 /** PATCH /files/rename response: a FileInfo (zeroed-out for directories) plus
@@ -327,6 +342,7 @@ export interface ListItem {
   directory: string;
   media_type: string | null;
   added_at: string | null;
+  preview_status?: PreviewStatus | null;
 }
 
 export interface ListItemsResponse {

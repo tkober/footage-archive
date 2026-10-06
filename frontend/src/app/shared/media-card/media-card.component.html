@@ -20,13 +20,24 @@
           <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
         </svg>
       </div>
-    } @else if (showPending()) {
-      <div class="pending" [class.shimmer]="tracked() !== false">
-        @if (tracked() !== false) {
-          Generating preview…
-        } @else {
-          <app-icon name="eye" [size]="18" />
-        }
+    } @else if (tracked() === false && tile() !== 'image') {
+      <div class="pending">
+        <app-icon name="eye" [size]="18" />
+      </div>
+    } @else if (tile() === 'generating') {
+      <div class="pending shimmer">Generating preview…</div>
+    } @else if (tile() === 'missing' || tile() === 'failed' || tile() === 'unsupported') {
+      <div class="fmt" [class.failed]="tile() === 'failed'">
+        <span class="ext">{{ extLabel() || '—' }}</span>
+        <span class="why">
+          @if (tile() === 'failed') {
+            <span class="dot"></span> Preview failed
+          } @else if (tile() === 'unsupported') {
+            No preview for this format
+          } @else {
+            No preview yet
+          }
+        </span>
       </div>
     } @else if (kind() === 'video') {
       <img class="strip" [src]="previewUrl()" alt="" loading="lazy" (error)="onImgError()" />
@@ -34,7 +45,7 @@
       <img class="single" [src]="previewUrl()" alt="" loading="lazy" (error)="onImgError()" />
     }
 
-    @if (kind() === 'photo' && !showPending() && showExt() && extension()) {
+    @if (kind() === 'photo' && tile() === 'image' && showExt() && extension()) {
       <span class="tag ext">{{ extLabel() }}</span>
     }
     @if (tracked() === false) {
