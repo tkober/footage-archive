@@ -107,10 +107,28 @@ def test_corrupt_photo_with_image_extension_records_failed(db, root_dir):
 
 
 def test_unidentifiable_format_records_unsupported(db, root_dir):
-    # A .dng PIL can't open at all (real Insta360 DNGs are RAW, not a format
-    # PIL recognises) -> PIL.UnidentifiedImageError -> 'unsupported'.
+    # A .heic PIL can't open at all (no RAW_EXTENSIONS entry either, #78, so
+    # it never goes through rawpy) -> PIL.UnidentifiedImageError -> 'unsupported'.
+    heic_path = root_dir / 'weird.heic'
+    heic_path.write_bytes(b'totally not an image PIL can identify')
+    md5_hash = 'heic-hash'
+    _insert_file_row(str(root_dir), 'weird.heic', md5_hash, media_type='360_photo')
+
+    report = _Report()
+    troubleshoot.generate_missing_clip_previews(report)
+
+    status = _get_preview_status_row(md5_hash)
+    assert status is not None
+    assert status['status'] == 'unsupported'
+    assert '.heic' in status['reason']
+
+
+def test_dng_is_raw_extension_records_failed_not_unsupported(db, root_dir):
+    # #78: .dng is now a RAW_EXTENSIONS entry sent through rawpy (e.g. an
+    # Insta360 photo), never Pillow — a garbage .dng is 'failed', not
+    # 'unsupported', unlike before #78.
     dng_path = root_dir / 'weird.dng'
-    dng_path.write_bytes(b'totally not an image PIL can identify')
+    dng_path.write_bytes(b'totally not a dng rawpy can decode')
     md5_hash = 'dng-hash'
     _insert_file_row(str(root_dir), 'weird.dng', md5_hash, media_type='360_photo')
 
@@ -119,8 +137,8 @@ def test_unidentifiable_format_records_unsupported(db, root_dir):
 
     status = _get_preview_status_row(md5_hash)
     assert status is not None
-    assert status['status'] == 'unsupported'
-    assert '.dng' in status['reason']
+    assert status['status'] == 'failed'
+    assert status['reason']
 
 
 def test_corrupt_file_with_pillow_extension_records_failed_not_unsupported(db, root_dir):

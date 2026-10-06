@@ -18,17 +18,17 @@ from env.environment import Environment
 from fileops import service as fileops_service
 from fileops.pathlocks import PathLockedError
 from fileops.trash import is_in_trash
-from photos.exif import dump_all_exif, render_full_raw
+from photos.exif import RAW_EXTENSIONS, dump_all_exif, render_full_raw
 from scanner.scanner import Scanner
 
 FilesApi = APIRouter(prefix='/files')
 
 _env = Environment()
 
-# Full-image endpoint: JPEG-family stills are served as-is; RAW stills return
-# their largest embedded preview JPEG. (.insp is JPEG-based → passthrough.)
+# Full-image endpoint: JPEG-family stills are served as-is; RAW stills
+# (RAW_EXTENSIONS, #78) get a full-resolution rawpy render (render_full_raw).
+# (.insp is JPEG-based → passthrough.)
 _FULL_IMAGE_JPEG_EXTS = {'.jpg', '.jpeg', '.insp'}
-_FULL_IMAGE_RAW_EXTS = {'.rw2', '.dng'}
 
 # Media-type classification mirroring the frontend's VIDEO_TYPES/PHOTO_TYPES
 # (frontend/src/app/models.ts), used both for the `counts` block and the
@@ -390,7 +390,7 @@ async def get_full_image(md5_hash: str):
     ext = (rec['file_extension'] or p.suffix).lower()
     if ext in _FULL_IMAGE_JPEG_EXTS:
         return FileResponse(p, media_type='image/jpeg')
-    if ext in _FULL_IMAGE_RAW_EXTS:
+    if ext in RAW_EXTENSIONS:
         data = render_full_raw(str(p))
         if data is None:
             raise HTTPException(status_code=422, detail='Could not render RAW file')
