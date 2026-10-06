@@ -89,8 +89,8 @@ def _build_frame_command(file_path: str, timestamp: str, width: int, height: int
     source aspect ratio (`force_original_aspect_ratio=decrease`,
     `force_divisible_by=2` so an odd scaled dimension never trips ffmpeg),
     then pads the box with black to land on an exact `width`x`height` frame —
-    every caller (the filmstrip preview and the classifier's frame grabs, both
-    of which rely on a fixed per-frame size) keeps that exact geometry, but
+    the filmstrip preview (which the frontend and the shot classifier both
+    read with a fixed per-frame size) keeps that exact geometry, but
     a non-16:9 source (portrait phone video, 360 dual-fisheye) is pillarboxed/
     letterboxed instead of stretched/distorted. `setsar=1` normalizes the
     output's sample aspect ratio so a non-square-pixel source doesn't still
