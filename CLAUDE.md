@@ -213,7 +213,7 @@ footage-archive/
 ├── dbeaver/dev/            # One-off SQL to provision the dev Postgres (roles, db, grants)
 ├── scanner/scanner.py      # recursive dir walk + MD5 hashing, media_type assignment; skips anything inside the trash (fileops/trash.py::is_in_trash, #60)
 ├── ffmpeg/ffmpeg.py        # FFprobe (full stream info → VideoProbeResult) + clip preview
-├── photos/exif.py          # exiftool EXIF extraction → PhotoProbeResult (all photo formats); full-tag dump_all_exif(); Pillow/rawpy thumbnail generation — `generate_photo_thumbnail()` (#77) is the status-reporting sibling used by `generate_preview`: PIL's `UnidentifiedImageError` (format not recognised at all, e.g. an Insta360 .dng) → 'unsupported', any other failure → 'failed' with `str(e)`; thumbnail/full-raw failures log at `warning`, not `debug`
+├── photos/exif.py          # exiftool EXIF extraction → PhotoProbeResult (all photo formats); full-tag dump_all_exif(); Pillow/rawpy thumbnail generation — `generate_photo_thumbnail()` returns `(bytes|None, status, reason)` (#77) for `generate_preview`: PIL's `UnidentifiedImageError` on an extension Pillow doesn't handle (e.g. an Insta360 .dng) → 'unsupported', any other failure (incl. a corrupt .jpg) → 'failed' with `str(e)`; thumbnail/full-raw failures log at `warning`, not `debug`
 ├── davinci/davinciresolve.py  # DaVinci Resolve CSV metadata parser
 ├── shot_classifier/classifier.py  # ML shot-type classifier (backs POST /ai/classify-shot)
 ├── tasks/taskmanager.py    # in-memory singleton background task queue
