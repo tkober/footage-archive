@@ -30,24 +30,11 @@
 
 .toolbar .size input { width: 96px; accent-color: var(--accent); }
 
-/* File type dropdown (#72) — visually matches the .seg segmented control
-   next to it (same border/radius/tokens), a plain native <select>. */
-.ext-select {
-  height: 28px;
-  padding: 0 6px;
-  border-radius: var(--r-md);
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--muted);
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  font-family: inherit;
-  cursor: pointer;
-  outline: none;
-  max-width: 180px;
-}
-.ext-select:hover,
-.ext-select:focus { color: var(--text); border-color: var(--line-strong); }
+/* File type dropdown (#72, #83) — a single .seg-btn in its own .seg track,
+   so it matches the kind segmented control next to it; opens an app-menu. */
+.ext-btn app-icon { color: var(--faint); margin-left: -2px; }
+.ext-btn:hover app-icon,
+.ext-btn.on app-icon { color: var(--muted); }
 
 /* State messages */
 .state-msg {
