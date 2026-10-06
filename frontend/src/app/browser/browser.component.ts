@@ -85,6 +85,11 @@ export class BrowserComponent implements OnInit {
   total = signal(0);
   counts = signal<DirectoryCounts | null>(null);
   filter = signal<SegmentFilter>('all');
+  /** File type dropdown (#72) — a normalised extension like ".rw2", or null
+      for "All types". Reset to null when the kind segment changes or when
+      navigating to another directory; persists across a plain reload of
+      the same directory/kind (mirrors `filter`). */
+  extFilter = signal<string | null>(null);
   thumbSize = signal(this.readStoredThumbSize());
   loading = signal(false);
   loadingMore = signal(false);
@@ -149,7 +154,7 @@ export class BrowserComponent implements OnInit {
   // the folder is already known.
   rediscoverPath = signal<string | null>(null);
 
-  dirs           = computed(() => this.filter() === 'all' ? this.entries().filter(e => e.type === 'directory') : []);
+  dirs           = computed(() => this.filter() === 'all' && this.extFilter() === null ? this.entries().filter(e => e.type === 'directory') : []);
   videoFiles     = computed(() => this.entries().filter(e => e.type === 'file' && VIDEO_TYPES.includes(e.media_type as any)));
   photoFiles     = computed(() => this.entries().filter(e => e.type === 'file' && PHOTO_TYPES.includes(e.media_type as any)));
   untrackedFiles = computed(() => this.entries().filter(
@@ -187,10 +192,21 @@ export class BrowserComponent implements OnInit {
   showDetail = computed(() => this.loadingDetails() || !!this.selectedFile());
 
   /** Section-heading counts (#39) come from the server-side `counts` for the
-      whole directory, not from however many rows happen to be loaded/paged. */
-  videoCount     = computed(() => this.counts()?.video ?? this.videoFiles().length);
-  photoCount     = computed(() => this.counts()?.photo ?? this.photoFiles().length);
-  untrackedCount = computed(() => this.counts()?.untracked ?? this.untrackedFiles().length);
+      whole directory, not from however many rows happen to be loaded/paged.
+      With an extension filter active (#72), `counts.video`/`photo`/`untracked`
+      no longer match what's actually loaded (they ignore `extension`), so
+      count from the loaded rows instead (see `extSectionCount`). */
+  videoCount     = computed(() => this.extFilter() !== null ? this.extSectionCount(this.videoFiles().length) : (this.counts()?.video ?? this.videoFiles().length));
+  photoCount     = computed(() => this.extFilter() !== null ? this.extSectionCount(this.photoFiles().length) : (this.counts()?.photo ?? this.photoFiles().length));
+  untrackedCount = computed(() => this.extFilter() !== null ? this.extSectionCount(this.untrackedFiles().length) : (this.counts()?.untracked ?? this.untrackedFiles().length));
+
+  /** Section count under an extension filter: exact once everything is
+      loaded; while paging, `total` if this section holds every loaded row
+      (the usual case — one extension, one kind), else the loaded count. */
+  private extSectionCount(loaded: number): number {
+    if (!this.hasMore()) return loaded;
+    return loaded === this.entries().length ? this.total() : loaded;
+  }
 
   /** Filter segments: All / Videos / Stills / Untracked, hiding any
       zero-count segment except All. */
@@ -205,6 +221,25 @@ export class BrowserComponent implements OnInit {
     ];
     return options.filter(o => o.key === 'all' || o.count > 0);
   });
+
+  /** File type dropdown options (#72): every extension in the current kind
+      view (`counts().extensions`, already scoped by `filter`/`kind` but not
+      by `extension` itself), sorted alphabetically, label uppercase without
+      the leading dot. */
+  extOptions = computed(() => {
+    const exts = this.counts()?.extensions ?? {};
+    return Object.keys(exts).sort((a, b) => a.localeCompare(b)).map(ext => ({
+      ext,
+      label: ext.replace(/^\./, '').toUpperCase(),
+      count: exts[ext],
+    }));
+  });
+
+  extTotalCount = computed(() => this.extOptions().reduce((sum, o) => sum + o.count, 0));
+
+  /** Hidden when there's nothing meaningful to choose from — fewer than 2
+      extensions and no filter already active (clearing a filter must stay reachable). */
+  showExtDropdown = computed(() => this.extOptions().length >= 2 || this.extFilter() !== null);
 
   /** Ext badge rule (#39): only when the loaded photo entries actually mix
       formats (e.g. JPG + RW2) — otherwise it's noise. */
@@ -267,7 +302,7 @@ export class BrowserComponent implements OnInit {
         )
       )
     ).subscribe({
-      next: path => this.loadDirectory(path),
+      next: path => { this.extFilter.set(null); this.loadDirectory(path); },
       error: () => this.error.set('Failed to load configuration')
     });
   }
@@ -289,7 +324,8 @@ export class BrowserComponent implements OnInit {
     this.page = 1;
 
     const f = this.filter(); const kind: DirectoryKind | undefined = f === 'all' ? undefined : f;
-    this.api.listDirectory({ path, page: 1, page_size: PAGE_SIZE, kind }).subscribe({
+    const extension = this.extFilter() ?? undefined;
+    this.api.listDirectory({ path, page: 1, page_size: PAGE_SIZE, kind, extension }).subscribe({
       next: response => {
         this.entries.set(response.items);
         this.total.set(response.total);
@@ -313,7 +349,8 @@ export class BrowserComponent implements OnInit {
     this.page++;
 
     const f = this.filter(); const kind: DirectoryKind | undefined = f === 'all' ? undefined : f;
-    this.api.listDirectory({ path, page: this.page, page_size: PAGE_SIZE, kind }).subscribe({
+    const extension = this.extFilter() ?? undefined;
+    this.api.listDirectory({ path, page: this.page, page_size: PAGE_SIZE, kind, extension }).subscribe({
       next: response => {
         this.entries.update(existing => [...existing, ...response.items]);
         this.total.set(response.total);
@@ -333,10 +370,23 @@ export class BrowserComponent implements OnInit {
     this.loadMore();
   }
 
-  /** Segmented filter (#39): reloads the directory listing scoped to `kind`. */
+  /** Segmented filter (#39): reloads the directory listing scoped to `kind`.
+      Resets the extension filter (#72) — the dropdown's options are scoped
+      to the selected kind, so a stale extension could silently filter out
+      everything once the kind no longer offers it. */
   setFilter(key: SegmentFilter) {
     if (this.filter() === key) return;
     this.filter.set(key);
+    this.extFilter.set(null);
+    const path = this.currentPath();
+    if (path) this.loadDirectory(path);
+  }
+
+  /** File type dropdown (#72): reloads the directory listing scoped to
+      `extension`, same pattern as `setFilter`. */
+  setExtFilter(ext: string | null) {
+    if (this.extFilter() === ext) return;
+    this.extFilter.set(ext);
     const path = this.currentPath();
     if (path) this.loadDirectory(path);
   }
@@ -948,13 +998,16 @@ export class BrowserComponent implements OnInit {
       this.total.update(t => Math.max(0, t - removed.length));
       this.counts.update(c => {
         if (!c) return c;
-        const next = { ...c };
+        const next = { ...c, extensions: { ...c.extensions } };
         for (const e of removed) {
           if (e.type === 'directory') { next.directories = Math.max(0, next.directories - 1); continue; }
           const kind = this.cardKind(e);
           if (kind === 'video') next.video = Math.max(0, next.video - 1);
           else if (kind === 'photo') next.photo = Math.max(0, next.photo - 1);
           else next.untracked = Math.max(0, next.untracked - 1);
+          if (e.file_extension && next.extensions[e.file_extension] != null) {
+            next.extensions[e.file_extension] = Math.max(0, next.extensions[e.file_extension] - 1);
+          }
         }
         return next;
       });
