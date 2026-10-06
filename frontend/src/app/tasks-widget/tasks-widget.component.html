@@ -50,7 +50,7 @@
                 <small>{{ task.started_at | date:'HH:mm:ss' }}</small>
               }
             </div>
-            <div class="t2">{{ task.description }}</div>
+            <div class="t2">@for (seg of descriptionSegments(task.description); track $index) {{{ seg }}<wbr>}</div>
             @if (task.status === 'RUNNING' || task.status === 'COMPLETED') {
               <div class="progress" [class.indeterminate]="task.status === 'RUNNING' && taskProgressFraction(task) === null">
                 <i [style.width.%]="task.status === 'COMPLETED' || taskProgressFraction(task) === null ? 100 : (taskProgressFraction(task)! * 100)"></i>
