@@ -10,6 +10,18 @@ from pydantic import BaseModel
 
 from tasks.loadcontrol import heavy_slot, run_niced
 
+# Every extension here is sent through rawpy for thumbnailing/full-res rendering
+# (#78) — never through Pillow, which can't open most of these (incl. Insta360
+# .dng). An extension in this set is therefore never recorded 'unsupported';
+# any rawpy/libraw failure on it is 'failed' instead (see generate_photo_thumbnail).
+RAW_EXTENSIONS = {'.rw2', '.dng', '.cr2', '.cr3', '.nef', '.arw', '.orf', '.raf'}
+
+# Insta360 X3 (and presumably other Insta360 models) write their DNG's Make tag
+# as this value. Those DNGs decode with a strong magenta cast under camera WB
+# and come out of libraw portrait instead of the camera's own landscape 2:1
+# (.insp) framing — both corrected in _postprocess_raw (#78).
+_INSTA360_MAKE = 'Arashi Vision'
+
 
 class PhotoProbeResult(BaseModel):
     md5_hash: str
@@ -131,17 +143,18 @@ def generate_photo_thumbnail(
         md5_hash: str, file_path: str, max_width: int = 600,
 ) -> tuple[bytes | None, str, str | None]:
     """600px-wide JPEG thumbnail (Pillow, EXIF-rotation-corrected; rawpy for
-    RW2) plus *why* it failed (#77), so the caller can record a
-    `PreviewStatus` outcome. PIL's `UnidentifiedImageError` on an extension
-    Pillow doesn't handle (e.g. an Insta360 `.dng`) is reported as
-    ``'unsupported'``; any other failure — incl. a corrupt file with an
-    extension Pillow does handle, a rawpy decode error, ... — as ``'failed'``.
-    Returns ``(thumbnail_bytes, 'ok', None)`` on success."""
+    any `RAW_EXTENSIONS` format, #78) plus *why* it failed (#77), so the
+    caller can record a `PreviewStatus` outcome. PIL's `UnidentifiedImageError`
+    on an extension Pillow doesn't handle is reported as ``'unsupported'``;
+    a RAW extension is never ``'unsupported'`` — any rawpy/libraw failure on
+    one is ``'failed'``, same as any other failure (incl. a corrupt file with
+    an extension Pillow does handle). Returns ``(thumbnail_bytes, 'ok', None)``
+    on success."""
     ext = Path(file_path).suffix.lower()
     try:
         with heavy_slot(f'photo thumbnail {file_path}'):
-            if ext == '.rw2':
-                img = _open_rw2(file_path)
+            if ext in RAW_EXTENSIONS:
+                img = _raw_thumbnail(file_path, max_width)
             else:
                 img = Image.open(file_path)
                 img = ImageOps.exif_transpose(img)
@@ -164,17 +177,30 @@ def generate_photo_thumbnail(
         return None, 'failed', str(e)
 
 
-def render_full_raw(file_path: str) -> bytes | None:
-    """Native-resolution JPEG from a RAW file (.rw2/.dng) by demosaicing the sensor.
+def _raw_thumbnail(file_path: str, max_width: int) -> Image.Image | None:
+    """Prefer the camera's embedded preview (fast) when it's at least as wide as
+    `max_width`; otherwise fall back to a half-size rawpy postprocess (#78)."""
+    img = _extract_raw_preview(file_path)
+    if img is not None and img.width >= max_width:
+        return img
+    return _postprocess_raw(file_path, half_size=True)
 
-    The camera's *embedded* preview is only a reduced-size JPEG (e.g. 1920×1440 on
-    Lumix), so we run the full libraw postprocess instead to get the original
-    resolution. Slower than reading the embedded thumb, but this backs the
-    detailed comparison view where resolution is the whole point.
+
+def render_full_raw(file_path: str) -> bytes | None:
+    """Native-resolution JPEG from a RAW file (any `RAW_EXTENSIONS` format, #78).
+
+    Prefers the camera's embedded preview when the RAW carries one (fast —
+    e.g. the ~500KB JPEG Lumix RW2 embeds); otherwise falls back to the full
+    libraw postprocess to get the original sensor resolution (slower, but
+    this backs the detailed comparison view where resolution is the whole
+    point). Insta360 .dng carries no embedded preview, so it always takes the
+    postprocess path.
     """
     try:
         with heavy_slot(f'full raw render {file_path}'):
-            img = _open_rw2(file_path)  # full rawpy postprocess (works for any libraw RAW)
+            img = _extract_raw_preview(file_path)
+            if img is None:
+                img = _postprocess_raw(file_path, half_size=False)
             if img is None:
                 return None
             if img.mode not in ('RGB', 'L'):
@@ -187,15 +213,63 @@ def render_full_raw(file_path: str) -> bytes | None:
         return None
 
 
-def _open_rw2(file_path: str) -> Image.Image | None:
+def _extract_raw_preview(file_path: str) -> Image.Image | None:
+    """The camera's own embedded preview via rawpy's `extract_thumb()`
+    (JPEG, EXIF-rotation-corrected, or a raw bitmap) — None if the RAW file
+    carries no usable embedded preview (e.g. an Insta360 .dng, which has
+    none at all)."""
+    try:
+        with rawpy.imread(file_path) as raw:
+            thumb = raw.extract_thumb()
+    except (rawpy.LibRawNoThumbnailError, rawpy.LibRawUnsupportedThumbnailError):
+        return None
+    except Exception as e:
+        logging.debug(f'RAW embedded-thumb extraction failed for {file_path}: {e}')
+        return None
+    if thumb.format == rawpy.ThumbFormat.JPEG:
+        img = Image.open(io.BytesIO(thumb.data))
+        return ImageOps.exif_transpose(img)
+    if thumb.format == rawpy.ThumbFormat.BITMAP:
+        return Image.fromarray(thumb.data)
+    return None
+
+
+def _postprocess_raw(file_path: str, half_size: bool = False) -> Image.Image | None:
+    """Full libraw demosaic (works for any libraw RAW format, not just RW2 —
+    renamed from `_open_rw2` in #78). Insta360 (Make == 'Arashi Vision', #78):
+    `use_auto_wb` instead of `use_camera_wb` (camera WB renders a strong
+    magenta cast on these), and — since libraw decodes the DNG portrait while
+    the camera's own .insp preview is landscape 2:1 — a 90° counterclockwise
+    rotation of a portrait result, the direction confirmed empirically by
+    rendering both ways and comparing against the sibling .insp (see #78 PR).
+    Every other camera keeps the original `use_camera_wb=True`, no rotation."""
+    is_insta360 = _camera_make(file_path) == _INSTA360_MAKE
+    postprocess_kwargs = dict(half_size=half_size, no_auto_bright=False, output_bps=8)
+    if is_insta360:
+        postprocess_kwargs['use_auto_wb'] = True
+    else:
+        postprocess_kwargs['use_camera_wb'] = True
     with rawpy.imread(file_path) as raw:
-        rgb = raw.postprocess(
-            use_camera_wb=True,
-            half_size=False,
-            no_auto_bright=False,
-            output_bps=8,
+        rgb = raw.postprocess(**postprocess_kwargs)
+    img = Image.fromarray(np.asarray(rgb, dtype=np.uint8))
+    if is_insta360 and img.height > img.width:
+        img = img.rotate(90, expand=True)
+    return img
+
+
+def _camera_make(file_path: str) -> str | None:
+    """Single cheap exiftool tag read, used only on the RAW postprocess path
+    (#78) to detect an Insta360 DNG needing its own WB/rotation correction."""
+    try:
+        result = run_niced(
+            ['exiftool', '-json', '-Make', file_path],
+            capture_output=True, text=True,
         )
-    return Image.fromarray(np.asarray(rgb, dtype=np.uint8))
+        data = json.loads(result.stdout)[0]
+        return _str(data.get('Make'))
+    except Exception as e:
+        logging.debug(f'exiftool Make lookup failed for {file_path}: {e}')
+        return None
 
 
 def _str(val) -> str | None:
