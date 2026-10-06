@@ -24,6 +24,11 @@ export interface MenuItem {
   disabled?: boolean;
   /** Renders a thin separator line above this item. */
   separatorBefore?: boolean;
+  /** Small mono annotation on the right, e.g. a count (like `.seg-count`). */
+  detail?: string;
+  /** Single-choice menus (#83): marks the current choice with a tick and
+      focuses it when the menu opens. */
+  checked?: boolean;
 }
 
 export interface MenuPoint {
@@ -55,6 +60,9 @@ export class MenuComponent implements OnInit, AfterViewInit, OnDestroy {
   /** Open anchored below-right of this element (e.g. a "more actions" button). */
   anchor = input<HTMLElement | null>(null);
   items = input<MenuItem[]>([]);
+  /** With `anchor`: line up the menu's right edges (`end`, the default, for
+      "more" buttons) or left edges (`start`, e.g. a toolbar dropdown). */
+  align = input<'start' | 'end'>('end');
 
   select = output<string>();
   closed = output<void>();
@@ -74,8 +82,8 @@ export class MenuComponent implements OnInit, AfterViewInit, OnDestroy {
 
   ngAfterViewInit() {
     this.positionMenu();
-    const first = this.enabledIndexes()[0] ?? -1;
-    this.focusIndex(first);
+    const checked = this.items().findIndex(it => it.checked && !it.disabled);
+    this.focusIndex(checked >= 0 ? checked : (this.enabledIndexes()[0] ?? -1));
   }
 
   ngOnDestroy() {
@@ -92,7 +100,7 @@ export class MenuComponent implements OnInit, AfterViewInit, OnDestroy {
     let y: number;
     if (anchor) {
       const a = anchor.getBoundingClientRect();
-      x = a.right - rect.width;
+      x = this.align() === 'start' ? a.left : a.right - rect.width;
       y = a.bottom + 4;
     } else if (point) {
       x = point.x;

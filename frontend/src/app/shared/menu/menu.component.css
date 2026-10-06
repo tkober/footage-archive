@@ -76,6 +76,20 @@
 .mi.danger app-icon {
   color: var(--danger);
 }
+.mi .mi-detail {
+  flex: none;
+  font: 400 11px var(--mono);
+  color: var(--faint);
+}
+.mi .mi-check {
+  flex: none;
+  width: 14px;
+  display: inline-grid;
+  place-items: center;
+}
+.mi .mi-check app-icon {
+  color: var(--accent);
+}
 .mi .kbd {
   margin-left: auto;
   flex: none;

@@ -236,6 +236,19 @@ export class BrowserComponent implements OnInit {
   });
 
   extTotalCount = computed(() => this.extOptions().reduce((sum, o) => sum + o.count, 0));
+  private extSelected = computed(() => this.extOptions().find(o => o.ext === this.extFilter()) ?? null);
+  extButtonLabel = computed(() => this.extSelected()?.label ?? (this.extFilter() !== null ? this.extFilter()!.replace(/^\./, '').toUpperCase() : 'All types'));
+  extButtonCount = computed(() => this.extFilter() !== null ? (this.extSelected()?.count ?? 0) : this.extTotalCount());
+
+  /** File type menu (#83): an app-menu anchored under the dropdown button,
+      instead of a native <select> popup. Item id '' = "All types". */
+  extMenuAnchor = signal<HTMLElement | null>(null);
+  extMenuItems = computed<MenuItem[]>(() => [
+    { id: '', label: 'All types', detail: String(this.extTotalCount()), checked: this.extFilter() === null },
+    ...this.extOptions().map((o, i) => ({
+      id: o.ext, label: o.label, detail: String(o.count), checked: this.extFilter() === o.ext, separatorBefore: i === 0,
+    })),
+  ]);
 
   /** Hidden when there's nothing meaningful to choose from — fewer than 2
       extensions and no filter already active (clearing a filter must stay reachable). */
@@ -380,6 +393,15 @@ export class BrowserComponent implements OnInit {
     this.extFilter.set(null);
     const path = this.currentPath();
     if (path) this.loadDirectory(path);
+  }
+
+  openExtMenu(anchor: HTMLElement) {
+    this.extMenuAnchor.set(anchor);
+  }
+
+  onExtMenuSelect(id: string) {
+    this.extMenuAnchor.set(null);
+    this.setExtFilter(id || null);
   }
 
   /** File type dropdown (#72): reloads the directory listing scoped to

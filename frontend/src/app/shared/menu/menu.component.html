@@ -17,7 +17,8 @@
     <button
       #itemBtn
       type="button"
-      role="menuitem"
+      [attr.role]="item.checked === undefined ? 'menuitem' : 'menuitemradio'"
+      [attr.aria-checked]="item.checked ?? null"
       class="mi"
       [class.danger]="item.danger"
       [disabled]="item.disabled"
@@ -29,6 +30,16 @@
         <app-icon [name]="item.icon" [size]="16" />
       }
       <span class="mi-label">{{ item.label }}</span>
+      @if (item.detail) {
+        <span class="mi-detail">{{ item.detail }}</span>
+      }
+      @if (item.checked !== undefined) {
+        <span class="mi-check">
+          @if (item.checked) {
+            <app-icon name="tick" [size]="14" />
+          }
+        </span>
+      }
       @if (item.shortcut) {
         <span class="kbd">{{ item.shortcut }}</span>
       }

@@ -10,14 +10,14 @@
         }
       </div>
       @if (showExtDropdown()) {
-        <select class="ext-select" aria-label="Filter by file type"
-                [value]="extFilter() ?? ''"
-                (change)="setExtFilter($any($event.target).value || null)">
-          <option value="">All types · {{ extTotalCount() }}</option>
-          @for (opt of extOptions(); track opt.ext) {
-            <option [value]="opt.ext">{{ opt.label }} · {{ opt.count }}</option>
-          }
-        </select>
+        <div class="seg">
+          <button #extBtn type="button" class="seg-btn ext-btn" [class.on]="extFilter() !== null"
+                  aria-haspopup="menu" [attr.aria-expanded]="extMenuAnchor() !== null"
+                  aria-label="Filter by file type" (click)="openExtMenu(extBtn)">
+            {{ extButtonLabel() }}<span class="seg-count">{{ extButtonCount() }}</span>
+            <app-icon name="chevron-down" [size]="14" />
+          </button>
+        </div>
       }
       <div class="grow"></div>
       <label class="size" title="Thumbnail size">
@@ -363,6 +363,11 @@
       </span>
     </div>
   </app-menu>
+}
+
+@if (extMenuAnchor(); as anchor) {
+  <app-menu [items]="extMenuItems()" [anchor]="anchor" align="start"
+            (select)="onExtMenuSelect($event)" (closed)="extMenuAnchor.set(null)" />
 }
 
 @if (quickPop(); as qp) {
