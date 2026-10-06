@@ -40,6 +40,7 @@ class PhotoProbeResult(BaseModel):
     focal_length_35mm: float | None = None
     scale_factor_35mm: float | None = None
     field_of_view: float | None = None
+    projection: str | None = None
     recorded_at: str | None = None
     latitude: float | None = None
     longitude: float | None = None
@@ -58,6 +59,11 @@ _EXIFTOOL_TAGS = [
     '-FocalLengthIn35mmFormat#', '-ScaleFactor35efl#', '-FOV#',
     '-GPSLatitude#', '-GPSLatitudeRef#', '-GPSLongitude#', '-GPSLongitudeRef#',
     '-GPSAltitude#', '-GPSAltitudeRef#',
+    # XMP-GPano ProjectionType (#79) — present on an exported 360 photo (e.g.
+    # an equirectangular JPEG), absent on a normal photo and on Insta360's own
+    # .insp/.dng (those carry no projection tag at all, which is fine: they're
+    # always 360 by extension, see scanner/media_type.py).
+    '-XMP-GPano:ProjectionType',
 ]
 
 
@@ -120,6 +126,7 @@ def probe_photo(md5_hash: str, file_path: str) -> PhotoProbeResult | None:
     probe.focal_length_35mm = _round(data.get('FocalLengthIn35mmFormat'), 1)
     probe.scale_factor_35mm = _round(data.get('ScaleFactor35efl'), 2)
     probe.field_of_view = _round(data.get('FOV'), 1)
+    probe.projection = _str(data.get('ProjectionType'))
 
     # GPS: exiftool returns unsigned decimal degrees + a separate N/S/E/W ref
     lat = data.get('GPSLatitude')

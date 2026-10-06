@@ -59,6 +59,7 @@ class VideoProbeResult(FFmpegInput):
     audio_channels: int | None = None
     duration_tc: str | None = None
     recorded_at: str | None = None
+    projection: str | None = None
 
 
 class ClipPreview(BaseModel):
@@ -112,6 +113,20 @@ def _extract_frame(file_path: str, timestamp: str, width: int, height: int,
     return result
 
 
+def _extract_projection(video_stream: dict) -> str | None:
+    """Spherical/equirectangular projection tag from ffprobe's stream
+    `side_data_list` (#79) — e.g. {"side_data_type": "Spherical Mapping",
+    "projection": "equirectangular"} on a genuine 360 video. Absent on a
+    flat video, including an Insta360 camera's own reframed/flat MP4
+    exports (scanner/media_type.py deliberately never uses Make alone for
+    video, since those exports otherwise look identical)."""
+    for side_data in video_stream.get('side_data_list', []) or []:
+        projection = side_data.get('projection')
+        if projection:
+            return str(projection)
+    return None
+
+
 class FFprobe:
 
     def probe_file(self, md5_hash: str, file_path: str) -> VideoProbeResult | None:
@@ -159,6 +174,7 @@ class FFprobe:
             bps = video.get('bits_per_raw_sample')
             if bps and str(bps) != '0':
                 probe.bit_depth = int(bps)
+            probe.projection = _extract_projection(video)
 
         if audio:
             probe.audio_codec = audio.get('codec_name')

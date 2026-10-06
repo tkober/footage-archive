@@ -118,12 +118,20 @@ class Environment:
         return list(self.get_media_type_map().keys())
 
     def get_media_type_map(self) -> dict[str, str]:
+        # media_type here only decides a file's *extension-based* family
+        # (video/photo, 360 or not); #79 refines it with real metadata once
+        # the file is actually probed (scanner/media_type.py). .dng moved
+        # out of MEDIA_TYPE_360_PHOTO and into MEDIA_TYPE_PHOTO: it's a real
+        # RAW format other cameras write too, so it's metadata-checked
+        # (Insta360's Make tag) instead of being blindly 360 just because an
+        # Insta360 camera also happens to use it. .insp/.insv stay 360 —
+        # Insta360-proprietary, no usable metadata to check at all.
         mapping = {}
         defaults = {
             "MEDIA_TYPE_VIDEO": ("video", ".mov,.mp4"),
-            "MEDIA_TYPE_PHOTO": ("photo", ".jpg,.jpeg,.rw2"),
+            "MEDIA_TYPE_PHOTO": ("photo", ".jpg,.jpeg,.rw2,.dng"),
             "MEDIA_TYPE_360_VIDEO": ("360_video", ".insv"),
-            "MEDIA_TYPE_360_PHOTO": ("360_photo", ".insp,.dng"),
+            "MEDIA_TYPE_360_PHOTO": ("360_photo", ".insp"),
         }
         for env_var, (media_type, default) in defaults.items():
             raw = self.loadEnvironmentVariable(env_var, default)
