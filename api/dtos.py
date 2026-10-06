@@ -57,6 +57,11 @@ class DirectoryQuery(BaseModel):
     sort_order: SortOrder = SortOrder.ASC
     dirs_first: bool = True
     kind: Optional[DirectoryKind] = None
+    # File extension filter (#72), e.g. ".rw2" — normalised server-side
+    # (lowercased, leading dot added if missing). When set, only files whose
+    # file_extension matches are returned (directories are dropped), AND-ed
+    # with `kind` if that's also set.
+    extension: Optional[StrictStr] = None
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=50, ge=1, le=500)
 
@@ -79,11 +84,19 @@ class PathChild(BaseModel):
 class DirectoryCounts(BaseModel):
     """Counts for the *whole* directory, independent of pagination and of any
     `kind` filter on this request — same video/photo/untracked classification
-    as `DirectoryKind` (hidden extensions already excluded)."""
+    as `DirectoryKind` (hidden extensions already excluded).
+
+    `extensions` (#72) is different: it's a per-file-extension breakdown
+    (e.g. {".rw2": 12, ".mp4": 3}) taken *after* the `kind` filter but
+    *before* the `extension` filter, so the file-type dropdown only offers
+    extensions that match the currently selected kind, and its counts don't
+    collapse to just the chosen extension once one is picked. Files with no
+    extension are skipped. Keys include the leading dot."""
     directories: int
     video: int
     photo: int
     untracked: int
+    extensions: dict[str, int] = {}
 
 
 class DirectoryResponse(BaseModel):

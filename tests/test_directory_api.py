@@ -4,6 +4,7 @@ Mirrors tests/test_files_api.py's HTTP-level TestClient pattern."""
 
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -52,7 +53,10 @@ def test_default_listing_is_unchanged_and_carries_counts(db, root_dir):
     names = {e['name'] for e in body['items']}
     assert names == {'sub', 'video.mov', 'photo.jpg', 'untracked.txt'}
 
-    assert body['counts'] == {'directories': 1, 'video': 1, 'photo': 1, 'untracked': 1}
+    assert body['counts'] == {
+        'directories': 1, 'video': 1, 'photo': 1, 'untracked': 1,
+        'extensions': {'.mov': 1, '.jpg': 1, '.txt': 1},
+    }
 
 
 def test_counts_are_independent_of_pagination(db, root_dir):
@@ -66,7 +70,10 @@ def test_counts_are_independent_of_pagination(db, root_dir):
     body = _list_dir(client, root_dir, page=1, page_size=2)
     assert len(body['items']) == 2
     assert body['total'] == 5
-    assert body['counts'] == {'directories': 0, 'video': 5, 'photo': 0, 'untracked': 0}
+    assert body['counts'] == {
+        'directories': 0, 'video': 5, 'photo': 0, 'untracked': 0,
+        'extensions': {'.mov': 5},
+    }
 
 
 def test_360_variants_count_as_video_and_photo(db, root_dir):
@@ -78,7 +85,10 @@ def test_360_variants_count_as_video_and_photo(db, root_dir):
     _insert_file_row(str(root_dir), 'b.insp', 'h2', media_type='360_photo')
 
     body = _list_dir(client, root_dir)
-    assert body['counts'] == {'directories': 0, 'video': 1, 'photo': 1, 'untracked': 0}
+    assert body['counts'] == {
+        'directories': 0, 'video': 1, 'photo': 1, 'untracked': 0,
+        'extensions': {'.insv': 1, '.insp': 1},
+    }
 
 
 def test_hidden_extensions_excluded_from_listing_and_counts(db, root_dir):
@@ -91,7 +101,10 @@ def test_hidden_extensions_excluded_from_listing_and_counts(db, root_dir):
     body = _list_dir(client, root_dir)
     names = {e['name'] for e in body['items']}
     assert names == {'photo.jpg'}
-    assert body['counts'] == {'directories': 0, 'video': 0, 'photo': 1, 'untracked': 0}
+    assert body['counts'] == {
+        'directories': 0, 'video': 0, 'photo': 1, 'untracked': 0,
+        'extensions': {'.jpg': 1},
+    }
 
 
 def test_file_count_on_directory_entries(db, root_dir):
@@ -148,8 +161,13 @@ def test_kind_filter_video(db, root_dir):
     body = _list_dir(client, root_dir, kind='video')
     assert body['total'] == 1
     assert [e['name'] for e in body['items']] == ['v.mov']
-    # counts still describe the whole (unfiltered) directory
-    assert body['counts'] == {'directories': 1, 'video': 1, 'photo': 1, 'untracked': 1}
+    # directories/video/photo/untracked still describe the whole (unfiltered) directory
+    assert body['counts']['directories'] == 1
+    assert body['counts']['video'] == 1
+    assert body['counts']['photo'] == 1
+    assert body['counts']['untracked'] == 1
+    # ...but extensions is scoped by `kind` (here: video only) — see DirectoryCounts docstring
+    assert body['counts']['extensions'] == {'.mov': 1}
 
 
 def test_kind_filter_photo(db, root_dir):
@@ -248,6 +266,84 @@ def test_no_kind_means_everything_as_today(db, root_dir):
     body = _list_dir(client, root_dir)
     assert body['total'] == 4
     assert {e['type'] for e in body['items']} == {'directory', 'file'}
+
+
+def test_extension_filter_alone(db, root_dir):
+    client = _make_client()
+
+    (root_dir / 'sub').mkdir()
+    (root_dir / 'a.rw2').write_bytes(b'x')
+    (root_dir / 'b.rw2').write_bytes(b'x')
+    (root_dir / 'c.jpg').write_bytes(b'x')
+    _insert_file_row(str(root_dir), 'a.rw2', 'h1', media_type='photo')
+    _insert_file_row(str(root_dir), 'b.rw2', 'h2', media_type='photo')
+    _insert_file_row(str(root_dir), 'c.jpg', 'h3', media_type='photo')
+
+    body = _list_dir(client, root_dir, extension='.rw2')
+    assert body['total'] == 2
+    assert {e['name'] for e in body['items']} == {'a.rw2', 'b.rw2'}
+    # directories are dropped once an extension filter is set
+    assert all(e['type'] == 'file' for e in body['items'])
+
+
+def test_extension_filter_combined_with_kind(db, root_dir):
+    client = _make_client()
+
+    (root_dir / 'a.jpg').write_bytes(b'x')  # photo, wrong extension
+    (root_dir / 'b.mp4').write_bytes(b'x')  # video, right extension
+    (root_dir / 'c.mp4').write_bytes(b'x')  # untracked, right extension
+    _insert_file_row(str(root_dir), 'a.jpg', 'h1', media_type='photo')
+    _insert_file_row(str(root_dir), 'b.mp4', 'h2', media_type='video')
+    # c.mp4 left untracked
+
+    body = _list_dir(client, root_dir, kind='video', extension='.mp4')
+    assert body['total'] == 1
+    assert [e['name'] for e in body['items']] == ['b.mp4']
+
+
+@pytest.mark.parametrize('raw_extension', ['.RW2', 'rw2', 'RW2', '.rw2'])
+def test_extension_filter_is_normalised(db, root_dir, raw_extension):
+    client = _make_client()
+
+    (root_dir / 'a.rw2').write_bytes(b'x')
+    (root_dir / 'b.jpg').write_bytes(b'x')
+    _insert_file_row(str(root_dir), 'a.rw2', 'h1', media_type='photo')
+    _insert_file_row(str(root_dir), 'b.jpg', 'h2', media_type='photo')
+
+    body = _list_dir(client, root_dir, extension=raw_extension)
+    assert [e['name'] for e in body['items']] == ['a.rw2']
+
+
+def test_extensions_count_respects_kind_but_not_extension_filter(db, root_dir):
+    client = _make_client()
+
+    (root_dir / 'a.rw2').write_bytes(b'x')
+    (root_dir / 'b.jpg').write_bytes(b'x')
+    (root_dir / 'c.mov').write_bytes(b'x')  # different kind — must not appear
+    _insert_file_row(str(root_dir), 'a.rw2', 'h1', media_type='photo')
+    _insert_file_row(str(root_dir), 'b.jpg', 'h2', media_type='photo')
+    _insert_file_row(str(root_dir), 'c.mov', 'h3', media_type='video')
+
+    # Scoped by kind='photo'...
+    body = _list_dir(client, root_dir, kind='photo')
+    assert body['counts']['extensions'] == {'.rw2': 1, '.jpg': 1}
+
+    # ...and the counts don't collapse once an extension is also chosen.
+    body = _list_dir(client, root_dir, kind='photo', extension='.rw2')
+    assert body['total'] == 1
+    assert body['counts']['extensions'] == {'.rw2': 1, '.jpg': 1}
+
+
+def test_files_without_extension_skipped_from_extensions_count(db, root_dir):
+    client = _make_client()
+
+    (root_dir / 'noext').write_bytes(b'x')
+    (root_dir / 'a.jpg').write_bytes(b'x')
+    _insert_file_row(str(root_dir), 'a.jpg', 'h1', media_type='photo')
+    # noext left untracked, media_type None, file_extension None
+
+    body = _list_dir(client, root_dir)
+    assert body['counts']['extensions'] == {'.jpg': 1}
 
 
 def test_trash_dir_is_hidden_from_directory_listing(db, root_dir):

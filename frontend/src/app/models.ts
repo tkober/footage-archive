@@ -48,6 +48,12 @@ export interface DirectoryCounts {
   video: number;
   photo: number;
   untracked: number;
+  /** Per-file-extension breakdown (#72), e.g. {".rw2": 12, ".mp4": 3} — taken
+      after the `kind` filter but before the `extension` filter, so the file
+      type dropdown only offers extensions matching the current kind and its
+      counts don't collapse once an extension is chosen. Keys include the
+      leading dot; files without an extension are skipped. */
+  extensions: Record<string, number>;
 }
 
 export interface DirectoryResponse {
@@ -69,6 +75,11 @@ export interface DirectoryQuery {
       directories), and total/pagination refer to the filtered list.
       Omitted (default) = everything, unchanged behaviour. */
   kind?: DirectoryKind | null;
+  /** Server-side file extension filter (#72), e.g. ".rw2" — normalised on
+      the backend (lowercased, leading dot added if missing). Only matching
+      files are returned (no directories); combinable with `kind` (AND), and
+      total/pagination refer to the filtered list. */
+  extension?: string | null;
   page?: number;
   page_size?: number;
 }

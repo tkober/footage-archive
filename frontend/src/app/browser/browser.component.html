@@ -9,6 +9,16 @@
           </button>
         }
       </div>
+      @if (showExtDropdown()) {
+        <select class="ext-select" aria-label="Filter by file type"
+                [value]="extFilter() ?? ''"
+                (change)="setExtFilter($any($event.target).value || null)">
+          <option value="">All types · {{ extTotalCount() }}</option>
+          @for (opt of extOptions(); track opt.ext) {
+            <option [value]="opt.ext">{{ opt.label }} · {{ opt.count }}</option>
+          }
+        </select>
+      }
       <div class="grow"></div>
       <label class="size" title="Thumbnail size">
         <app-icon name="grid" [size]="16" />

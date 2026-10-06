@@ -44,6 +44,19 @@ def _directory_kind(media_type: str | None) -> DirectoryKind:
     return DirectoryKind.UNTRACKED
 
 
+def _normalize_extension(extension: str | None) -> str | None:
+    """Normalise a DirectoryQuery.extension value (#72): lowercase, ensure a
+    leading dot. None/blank stays None (no filter)."""
+    if not extension:
+        return None
+    extension = extension.strip().lower()
+    if not extension:
+        return None
+    if not extension.startswith('.'):
+        extension = '.' + extension
+    return extension
+
+
 def _count_direct_files(dir_path: Path, hidden: set[str]) -> int | None:
     """Direct, non-hidden file count for a subdirectory (not recursive).
     Cheap by design: os.scandir only, no hashing, no DB access. None if the
@@ -110,10 +123,23 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
                    and _directory_kind(e.media_type) == DirectoryKind.PHOTO),
         untracked=sum(1 for e in entries if e.type == PathType.FILE
                       and _directory_kind(e.media_type) == DirectoryKind.UNTRACKED),
+        extensions={},
     )
 
     if query.kind is not None:
         entries = [e for e in entries if e.type == PathType.FILE and _directory_kind(e.media_type) == query.kind]
+
+    # Extension breakdown (#72) — taken after the `kind` filter but before
+    # the `extension` filter below, per DirectoryCounts' docstring.
+    extension_counts: dict[str, int] = {}
+    for e in entries:
+        if e.type == PathType.FILE and e.file_extension:
+            extension_counts[e.file_extension] = extension_counts.get(e.file_extension, 0) + 1
+    counts.extensions = extension_counts
+
+    extension = _normalize_extension(query.extension)
+    if extension is not None:
+        entries = [e for e in entries if e.type == PathType.FILE and e.file_extension == extension]
 
     reverse = query.sort_order == SortOrder.DESC
 
