@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import rawpy
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel
 
 from tasks.loadcontrol import heavy_slot, run_niced
@@ -146,8 +146,42 @@ def generate_photo_thumbnail(md5_hash: str, file_path: str, max_width: int = 600
             img.save(buf, format='JPEG', quality=82)
             return buf.getvalue()
     except Exception as e:
-        logging.debug(f'Photo thumbnail generation failed for {file_path}: {e}')
+        logging.warning(f'Photo thumbnail generation failed for {file_path}: {e}')
         return None
+
+
+def generate_photo_thumbnail_with_status(
+        md5_hash: str, file_path: str, max_width: int = 600,
+) -> tuple[bytes | None, str, str | None]:
+    """Like ``generate_photo_thumbnail``, but also reports *why* it failed
+    (#77), so the caller can record a `PreviewStatus` outcome. PIL's
+    `UnidentifiedImageError` (format not recognised at all — e.g. an
+    Insta360 `.dng` PIL can't open) is reported as ``'unsupported'``; any
+    other failure (corrupt file, a rawpy decode error, ...) as ``'failed'``.
+    Returns ``(thumbnail_bytes, 'ok', None)`` on success."""
+    ext = Path(file_path).suffix.lower()
+    try:
+        with heavy_slot(f'photo thumbnail {file_path}'):
+            if ext == '.rw2':
+                img = _open_rw2(file_path)
+            else:
+                img = Image.open(file_path)
+                img = ImageOps.exif_transpose(img)
+            if img is None:
+                return None, 'failed', 'No image data produced'
+            if img.mode not in ('RGB', 'L'):
+                img = img.convert('RGB')
+            ratio = max_width / img.width
+            img = img.resize((max_width, int(img.height * ratio)), Image.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format='JPEG', quality=82)
+            return buf.getvalue(), 'ok', None
+    except UnidentifiedImageError as e:
+        logging.warning(f'Photo thumbnail generation failed for {file_path}: {e}')
+        return None, 'unsupported', f'Format not supported by the preview generator ({ext})'
+    except Exception as e:
+        logging.warning(f'Photo thumbnail generation failed for {file_path}: {e}')
+        return None, 'failed', str(e)
 
 
 def render_full_raw(file_path: str) -> bytes | None:
@@ -169,7 +203,7 @@ def render_full_raw(file_path: str) -> bytes | None:
             img.save(buf, format='JPEG', quality=92)
             return buf.getvalue()
     except Exception as e:
-        logging.debug(f'Full RAW render failed for {file_path}: {e}')
+        logging.warning(f'Full RAW render failed for {file_path}: {e}')
         return None
 
 

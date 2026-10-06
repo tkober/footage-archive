@@ -47,10 +47,28 @@
     @if (loading() && !selectedFile()) {
       <div class="stage-msg">Loading…</div>
     } @else if (selectedFile(); as file) {
-      @if (!previewUrl()) {
+      @if (!previewUrl() && (previewTile() === 'failed' || previewTile() === 'unsupported')) {
+        <div class="stage-msg stage-fmt" [class.failed]="previewTile() === 'failed'">
+          <span class="ext">{{ (file.file_extension ?? '').replace('.', '').toUpperCase() || '—' }}</span>
+          <span class="why">
+            @if (previewTile() === 'failed') { <span class="dot"></span> Preview failed }
+            @else { No preview for this format }
+          </span>
+          @if (file.preview_error) {
+            <span class="reason">{{ file.preview_error }}</span>
+          }
+          <button type="button" class="btn btn-ghost btn-sm" [disabled]="rescanning()" (click)="rescanFile()">
+            {{ rescanning() ? 'Retrying…' : 'Retry' }}
+          </button>
+        </div>
+      } @else if (!previewUrl()) {
         <div class="stage-msg">
           <app-icon name="image" [size]="28" />
-          <span>{{ file.tracked ? 'No preview yet' : 'No preview for untracked files' }}</span>
+          <span>
+            @if (!file.tracked) { No preview for untracked files }
+            @else if (previewTile() === 'generating') { Generating preview… }
+            @else { No preview yet }
+          </span>
         </div>
       } @else if (isPhotoMediaType(file.media_type)) {
         <app-image-viewer

@@ -50,6 +50,35 @@
 @keyframes media-card-shimmer { to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .shimmer { animation: none; } }
 
+/* Neutral/failed format tiles for a previewable file with no preview (#77):
+   'missing' (never attempted), 'unsupported' (format the generator can't
+   read, e.g. an Insta360 .dng) and 'failed' (attempted, errored). */
+.fmt {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: repeating-linear-gradient(135deg, var(--skeleton) 0 10px, var(--skeleton-hi) 10px 20px);
+  padding: 0 8px;
+  text-align: center;
+}
+.fmt .ext {
+  font: 600 clamp(18px, 3vw, 30px)/1 var(--mono);
+  letter-spacing: .06em;
+  color: var(--faint);
+  border: 1.5px solid var(--line-strong);
+  border-radius: 6px;
+  padding: .28em .4em .24em;
+}
+.fmt .why { font-size: 10.5px; color: var(--faint); display: flex; align-items: center; gap: 5px; }
+.thumb.video .fmt { flex-direction: row; gap: 14px; }
+.thumb.video .fmt .ext { font-size: 18px; }
+.fmt.failed .why { color: var(--preview-fail); }
+.fmt.failed .ext { border-color: var(--preview-fail-line); color: var(--preview-fail); }
+.fmt .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
 .tag {
   position: absolute;
   font: 500 10px/1 var(--mono);

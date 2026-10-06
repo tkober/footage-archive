@@ -14,6 +14,7 @@ from api.dtos import (
     ListItemsResponse,
     RenameListRequest,
 )
+from api.preview_status import derive_preview_status
 from db.database import Database, DuplicateListNameError
 from env.environment import Environment
 from exports.list_cards_pdf import render_list_cards_pdf
@@ -76,9 +77,18 @@ async def get_list_items(
     if Database().get_list(list_id) is None:
         raise HTTPException(status_code=404, detail='List not found')
     total, rows = Database().get_list_items(list_id, page, page_size)
+    items = []
+    for row in rows:
+        has_preview = row.pop('has_preview')
+        preview_status_raw = row.pop('preview_status_raw')
+        items.append(ListItemDto(
+            **row,
+            preview_status=derive_preview_status(row['md5_hash'], row['media_type'],
+                                                  has_preview, preview_status_raw),
+        ))
     return ListItemsResponse(
         total=total, page=page, page_size=page_size,
-        items=[ListItemDto(**row) for row in rows],
+        items=items,
     )
 
 

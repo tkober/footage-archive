@@ -12,6 +12,7 @@ from api.dtos import (
     ExifTag, MoveRequest, MoveItemResult, MovePreviewResponse, MkdirRequest, MkdirResponse,
     DeleteRequest, DeletePreviewResponse, DeleteBatchResponse, DeleteItemResult,
 )
+from api.preview_status import derive_preview_status
 from db.database import Database, UndoRenameFailedError
 from env.environment import Environment
 from fileops import service as fileops_service
@@ -105,6 +106,14 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
                 and _directory_kind(tracked[e.name]['media_type']) == DirectoryKind.VIDEO
                 else None
             ),
+            preview_status=(
+                derive_preview_status(
+                    tracked[e.name]['md5_hash'], tracked[e.name]['media_type'],
+                    tracked[e.name]['has_preview'], tracked[e.name]['preview_status'],
+                )
+                if e.is_file() and e.name in tracked
+                else None
+            ),
         )
         for e in path.iterdir()
         if not e.name.startswith('._')
@@ -168,6 +177,9 @@ def _build_file_info(p: Path, db: Database) -> FileInfo:
     keywords = []
     location = None
     lists = []
+    preview_status = None
+    preview_error = None
+    preview_attempted_at = None
     if db_record:
         md5 = db_record['md5_hash']
         media_type = db_record['media_type']
@@ -184,6 +196,13 @@ def _build_file_info(p: Path, db: Database) -> FileInfo:
             raw = db.get_photo_details(md5)
             if raw:
                 photo_details = PhotoDetails(**raw)
+        status_row = db.get_preview_status_row(md5)
+        preview_status = derive_preview_status(
+            md5, media_type, db.has_clip_preview(md5), status_row['status'] if status_row else None,
+        )
+        if status_row:
+            preview_error = status_row['reason']
+            preview_attempted_at = status_row['attempted_at']
     gps = db.get_file_gps(db_record['md5_hash']) if db_record else None
     return FileInfo(
         name=p.name,
@@ -203,6 +222,9 @@ def _build_file_info(p: Path, db: Database) -> FileInfo:
         longitude=gps[1] if gps else None,
         altitude=gps[2] if gps else None,
         lists=lists,
+        preview_status=preview_status,
+        preview_error=preview_error,
+        preview_attempted_at=preview_attempted_at,
     )
 
 

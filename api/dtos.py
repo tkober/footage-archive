@@ -79,6 +79,9 @@ class PathChild(BaseModel):
     file_count: Optional[int] = None
     # Tracked video files only: VideoDetails.duration_tc (e.g. "00:12:34:10").
     duration_tc: Optional[StrictStr] = None
+    # Derived preview status (#77) — None for untracked/non-media files; see
+    # api/preview_status.py::derive_preview_status.
+    preview_status: Optional[StrictStr] = None
 
 
 class DirectoryCounts(BaseModel):
@@ -367,6 +370,7 @@ class SearchResult(BaseModel):
     country: Optional[str]
     city: Optional[str]
     item_code: Optional[str] = None
+    preview_status: Optional[str] = None
 
 
 class SearchResponse(BaseModel):
@@ -398,6 +402,7 @@ class ListItemDto(BaseModel):
     directory: str
     media_type: Optional[str] = None
     added_at: Optional[datetime] = None
+    preview_status: Optional[str] = None
 
 
 class ListItemsResponse(BaseModel):
@@ -441,6 +446,12 @@ class FileInfo(BaseModel):
     longitude: Optional[float] = None
     altitude: Optional[float] = None
     lists: list[FileListMembership] = []
+    # Derived preview status + the PreviewStatus row behind it (#77); see
+    # api/preview_status.py::derive_preview_status. All None for
+    # untracked/non-media files.
+    preview_status: Optional[str] = None
+    preview_error: Optional[str] = None
+    preview_attempted_at: Optional[datetime] = None
 
 
 class RenameResponse(FileInfo):

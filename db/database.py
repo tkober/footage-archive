@@ -21,6 +21,7 @@ from db.models import (
     locations_table,
     path_conflicts_table,
     photo_details_table,
+    preview_status_table,
     video_details_table,
 )
 from ffmpeg.ffmpeg import ClipPreview
@@ -137,6 +138,31 @@ class Database:
         with get_engine().begin() as conn:
             conn.execute(upsert(clip_previews_table, [clip_preview.model_dump()], ['md5_hash']))
 
+    def set_preview_status(self, md5_hash: str, status: str, reason: Optional[str] = None) -> None:
+        """Upsert the outcome of a preview-generation attempt (#77):
+        'ok' | 'failed' | 'unsupported', with attempted_at bumped to now.
+        The single caller is api/tracking.py's generate_preview (incl. the
+        create_clip_preview helper it shares with the DaVinci import path),
+        so there's exactly one place that decides a preview's fate and one
+        place that records it."""
+        with get_engine().begin() as conn:
+            conn.execute(upsert(
+                preview_status_table,
+                [{'md5_hash': md5_hash, 'status': status, 'reason': reason, 'attempted_at': func.now()}],
+                ['md5_hash'],
+            ))
+
+    def get_preview_status_row(self, md5_hash: str) -> Optional[dict]:
+        stmt = select(preview_status_table).where(preview_status_table.c.md5_hash == md5_hash)
+        with get_engine().connect() as conn:
+            row = conn.execute(stmt).fetchone()
+        return row._asdict() if row is not None else None
+
+    def has_clip_preview(self, md5_hash: str) -> bool:
+        stmt = select(clip_previews_table.c.md5_hash).where(clip_previews_table.c.md5_hash == md5_hash)
+        with get_engine().connect() as conn:
+            return conn.execute(stmt).fetchone() is not None
+
     # ------------------------------------------------------------------
     # Reads
     # ------------------------------------------------------------------
@@ -146,11 +172,22 @@ class Database:
             select(
                 files_table.c.file_name, files_table.c.md5_hash, files_table.c.media_type,
                 video_details_table.c.duration_tc,
+                clip_previews_table.c.md5_hash.isnot(None).label('has_preview'),
+                preview_status_table.c.status.label('preview_status'),
             )
             .select_from(
-                files_table.outerjoin(
+                files_table
+                .outerjoin(
                     video_details_table,
                     files_table.c.md5_hash == video_details_table.c.md5_hash,
+                )
+                .outerjoin(
+                    clip_previews_table,
+                    files_table.c.md5_hash == clip_previews_table.c.md5_hash,
+                )
+                .outerjoin(
+                    preview_status_table,
+                    files_table.c.md5_hash == preview_status_table.c.md5_hash,
                 )
             )
             .where(files_table.c.directory == directory)
@@ -158,7 +195,10 @@ class Database:
         with get_engine().connect() as conn:
             rows = conn.execute(stmt).fetchall()
         return {
-            row[0]: {'md5_hash': row[1], 'media_type': row[2], 'duration_tc': row[3]}
+            row.file_name: {
+                'md5_hash': row.md5_hash, 'media_type': row.media_type, 'duration_tc': row.duration_tc,
+                'has_preview': row.has_preview, 'preview_status': row.preview_status,
+            }
             for row in rows
         }
 
@@ -473,6 +513,10 @@ class Database:
                        files_table.c.md5_hash == video_details_table.c.md5_hash)
             .outerjoin(photo_details_table,
                        files_table.c.md5_hash == photo_details_table.c.md5_hash)
+            .outerjoin(clip_previews_table,
+                       files_table.c.md5_hash == clip_previews_table.c.md5_hash)
+            .outerjoin(preview_status_table,
+                       files_table.c.md5_hash == preview_status_table.c.md5_hash)
         )
 
         # When exactly one list is selected, also surface that list's item code
@@ -493,6 +537,8 @@ class Database:
             files_table.c.directory, files_table.c.media_type,
             file_details_table.c.recorded_at,
             locations_table.c.country, locations_table.c.city,
+            clip_previews_table.c.md5_hash.isnot(None).label('has_preview'),
+            preview_status_table.c.status.label('preview_status_raw'),
         ]
         if item_code_col is not None:
             data_columns.append(item_code_col)
@@ -569,25 +615,43 @@ class Database:
             row = conn.execute(stmt).fetchone()
         return row[0] if row else None
 
-    def get_files_without_clip_preview(self, media_types: set[str]) -> pd.DataFrame:
+    def get_files_without_clip_preview(self, media_types: set[str],
+                                        include_failed: bool = False) -> pd.DataFrame:
         """Tracked files with no row in ClipPreviews, restricted to
         ``media_types`` (the caller passes video/photo media types, incl.
         360 — see api/tracking.py's VIDEO_TYPES/PHOTO_TYPES — so a
         non-media file, media_type NULL, never gets a preview and never
         bloats this list, #65). Also returns media_type so the caller knows
-        which kind of preview to generate without a second query."""
+        which kind of preview to generate without a second query.
+
+        ``preview_status``/``reason``/``attempted_at`` (#77) come from the
+        PreviewStatus table and are NULL for a file that was never
+        attempted. By default (``include_failed=False``) only those
+        never-attempted rows are returned — a 'failed'/'unsupported'
+        PreviewStatus row means the repair already tried and the file is
+        excluded, so a retry has to opt in via ``include_failed=True``."""
         stmt = (
             select(
                 files_table.c.md5_hash,
                 files_table.c.file_name,
                 files_table.c.media_type,
                 (files_table.c.directory + '/' + files_table.c.file_name).label('file_path'),
+                preview_status_table.c.status.label('preview_status'),
+                preview_status_table.c.reason,
+                preview_status_table.c.attempted_at,
             )
-            .outerjoin(clip_previews_table,
-                       files_table.c.md5_hash == clip_previews_table.c.md5_hash)
+            .select_from(
+                files_table
+                .outerjoin(clip_previews_table,
+                           files_table.c.md5_hash == clip_previews_table.c.md5_hash)
+                .outerjoin(preview_status_table,
+                           files_table.c.md5_hash == preview_status_table.c.md5_hash)
+            )
             .where(clip_previews_table.c.md5_hash.is_(None))
             .where(files_table.c.media_type.in_(media_types))
         )
+        if not include_failed:
+            stmt = stmt.where(preview_status_table.c.md5_hash.is_(None))
         with get_engine().connect() as conn:
             return pd.read_sql_query(stmt, conn)
 
@@ -718,8 +782,14 @@ class Database:
         return result.rowcount > 0
 
     def get_list_items(self, list_id: int, page: int, page_size: int) -> tuple[int, list[dict]]:
-        base_from = list_items_table.join(
-            files_table, list_items_table.c.md5_hash == files_table.c.md5_hash)
+        base_from = (
+            list_items_table
+            .join(files_table, list_items_table.c.md5_hash == files_table.c.md5_hash)
+            .outerjoin(clip_previews_table,
+                       files_table.c.md5_hash == clip_previews_table.c.md5_hash)
+            .outerjoin(preview_status_table,
+                       files_table.c.md5_hash == preview_status_table.c.md5_hash)
+        )
         count_stmt = (
             select(func.count())
             .select_from(list_items_table)
@@ -730,6 +800,8 @@ class Database:
                 list_items_table.c.item_code, list_items_table.c.md5_hash,
                 files_table.c.file_name, files_table.c.directory,
                 files_table.c.media_type, list_items_table.c.added_at,
+                clip_previews_table.c.md5_hash.isnot(None).label('has_preview'),
+                preview_status_table.c.status.label('preview_status_raw'),
             )
             .select_from(base_from)
             .where(list_items_table.c.list_id == list_id)
@@ -1030,8 +1102,8 @@ class Database:
             return 0
         dependent_tables = (
             file_keywords_table, list_items_table, path_conflicts_table,
-            clip_previews_table, video_details_table, photo_details_table,
-            file_details_table,
+            clip_previews_table, preview_status_table, video_details_table,
+            photo_details_table, file_details_table,
         )
         for table in dependent_tables:
             conn.execute(delete(table).where(table.c.md5_hash.in_(md5_hashes)))

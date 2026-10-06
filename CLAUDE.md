@@ -189,11 +189,12 @@ footage-archive/
 │   ├── keywords.py         # GET /keywords (all), POST /keywords (add to file), DELETE /keywords (remove from file)
 │   ├── lists.py            # GET/POST /lists, PATCH/DELETE /lists/{id}, GET/POST /lists/{id}/items, DELETE /lists/{id}/items/{md5_hash}, GET /lists/{id}/items/by-code/{code}, GET /lists/{id}/export.pdf (cut-out cards, cols/rows query params)
 │   ├── locations.py        # GET /locations, POST /locations (create), GET /locations/map-points (clustered map markers)
-│   ├── tracking.py         # POST /tracking/scan-directory, /scan-file, /import-metadata, /rediscover (MD5-based reconciliation of a moved folder, backed by fileops/rediscover.py), /refresh (#64, "rescan" by hash — see below); GET /tracking/conflicts(/count) + POST /tracking/conflicts/resolve(-batch) (#25, path-conflict decisions left behind by a rediscover); scan-directory/scan-file/rediscover/import-metadata all reject a path inside the trash with 400 (#60)
+│   ├── tracking.py         # POST /tracking/scan-directory, /scan-file, /import-metadata, /rediscover (MD5-based reconciliation of a moved folder, backed by fileops/rediscover.py), /refresh (#64, "rescan" by hash — see below); GET /tracking/conflicts(/count) + POST /tracking/conflicts/resolve(-batch) (#25, path-conflict decisions left behind by a rediscover); scan-directory/scan-file/rediscover/import-metadata all reject a path inside the trash with 400 (#60). `generate_preview()` (#77) is the single place that decides + *records* a preview outcome (`Database.set_preview_status`: 'ok' / 'failed' with a reason / 'unsupported' with a reason), wrapped in try/except so any unexpected exception is recorded as 'failed' then re-raised, and always discards its hash from `tasks/preview_registry.py` in a `finally`; `create_clip_preview()` records 'ok'/'failed' too, so the DaVinci import path (which calls it directly) gets it for free. Every batch caller that actually requests previews (`_scan_and_reconcile`, rediscover's `track_new_files`, `refresh_tracked_files`, troubleshoot's `generate_missing_clip_previews`) wraps its hashes in `pending_previews(...)` for the duration
 │   ├── ai.py               # POST /ai/classify-shot — ML shot-type classification for a tracked video
 │   ├── tasks.py            # GET /tasks, GET /tasks/{id}, DELETE /tasks/completed, DELETE /tasks/{id}
-│   ├── troubleshoot.py     # GET /trouble-shooting/missing-preview (video/photo media types only, incl. 360, #65), POST /trouble-shooting/missing-preview/fix (per-file isolated repair via api/tracking.py's shared `generate_preview`, #65), GET /trouble-shooting/missing-files (optional ?path= subtree)
-│   └── dtos.py             # Pydantic request/response models (search query/results, etc.)
+│   ├── troubleshoot.py     # GET /trouble-shooting/missing-preview (video/photo media types only, incl. 360, #65; each row's `preview_status` is 'missing'/'failed'/'unsupported' + `reason`/`attempted_at`, #77), POST /trouble-shooting/missing-preview/fix?include_failed= (per-file isolated repair via api/tracking.py's shared `generate_preview`, #65; default only retries never-attempted files, `include_failed=true` also retries 'failed'/'unsupported' ones, #77), GET /trouble-shooting/missing-files (optional ?path= subtree)
+│   ├── preview_status.py   # `derive_preview_status()` (#77) — the one place that folds a ClipPreviews row + the "pending previews" registry + a PreviewStatus row into the single `preview_status` string (ok/generating/missing/failed/unsupported, or None for untracked/non-media) surfaced by the directory listing, file details, search and list-item APIs
+│   └── dtos.py             # Pydantic request/response models (search query/results, etc.); `PathChild`/`FileInfo`/`SearchResult`/`ListItemDto` all carry `preview_status` (#77), `FileInfo` also `preview_error`/`preview_attempted_at`
 ├── exports/
 │   └── list_cards_pdf.py   # Pure PDF renderer (no DB access): A4 grid of cut-out cards for a list — big bold item code, small grey truncated/wrapped relative path, faint shared grid lines, page footer
 ├── fileops/                # Safe move/rename/mkdir/delete service backing api/files.py's PATCH /rename, POST /move(/preview), POST /mkdir, POST /delete(/preview)
@@ -203,19 +204,20 @@ footage-archive/
 │   └── rediscover.py       # MD5-based reconciliation for a rediscover-scan (reusable by a future normal-scan path): pure classify() decides unchanged/relink/conflict/new per hash; apply() relinks Files in one transaction, persists conflicts to PathConflicts (ON CONFLICT DO NOTHING), optionally tracks new hashes via a caller-supplied callback, then prunes stale conflicts. Never touches metadata tables or disk.
 ├── db/                     # Decoupled DB layer (the only place that knows about SQLAlchemy)
 │   ├── engine.py           # Lazy singleton engine (pool_pre_ping) + dialect-aware upsert/upsert_ignore helpers
-│   ├── models.py           # SQLAlchemy Core Table definitions (metadata) + indexes — single source of truth for the schema
-│   └── database.py         # Database class: all queries/upserts via SQLAlchemy Core, pandas only for DataFrame I/O
+│   ├── models.py           # SQLAlchemy Core Table definitions (metadata) + indexes — single source of truth for the schema; `PreviewStatus` (#77, PK md5_hash, no FK like ClipPreviews) records the outcome of the last preview-generation attempt
+│   └── database.py         # Database class: all queries/upserts via SQLAlchemy Core, pandas only for DataFrame I/O. `set_preview_status()`/`get_preview_status_row()`/`has_clip_preview()` (#77); `get_tracked_files_in_directory`, `search_files`, `get_list_items` and `get_files_without_clip_preview` all outer-join ClipPreviews + PreviewStatus so the derived `preview_status` (api/preview_status.py) is one query, no N+1; `delete_files_on_conn` drops the PreviewStatus row too
 ├── alembic/                # Schema migrations (Alembic)
 │   ├── env.py              # Wires target_metadata = db.models.metadata, connects as DB_OWNER_USER
-│   └── versions/           # Migration scripts (0001_initial_schema.py = full baseline)
+│   └── versions/           # Migration scripts (0001_initial_schema.py = full baseline, 0007_preview_status.py adds PreviewStatus, #77)
 ├── alembic.ini             # Alembic config (script_location, file_template, logging)
 ├── dbeaver/dev/            # One-off SQL to provision the dev Postgres (roles, db, grants)
 ├── scanner/scanner.py      # recursive dir walk + MD5 hashing, media_type assignment; skips anything inside the trash (fileops/trash.py::is_in_trash, #60)
 ├── ffmpeg/ffmpeg.py        # FFprobe (full stream info → VideoProbeResult) + clip preview
-├── photos/exif.py          # exiftool EXIF extraction → PhotoProbeResult (all photo formats); full-tag dump_all_exif(); Pillow/rawpy thumbnail generation
+├── photos/exif.py          # exiftool EXIF extraction → PhotoProbeResult (all photo formats); full-tag dump_all_exif(); Pillow/rawpy thumbnail generation — `generate_photo_thumbnail_with_status()` (#77) is the status-reporting sibling used by `generate_preview`: PIL's `UnidentifiedImageError` (format not recognised at all, e.g. an Insta360 .dng) → 'unsupported', any other failure → 'failed' with `str(e)`; thumbnail/full-raw failures log at `warning`, not `debug`
 ├── davinci/davinciresolve.py  # DaVinci Resolve CSV metadata parser
 ├── shot_classifier/classifier.py  # ML shot-type classifier (backs POST /ai/classify-shot)
 ├── tasks/taskmanager.py    # in-memory singleton background task queue
+├── tasks/preview_registry.py  # `pending_previews(hashes)` context manager + `discard()`/`is_pending()` (#77) — process-wide, thread-safe set of md5 hashes whose preview is queued/being generated right now (same single-process reasoning as fileops/pathlocks.py); wrapped around the scan/rescan/rediscover/missing-preview-repair batches so `preview_status`'s "generating" value is accurate while they run
 ├── env/environment.py      # env var reader with fallbacks; builds DB URLs from DB_URL + DB_USER/DB_OWNER_USER; get_trash_dir_name()/get_trash_dir() validate TRASH_DIR_NAME (single folder name, no '/'/'\', not '.'/'..') and raise ValueError on an invalid value (#60)
 ├── sql/                    # LEGACY raw-SQL files (setup.sql etc.) — superseded by Alembic + db/models.py, no longer loaded
 └── frontend/               # Angular 21 app
@@ -290,9 +292,16 @@ footage-archive/
         │   │                           #   the folder mixes formats). Video: the full 5-frame filmstrip (never cropped to one frame), card
         │   │                           #   in the strip's 1640:180 aspect ratio, name + `EXT · duration` meta below. `other` (non-media
         │   │                           #   untracked files) renders a plain file-icon tile, no preview fetch. Untracked: dimmed, dashed
-        │   │                           #   outline, "Untracked" pill. Missing/failed preview (`(error)` on the `<img>`, tracked via an
-        │   │                           #   `imgError` signal, reset whenever `previewUrl` changes) → "Generating preview…" skeleton, never
-        │   │                           #   a broken-image icon. No tracked-dot. Check circle (top-left) + "⋯" (top-right, anchors the
+        │   │                           #   outline, "Untracked" pill. `[previewStatus]` (#77, `PreviewStatus | null`, 'ok'/null behaves
+        │   │                           #   exactly as before) drives which tile the thumb area shows, folded with an `<img>` load error
+        │   │                           #   into one `tile()` computed: 'ok' or unset → render the image once `[previewUrl]` is set,
+        │   │                           #   shimmer "Generating preview…" until then (unchanged); an `(error)` on the `<img>` always falls
+        │   │                           #   to the *failed* tile now, never the shimmer; 'generating' → the same shimmer; 'missing'/'failed'/
+        │   │                           #   'unsupported' → a striped `.fmt` tile (big mono extension badge + a short reason line — "No
+        │   │                           #   preview yet"/"Preview failed"/"No preview for this format"), reddish (`--preview-fail(-line)`)
+        │   │                           #   for 'failed'; same tile in the video filmstrip's row shape via `.thumb.video .fmt`. Callers
+        │   │                           #   don't build a `[previewUrl]` (no request) unless `preview_status` is 'ok'/absent. No tracked-dot.
+        │   │                           #   Check circle (top-left) + "⋯" (top-right, anchors the
         │   │                           #   caller's context menu via the `more` output) show on hover/focus, stay visible while `[selecting]`,
         │   │                           #   and the "⋯" alone stays visible under `@media (hover: none)` (touch). Optional `code`/`date`
         │   │                           #   slots (list/search). An `<ng-content>` slot renders the caller's inline rename `<input>` in place
@@ -305,6 +314,9 @@ footage-archive/
         │   │                           #   `ApiService.refreshFiles([md5_hash])`, toasts "Rescan started — see tasks.", disables the button
         │   │                           #   ("Rescanning…") until `TaskPollService.pollUntilDone()` resolves, then bumps `PreviewCacheService`
         │   │                           #   for the hash and reloads the file's own details (`reloadFile()`, already used by keyword add/remove).
+        │   │                           #   Stage mirrors the media-card's tile logic (#77) at larger size: 'failed'/'unsupported' show the
+        │   │                           #   extension badge + `preview_error` reason + a "Retry" button (same `rescanFile()`, "Retrying…"
+        │   │                           #   while `rescanning()`); 'missing'/'generating'/untracked share the existing plain stage message.
         │   ├── image-viewer/            # Zoomable/pannable image viewer used by the detail panel
         │   ├── confirm-dialog/          # Generic confirm/cancel dialog on top of ModalComponent (reused by lists, rename/move, future callers)
         │   ├── quick-jump/              # Header box (#38): one `.jump` field ("Jump to code…", ⌘K/Ctrl+K hint — global, focuses it;
