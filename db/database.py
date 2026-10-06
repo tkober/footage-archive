@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 import pandas as pd
-from sqlalchemy import case, delete, func, select, tuple_, update
+from sqlalchemy import and_, case, delete, func, select, tuple_, update
 from sqlalchemy.exc import IntegrityError
 
 from db.engine import get_engine, upsert, upsert_ignore
@@ -336,6 +336,10 @@ class Database:
         with get_engine().connect() as conn:
             row = conn.execute(stmt).fetchone()
         if row and row[0] is not None and row[1] is not None:
+            # 0/0 is Insta360's "no GPS fix" sentinel (#91), not a real position —
+            # old rows pre-dating the migration that clears them can still have it.
+            if row[0] == 0 and row[1] == 0:
+                return None
             return (row[0], row[1], row[2])
         return None
 
@@ -373,6 +377,10 @@ class Database:
                 coalesce_lon.isnot(None),
                 coalesce_lat.between(south, north),
                 coalesce_lon.between(west, east),
+                # 0/0 is Insta360's "no GPS fix" sentinel (#91), not a real
+                # position — exclude it even for rows pre-dating the migration
+                # that clears it.
+                ~and_(coalesce_lat == 0, coalesce_lon == 0),
             )
         )
 
@@ -501,6 +509,8 @@ class Database:
             geo_lon = func.coalesce(locations_table.c.longitude, file_details_table.c.longitude)
             conditions.append(geo_lat.between(s, n))
             conditions.append(geo_lon.between(w, e))
+            # 0/0 is Insta360's "no GPS fix" sentinel (#91), not a real position.
+            conditions.append(~and_(geo_lat == 0, geo_lon == 0))
 
         # List filter (OR semantics across the selected lists, like keywords) +
         # optional code, both applied via a subquery on ListItems so results

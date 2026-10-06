@@ -128,22 +128,44 @@ def probe_photo(md5_hash: str, file_path: str) -> PhotoProbeResult | None:
     probe.field_of_view = _round(data.get('FOV'), 1)
     probe.projection = _str(data.get('ProjectionType'))
 
-    # GPS: exiftool returns unsigned decimal degrees + a separate N/S/E/W ref
-    lat = data.get('GPSLatitude')
-    lat_ref = data.get('GPSLatitudeRef')
-    lon = data.get('GPSLongitude')
-    lon_ref = data.get('GPSLongitudeRef')
-    if lat is not None and lat_ref is not None:
-        probe.latitude = round(float(lat) * (-1 if lat_ref == 'S' else 1), 6)
-    if lon is not None and lon_ref is not None:
-        probe.longitude = round(float(lon) * (-1 if lon_ref == 'W' else 1), 6)
-
-    # GPSAltitude is unsigned metres; GPSAltitudeRef 0 = above sea level, 1 = below
-    alt = data.get('GPSAltitude')
-    if alt is not None:
-        probe.altitude = round(float(alt) * (-1 if data.get('GPSAltitudeRef') == 1 else 1), 1)
+    probe.latitude, probe.longitude, probe.altitude = _parse_gps(data)
 
     return probe
+
+
+def _parse_gps(data: dict) -> tuple[float | None, float | None, float | None]:
+    """GPS: exiftool returns unsigned decimal degrees + a separate N/S/E/W ref.
+    An Insta360 X3 photo taken without a GPS fix writes empty/'undef' values
+    (.insp) or an all-zero fix (.dng) instead of omitting the tags (#91), so
+    every value is parsed tolerantly via `_round` rather than a bare `float()`."""
+    lat = _round(data.get('GPSLatitude'), 6)
+    lon = _round(data.get('GPSLongitude'), 6)
+    lat_ref = data.get('GPSLatitudeRef')
+    lon_ref = data.get('GPSLongitudeRef')
+
+    # A lone coordinate is useless.
+    if lat is None or lon is None:
+        return None, None, None
+
+    if lat_ref is None or lon_ref is None:
+        return None, None, None
+    if lat_ref == 'S':
+        lat = -lat
+    if lon_ref == 'W':
+        lon = -lon
+
+    # 0/0 means "no fix": Insta360 writes exactly 0/0 when it has none, and a
+    # real recording at exactly 0/0 (open ocean off West Africa) is practically
+    # impossible — so treat it the same as a missing fix for every camera.
+    if lat == 0 and lon == 0:
+        return None, None, None
+
+    # GPSAltitude is unsigned metres; GPSAltitudeRef 0 = above sea level, 1 = below
+    alt = _round(data.get('GPSAltitude'), 1)
+    if alt is not None and data.get('GPSAltitudeRef') == 1:
+        alt = -alt
+
+    return lat, lon, alt
 
 
 def generate_photo_thumbnail(
