@@ -10,6 +10,10 @@ export interface Config {
 
 export type TaskStatus = 'PENDING' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
 
+/** What a RUNNING task is doing right now (#93): working, or waiting for a
+    free worker-pool thread / a heavy-job slot / the temperature throttle. */
+export type TaskActivity = 'ACTIVE' | 'WAITING_WORKER' | 'WAITING_HEAVY' | 'THROTTLED';
+
 export interface Task {
   id: string;
   name: string;
@@ -20,6 +24,8 @@ export interface Task {
   last_updated: string;
   error: string | null;
   progress: string | null;
+  /** Only set while `status` is RUNNING. */
+  activity?: TaskActivity | null;
 }
 
 export type PathType = 'file' | 'directory';

@@ -24,6 +24,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from env.environment import Environment
+from tasks import activity
 
 logger = logging.getLogger(__name__)
 
@@ -284,12 +285,13 @@ def heavy_slot(label: str, interactive: bool = False):
     with _stats_lock:
         _stats['waiting'] += 1
     try:
-        if interactive:
-            semaphore = _get_interactive_semaphore()
-        else:
-            _wait_while_throttled()
-            semaphore = _get_semaphore()
-        semaphore.acquire()
+        with activity.waiting_for_heavy_slot():
+            if interactive:
+                semaphore = _get_interactive_semaphore()
+            else:
+                _wait_while_throttled()
+                semaphore = _get_semaphore()
+            semaphore.acquire()
     finally:
         with _stats_lock:
             _stats['waiting'] -= 1
@@ -326,6 +328,12 @@ def run_niced(cmd, **kwargs) -> subprocess.CompletedProcess:
     (see nice_preexec), so ffmpeg/ffprobe/exiftool don't compete evenly with
     the rest of the system for CPU time."""
     return subprocess.run(cmd, preexec_fn=nice_preexec, **kwargs)
+
+
+def is_throttled() -> bool:
+    """Whether heavy jobs are currently paused by the throttle guard."""
+    with _stats_lock:
+        return bool(_stats['throttled'])
 
 
 def diagnostics() -> dict:

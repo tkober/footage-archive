@@ -12,6 +12,12 @@ import { PopoverComponent } from '../shared/popover/popover.component';
 /** Tasks whose final summary reports path conflicts (see api/tracking.py). */
 const CONFLICT_TASKS = new Set(['Rediscover', 'Scan directory', 'Track file']);
 
+/** Where a task is listed (#93): actually working, waiting for its turn
+    (queued, or running but blocked on shared capacity), or done. */
+type TaskPhase = 'running' | 'waiting' | 'finished';
+
+const PHASE_LABELS: Record<TaskPhase, string> = { running: 'Running', waiting: 'Waiting', finished: 'Finished' };
+
 /** SVG ring geometry — r=11.5 like the prototype's `.ring`. */
 const RING_RADIUS = 11.5;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
@@ -40,6 +46,21 @@ export class TasksWidgetComponent implements OnInit, OnDestroy {
   runningTasks = computed(() => this.tasks().filter(t => t.status === 'RUNNING' || t.status === 'QUEUED'));
   runningCount = computed(() => this.runningTasks().length);
   failedCount = computed(() => this.tasks().filter(t => t.status === 'FAILED').length);
+  activeCount = computed(() => this.runningTasks().filter(t => this.phase(t) === 'running').length);
+  waitingCount = computed(() => this.runningCount() - this.activeCount());
+
+  /** Non-empty sections in display order: running, waiting, finished. */
+  groups = computed(() => (['running', 'waiting', 'finished'] as TaskPhase[])
+    .map(phase => ({ phase, label: PHASE_LABELS[phase], tasks: this.tasks().filter(t => this.phase(t) === phase) }))
+    .filter(g => g.tasks.length > 0));
+
+  triggerTitle = computed(() => {
+    const parts = ['Tasks'];
+    if (this.activeCount()) parts.push(`${this.activeCount()} running`);
+    if (this.waitingCount()) parts.push(`${this.waitingCount()} waiting`);
+    if (this.failedCount()) parts.push(`${this.failedCount()} failed`);
+    return parts.join(' · ');
+  });
 
   /** Average fraction (0..1) of running tasks whose `progress` text contains
       an "N / M" count; `null` when none do, meaning the ring should spin
@@ -153,7 +174,21 @@ export class TasksWidgetComponent implements OnInit, OnDestroy {
     return description.split(/(?<=\/)/);
   }
 
-  statusLabel(status: Task['status']): string {
-    return { PENDING: 'Pending', QUEUED: 'Queued', RUNNING: 'Running', COMPLETED: 'Done', FAILED: 'Failed' }[status];
+  phase(task: Task): TaskPhase {
+    if (task.status === 'COMPLETED' || task.status === 'FAILED') return 'finished';
+    if (task.status === 'RUNNING' && (!task.activity || task.activity === 'ACTIVE')) return 'running';
+    return 'waiting';
+  }
+
+  statusLabel(task: Task): string {
+    if (task.status === 'RUNNING') {
+      switch (task.activity) {
+        case 'WAITING_WORKER': return 'Waiting for a free worker';
+        case 'WAITING_HEAVY': return 'Waiting for a preview slot';
+        case 'THROTTLED': return 'Paused · host too hot or busy';
+        default: return 'Running';
+      }
+    }
+    return { PENDING: 'Pending', QUEUED: 'Queued', RUNNING: 'Running', COMPLETED: 'Done', FAILED: 'Failed' }[task.status];
   }
 }

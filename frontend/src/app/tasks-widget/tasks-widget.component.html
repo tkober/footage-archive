@@ -1,4 +1,4 @@
-<button #triggerBtn type="button" class="trigger icon-btn" (click)="toggle()" title="Tasks">
+<button #triggerBtn type="button" class="trigger icon-btn" (click)="toggle()" [title]="triggerTitle()" [attr.aria-label]="triggerTitle()">
   @if (runningCount() > 0) {
     <svg class="ring" viewBox="0 0 26 26" [class.indeterminate]="ringProgress() === null" aria-hidden="true">
       <circle cx="13" cy="13" r="11.5" fill="none" stroke="var(--line-strong)" stroke-width="1.5" />
@@ -42,33 +42,37 @@
       <div class="empty">No tasks yet.</div>
     } @else {
       <div class="task-list">
-        @for (task of tasks(); track task.id) {
-          <div class="task" [class.done]="task.status === 'COMPLETED'" [class.failed]="task.status === 'FAILED'">
-            <div class="t1">
-              <b>{{ task.name }}</b>
-              @if (task.started_at) {
-                <small>{{ task.started_at | date:'HH:mm:ss' }}</small>
-              }
-            </div>
-            <div class="t2">@for (seg of descriptionSegments(task.description); track $index) {{{ seg }}<wbr>}</div>
-            @if (task.status === 'RUNNING' || task.status === 'COMPLETED') {
-              <div class="progress" [class.indeterminate]="task.status === 'RUNNING' && taskProgressFraction(task) === null">
-                <i [style.width.%]="task.status === 'COMPLETED' || taskProgressFraction(task) === null ? 100 : (taskProgressFraction(task)! * 100)"></i>
+        @for (group of groups(); track group.phase) {
+          <div class="group-h">{{ group.label }}<span>{{ group.tasks.length }}</span></div>
+          @for (task of group.tasks; track task.id) {
+            <div class="task" [class.done]="task.status === 'COMPLETED'" [class.failed]="task.status === 'FAILED'"
+                 [class.waiting]="group.phase === 'waiting'">
+              <div class="t1">
+                <b>{{ task.name }}</b>
+                @if (task.started_at) {
+                  <small>{{ task.started_at | date:'HH:mm:ss' }}</small>
+                }
               </div>
-            }
-            <div class="t3">
-              <span>{{ statusLabel(task.status) }}@if (task.progress) {<span> · {{ task.progress }}</span>}</span>
-              @if (conflictCount(task) > 0) {
-                <a routerLink="/maintenance" (click)="close()">{{ conflictCount(task) }} conflicts to review →</a>
+              <div class="t2">@for (seg of descriptionSegments(task.description); track $index) {{{ seg }}<wbr>}</div>
+              @if (task.status === 'RUNNING' || task.status === 'COMPLETED') {
+                <div class="progress" [class.indeterminate]="group.phase === 'running' && taskProgressFraction(task) === null">
+                  <i [style.width.%]="task.status === 'COMPLETED' || (group.phase === 'running' && taskProgressFraction(task) === null) ? 100 : ((taskProgressFraction(task) ?? 0) * 100)"></i>
+                </div>
               }
+              <div class="t3">
+                <span class="state" [class.throttled]="task.activity === 'THROTTLED'"><i class="state-dot" [class.running]="group.phase === 'running'" [class.waiting]="group.phase === 'waiting'" aria-hidden="true"></i>{{ statusLabel(task) }}@if (task.progress) {<span> · {{ task.progress }}</span>}</span>
+                @if (conflictCount(task) > 0) {
+                  <a routerLink="/maintenance" (click)="close()">{{ conflictCount(task) }} conflicts to review →</a>
+                }
+              </div>
+              @if (task.error) {
+                <div class="task-error">{{ task.error }}</div>
+              }
+              <button type="button" class="task-remove icon-btn icon-btn-sm" (click)="remove(task)" title="Remove">
+                <app-icon name="x" [size]="12" />
+              </button>
             </div>
-            @if (task.error) {
-              <div class="task-error">{{ task.error }}</div>
-            }
-            <button type="button" class="task-remove icon-btn icon-btn-sm" (click)="remove(task)" title="Remove">
-              <app-icon name="x" [size]="12" />
-            </button>
-          </div>
+          }
         }
       </div>
     }
