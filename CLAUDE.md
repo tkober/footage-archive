@@ -335,22 +335,37 @@ footage-archive/
         │   │                           #   disturbs it); nav arrows hide while it's showing. `playerActive()` (`document.activeElement`
         │   │                           #   inside the player's host, via a `viewChild(VideoPlayerComponent)`) joins `onKey()`'s guard
         │   │                           #   list so ←/→ fall back to neighbour navigation once the player loses focus.
-        │   ├── video-player/            # `VideoPlayerComponent` (#110) — presentational inline player for the detail panel's stage,
+        │   ├── video-player/            # `VideoPlayerComponent` (#110/#111) — presentational inline player for the detail panel's stage,
         │   │                           #   `<video preload="metadata">` + custom controls (play/pause, scrubbable timeline with
-        │   │                           #   buffered/hover, time, volume/mute with `localStorage` `fa-player-volume`, speed cycle,
-        │   │                           #   fullscreen on the wrapper so its own controls survive, close); native `<video controls>`
-        │   │                           #   below 760px / `(pointer: coarse)` (not `hover: none`, which headless/kiosk desktops also report). Keyboard is centralised in `handleKey()` (one switch) so
-        │   │                           #   #111's frame-stepping can add cases without touching the DOM plumbing; the wrapper
-        │   │                           #   (`tabindex="0"`, `(keydown)`) intercepts Space/K, ←/→ (±5s; Shift+←/→ emits `navigate`),
-        │   │                           #   F, M, Esc before the panel's/browser's own `document:keydown` listeners ever see them
-        │   │                           #   (`preventDefault`+`stopPropagation`, same convention as the rest of the app); unhandled
-        │   │                           #   keys (anything with Meta/Ctrl/Alt) fall through untouched. Control buttons are
-        │   │                           #   `tabindex="-1"` — only the wrapper is focusable, so Space can't both toggle playback and
-        │   │                           #   re-fire a focused button's native click. Unplayable detection is three-tier (no transcoded
-        │   │                           #   proxy in the MVP): an `error` event, `videoWidth === 0` after `loadedmetadata` (HEVC with no
-        │   │                           #   decoder plays audio with zero video, no error), or `getVideoPlaybackQuality().totalVideoFrames
-        │   │                           #   === 0` a few seconds into playback — all three pause + drop the `src` and show a dark overlay
-        │   │                           #   ("Can't play this video here" + the reason) with "Back to preview" (→ `closed`).
+        │   │                           #   buffered/hover, timecode, volume/mute with `localStorage` `fa-player-volume`, speed cycle,
+        │   │                           #   fullscreen on the wrapper so its own controls survive, keyboard-shortcuts help, close); native
+        │   │                           #   `<video controls>` below 760px / `(pointer: coarse)` (not `hover: none`, which headless/kiosk
+        │   │                           #   desktops also report). Keyboard is centralised in `handleKey()` (one switch); the wrapper
+        │   │                           #   (`tabindex="0"`, `(keydown)`) intercepts Space/K, ←/→ (±5s; Shift+←/→ emits `navigate`), J/L
+        │   │                           #   (±10s), `,`/`.` (frame step), 0-9 (jump to 0-90%, ignored with Shift — a DE-layout special
+        │   │                           #   char), Home/End, `?` (shortcuts overlay), F, M, Esc before the panel's/browser's own
+        │   │                           #   `document:keydown` listeners ever see them (`preventDefault`+`stopPropagation`, same
+        │   │                           #   convention as the rest of the app); unhandled keys (anything with Meta/Ctrl/Alt) fall through
+        │   │                           #   untouched. Control buttons are `tabindex="-1"` — only the wrapper is focusable, so Space
+        │   │                           #   can't both toggle playback and re-fire a focused button's native click. Unplayable detection
+        │   │                           #   is three-tier (no transcoded proxy in the MVP): an `error` event, `videoWidth === 0` after
+        │   │                           #   `loadedmetadata` (HEVC with no decoder plays audio with zero video, no error), or
+        │   │                           #   `getVideoPlaybackQuality().totalVideoFrames === 0` a few seconds into playback — all three
+        │   │                           #   pause + drop the `src` and show a dark overlay ("Can't play this video here" + the reason)
+        │   │                           #   with "Back to preview" (→ `closed`).
+        │   │                           #   Frame stepping (#111): the displayed frame index comes from `requestVideoFrameCallback`'s
+        │   │                           #   `metadata.mediaTime` (re-armed after every callback so it tracks every presented frame,
+        │   │                           #   re-registered on each `src` change), falling back to `currentTime` when the browser has no
+        │   │                           #   rVFC (feature-detected once). `fps` is parsed from the exact `"60000/1001"`-style fraction
+        │   │                           #   (`frameRate()`), falling back to 30 when the backend has none. A step seeks to the *middle*
+        │   │                           #   of the target frame (`(n ± 1 + 0.5) / fps`), not its boundary, to dodge decoder rounding
+        │   │                           #   landing on the previous frame; `,`/`.` pressed while a seek is still running are summed
+        │   │                           #   (`pendingFrames`) and applied as one combined seek on `seeked`, so ten quick presses land
+        │   │                           #   exactly ten frames on slow 4K software decodes without queueing a backlog of seeks.
+        │   │                           #   Timecode display (#111) is `HH:MM:SS:FF` runtime-from-0 (`shared/video-player/timecode.ts`'s
+        │   │                           #   pure `frameToTimecode()`) for the current frame and the clip's total — deliberately not
+        │   │                           #   drop-frame SMPTE timecode (that would need the stream's real start TC, out of scope here).
+        │   │                           #   The scrub-bar hover tooltip stays plain `m:ss`.
         │   ├── image-viewer/            # Zoomable/pannable image viewer used by the detail panel
         │   ├── confirm-dialog/          # Generic confirm/cancel dialog on top of ModalComponent (reused by lists, rename/move, future callers)
         │   ├── quick-jump/              # Header box (#38): one `.jump` field ("Jump to code…", ⌘K/Ctrl+K hint — global, focuses it;
@@ -589,7 +604,7 @@ bring their own button/menu/toast styles.
   the existing `app-context-menu` there (#41 will redo that menu itself). Search results and list-detail
   swap their card markup for `MediaCardComponent` too (code/date slots) with a minimal token pass over
   their surrounding containers so they read correctly in dark — their own redesigns are #44/#45.
-- [x] Video player (#109/#110): `GET /files/stream/{md5_hash}` streams the original file with HTTP
+- [x] Video player (#109/#110/#111): `GET /files/stream/{md5_hash}` streams the original file with HTTP
   Range support (#109, see `api/files.py` + nginx's dedicated unbuffered location above); the detail
   panel's stage gets an explicit Play button over the filmstrip for a tracked, non-360° video, swapping
   in `shared/video-player/`'s `VideoPlayerComponent` (#110) — nothing is fetched before that click. Own
@@ -598,7 +613,14 @@ bring their own button/menu/toast styles.
   player's `handleKey()` and intercepted at the element level before it can reach the panel's/browser's
   `document:keydown` listeners. Three-tier unplayable detection (error event / zero-width video after
   metadata / zero decoded frames a few seconds in) surfaces a clear "Can't play this video here" overlay
-  instead of a blank frame — there's no transcoded proxy in this MVP.
+  instead of a blank frame — there's no transcoded proxy in this MVP. Power-user keys (#111): J/L (±10s),
+  0-9 (jump to 0-90%), `,`/`.` (frame step; presses during a running seek are coalesced into the next one), Home/End, all through the same
+  `handleKey()`. Frame stepping seeks to the middle of the target frame (`(n ± 1 + 0.5) / fps`) using the
+  actually-*presented* frame index from `requestVideoFrameCallback`'s `mediaTime` (re-armed every frame,
+  falls back to `currentTime` without rVFC support); `fps` is the exact ffprobe fraction (e.g.
+  `60000/1001`), falling back to 30 when none is stored. The time readout is now `HH:MM:SS:FF`
+  runtime-from-0 (`timecode.ts::frameToTimecode()`, intentionally not drop-frame SMPTE timecode) for the
+  current frame and the clip's total. A `?`/info-button overlay lists every shortcut.
 
 ---
 

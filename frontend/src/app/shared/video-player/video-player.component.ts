@@ -1,6 +1,7 @@
-import { AfterViewInit, Component, ElementRef, OnDestroy, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, OnDestroy, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 
 import { IconComponent } from '../icon/icon.component';
+import { frameToTimecode } from './timecode';
 
 /** localStorage key for the remembered volume/mute (#110). Wrapped in
     try/catch everywhere, matching the project's existing storage access
@@ -67,6 +68,44 @@ export class VideoPlayerComponent implements AfterViewInit, OnDestroy {
   playbackRate = signal(1);
   unplayableReason = signal<string | null>(null);
 
+  // ── Frame-accurate position (#111) ──
+  /** Feature detection — Chrome/Edge/Safari support it, Firefox doesn't yet
+      (checked once, the prototype doesn't change at runtime). */
+  private readonly rvfcSupported = typeof HTMLVideoElement !== 'undefined'
+    && 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
+  private rvfcHandle: number | null = null;
+  /** The most recently *presented* frame's media time, from
+      `requestVideoFrameCallback`'s metadata — more accurate than
+      `currentTime`, which reflects the seek target, not what's on screen.
+      Falls back to `currentTime` itself when rVFC isn't supported. */
+  private mediaTime = signal(0);
+  /** Tastenhilfe overlay (#111). */
+  showHelp = signal(false);
+
+  /** `fps()` parsed, with a fallback for the rare tracked video that has no
+      stored fps (e.g. an old probe, or an unusual container). 30 is an
+      arbitrary but reasonable default — frame-stepping still works, it's
+      just not frame-accurate to the source without a real fps. */
+  private effectiveFps = computed(() => this.frameRate() ?? 30);
+
+  private currentFrameTime = computed(() => this.rvfcSupported ? this.mediaTime() : this.currentTime());
+
+  /** Index of the frame currently on screen. */
+  currentFrameIndex = computed(() => Math.round(this.currentFrameTime() * this.effectiveFps()));
+
+  /** Index of the last frame in the clip (0 when duration isn't known yet). */
+  lastFrameIndex = computed(() => {
+    const d = this.duration();
+    if (!(d > 0)) return 0;
+    // round, not floor: 2.002 s × 29.97 fps comes out as 59.9999…, which
+    // would drop the clip's last frame.
+    return Math.max(0, Math.round(d * this.effectiveFps()) - 1);
+  });
+
+  /** `HH:MM:SS:FF` runtime-from-0 timecode for the displayed frame / the clip's total duration. */
+  timecodeCurrent = computed(() => frameToTimecode(this.currentFrameIndex(), this.effectiveFps()));
+  timecodeTotal = computed(() => frameToTimecode(this.lastFrameIndex() + 1, this.effectiveFps()));
+
   // ── Timeline interaction ──
   dragging = signal(false);
   hoverTime = signal<number | null>(null);
@@ -123,6 +162,7 @@ export class VideoPlayerComponent implements AfterViewInit, OnDestroy {
     clearTimeout(this.hideControlsTimer);
     clearTimeout(this.qualityCheckTimer);
     const el = this.videoRef()?.nativeElement;
+    this.unregisterFrameCallback(el);
     if (el) {
       el.pause();
       el.removeAttribute('src');
@@ -166,12 +206,42 @@ export class VideoPlayerComponent implements AfterViewInit, OnDestroy {
     videoEl.src = newSrc;
     videoEl.load();
 
+    // Re-arm the frame-position callback for the new clip (#111) — the old
+    // registration's handle belongs to the previous `src` and would report
+    // stale media times otherwise.
+    this.unregisterFrameCallback(videoEl);
+    this.mediaTime.set(0);
+    this.pendingFrames = 0;
+    this.registerFrameCallback(videoEl);
+
     if (isFirstMount) {
       // The click that set the player's src was the user gesture; a
       // rejected autoplay (policy, slow network) just leaves it paused —
       // never surfaced as an error.
       videoEl.play().catch(() => {});
     }
+  }
+
+  // ── Frame-position tracking (#111) ──
+
+  /** Registers a one-shot `requestVideoFrameCallback`; re-registers itself
+      from inside the callback so it effectively runs on every presented
+      frame for as long as this video element is in use. Never runs when
+      the browser doesn't support it (Firefox) — callers fall back to
+      `currentTime` via `currentFrameTime()`. */
+  private registerFrameCallback(el: HTMLVideoElement) {
+    if (!this.rvfcSupported) return;
+    this.rvfcHandle = (el as any).requestVideoFrameCallback((_now: number, metadata: { mediaTime: number }) => {
+      this.mediaTime.set(metadata.mediaTime);
+      this.registerFrameCallback(el);
+    });
+  }
+
+  private unregisterFrameCallback(el: HTMLVideoElement | null | undefined) {
+    if (this.rvfcHandle != null && el && this.rvfcSupported) {
+      (el as any).cancelVideoFrameCallback(this.rvfcHandle);
+    }
+    this.rvfcHandle = null;
   }
 
   // ── Central keyboard dispatcher (#110/#111) ──
@@ -199,6 +269,29 @@ export class VideoPlayerComponent implements AfterViewInit, OnDestroy {
         if (e.shiftKey) this.navigate.emit(1);
         else this.seekRelative(5);
         return true;
+      case 'j':
+      case 'J':
+        this.seekRelative(-10);
+        return true;
+      case 'l':
+      case 'L':
+        this.seekRelative(10);
+        return true;
+      case ',':
+        this.stepFrame(-1);
+        return true;
+      case '.':
+        this.stepFrame(1);
+        return true;
+      case 'Home':
+        this.jumpToStart();
+        return true;
+      case 'End':
+        this.jumpToEnd();
+        return true;
+      case '?':
+        this.toggleHelp();
+        return true;
       case 'f':
       case 'F':
         this.toggleFullscreen();
@@ -208,10 +301,18 @@ export class VideoPlayerComponent implements AfterViewInit, OnDestroy {
         this.toggleMute();
         return true;
       case 'Escape':
-        if (this.isFullscreen()) this.exitFullscreen();
+        if (this.showHelp()) this.showHelp.set(false);
+        else if (this.isFullscreen()) this.exitFullscreen();
         else this.closed.emit();
         return true;
       default:
+        // 0-9 jump to 0%-90% of the duration — checked last since it needs
+        // its own guard (Shift+digit types a special char on a DE keyboard,
+        // so that combination is left alone rather than treated as "0").
+        if (!e.shiftKey && e.key.length === 1 && e.key >= '0' && e.key <= '9') {
+          this.jumpToPercent(Number(e.key) * 10);
+          return true;
+        }
         return false;
     }
   }
@@ -233,9 +334,79 @@ export class VideoPlayerComponent implements AfterViewInit, OnDestroy {
   }
 
   seekRelative(deltaSeconds: number) {
+    this.pendingFrames = 0; // any other jump cancels queued frame steps
     const el = this.videoRef()?.nativeElement;
     if (!el || !isFinite(el.duration)) return;
     el.currentTime = Math.min(Math.max(0, el.currentTime + deltaSeconds), el.duration);
+  }
+
+  /** Jumps to `percent`% (0-90, in steps of 10) of the clip's duration. */
+  jumpToPercent(percent: number) {
+    this.pendingFrames = 0; // any other jump cancels queued frame steps
+    const el = this.videoRef()?.nativeElement;
+    if (!el || !isFinite(el.duration) || el.duration <= 0) return;
+    el.currentTime = Math.min(Math.max(0, (percent / 100) * el.duration), el.duration);
+  }
+
+  // ── Frame stepping (#111) ──
+
+  /** Steps one frame back (`delta` -1) or forward (`delta` +1). Pauses
+      first (stepping while playing would just be fought by playback), and
+      lands on the *middle* of the target frame (`(n + 0.5) / fps`) rather
+      than its boundary — seeking exactly to a frame's start time is prone
+      to being rounded down into the *previous* frame by the decoder,
+      producing an off-by-one.
+
+      Steps requested while a seek is still in flight are not dropped but
+      summed into `pendingFrames` and applied as one combined seek on
+      `seeked` (see `onSeeked`). On slow software decodes (4K 10-bit 4:2:2
+      takes ~150 ms per seek) dropping them would make ten quick `.` presses
+      land a few frames short; queueing every seek would build a backlog.
+      Coalescing keeps the count exact with at most one seek in flight. */
+  private stepFrame(delta: -1 | 1) {
+    const el = this.videoRef()?.nativeElement;
+    if (!el || !isFinite(el.duration) || el.duration <= 0) return;
+    if (!el.paused) el.pause();
+    if (el.seeking) {
+      this.pendingFrames += delta;
+      return;
+    }
+    this.seekByFrames(el, delta);
+  }
+
+  /** Frames requested via `,`/`.` while a seek was still running (#111). */
+  private pendingFrames = 0;
+
+  private seekByFrames(el: HTMLVideoElement, delta: number) {
+    const fps = this.effectiveFps();
+    // Paused: `currentTime` is the frame-midpoint we last seeked to (or
+    // where playback stopped), so `floor` gives the frame on screen right
+    // away — rVFC's `mediaTime` may still lag one seek behind here.
+    const base = el.paused ? Math.floor(el.currentTime * fps + 1e-6) : this.currentFrameIndex();
+    const target = Math.min(Math.max(0, base + delta), this.lastFrameIndex());
+    el.currentTime = (target + 0.5) / fps;
+  }
+
+  private jumpToStart() {
+    this.pendingFrames = 0; // any other jump cancels queued frame steps
+    const el = this.videoRef()?.nativeElement;
+    if (!el) return;
+    if (!el.paused) el.pause();
+    const hasDuration = isFinite(el.duration) && el.duration > 0;
+    el.currentTime = hasDuration ? 0.5 / this.effectiveFps() : 0;
+  }
+
+  private jumpToEnd() {
+    this.pendingFrames = 0; // any other jump cancels queued frame steps
+    const el = this.videoRef()?.nativeElement;
+    if (!el || !isFinite(el.duration) || el.duration <= 0) return;
+    if (!el.paused) el.pause();
+    const fps = this.effectiveFps();
+    el.currentTime = (this.lastFrameIndex() + 0.5) / fps;
+  }
+
+  toggleHelp() {
+    this.showHelp.update(v => !v);
   }
 
   onVideoClick() {
@@ -259,6 +430,18 @@ export class VideoPlayerComponent implements AfterViewInit, OnDestroy {
 
   onTimeUpdate(el: HTMLVideoElement) {
     this.currentTime.set(el.currentTime);
+  }
+
+  /** Updates the fallback (no-rVFC) position the moment a seek lands,
+      rather than waiting for the next `timeupdate` tick (#111) — matters
+      for frame stepping, where the whole point is an immediate readout. */
+  onSeeked(el: HTMLVideoElement) {
+    this.currentTime.set(el.currentTime);
+    if (this.pendingFrames !== 0) {
+      const delta = this.pendingFrames;
+      this.pendingFrames = 0;
+      this.seekByFrames(el, delta);
+    }
   }
 
   onDurationChange(el: HTMLVideoElement) {
