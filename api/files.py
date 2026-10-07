@@ -1,3 +1,4 @@
+import mimetypes
 import os
 from datetime import datetime
 from pathlib import Path
@@ -36,6 +37,15 @@ _FULL_IMAGE_JPEG_EXTS = {'.jpg', '.jpeg', '.insp'}
 # `kind` request filter on /files/directory.
 _VIDEO_MEDIA_TYPES = {'video', '360_video'}
 _PHOTO_MEDIA_TYPES = {'photo', '360_photo'}
+
+# Stream endpoint (#109): content types for the original-video extensions we
+# track (env MEDIA_TYPE_VIDEO); anything else falls back to mimetypes.guess_type,
+# then to a generic binary type.
+_VIDEO_CONTENT_TYPES = {
+    '.mov': 'video/quicktime',
+    '.mp4': 'video/mp4',
+    '.m4v': 'video/mp4',
+}
 
 
 def _directory_kind(media_type: str | None) -> DirectoryKind:
@@ -396,6 +406,41 @@ def get_full_image(md5_hash: str):
             raise HTTPException(status_code=422, detail='Could not render RAW file')
         return Response(content=data, media_type='image/jpeg')
     raise HTTPException(status_code=400, detail=f'Unsupported still format: {ext}')
+
+
+@FilesApi.get('/stream/{md5_hash}')
+def stream_file(md5_hash: str):
+    """Original video, streamed with HTTP Range support so the browser can
+    seek without downloading the whole file (#109). `360_video` is out of
+    scope (no in-browser 360 player yet) and stills have no use here, so
+    both are rejected with 400. Starlette's `FileResponse` (0.52.1) already
+    handles `Range`/`If-Range`/206/416 and sets `Accept-Ranges: bytes` —
+    nothing to reimplement here, see tests/test_files_api.py.
+    """
+    rec = Database().get_file_by_hash(md5_hash)
+    if rec is None:
+        raise HTTPException(status_code=404, detail='File not found')
+    if rec['media_type'] != 'video':
+        raise HTTPException(status_code=400, detail='Streaming is only available for videos')
+
+    root = Path(_env.get_root_dir())
+    p = (Path(rec['directory']) / rec['file_name']).resolve()
+    if not p.is_relative_to(root):
+        raise HTTPException(status_code=403, detail='Access outside root directory is not allowed')
+    # Defensive only: tracked files should never point into the trash, but
+    # check anyway rather than ever stream out of it.
+    if is_in_trash(p):
+        raise HTTPException(status_code=404, detail='File not found')
+    if not p.exists():
+        raise HTTPException(status_code=404, detail='File does not exist on disk')
+
+    ext = (rec['file_extension'] or p.suffix).lower()
+    media_type = _VIDEO_CONTENT_TYPES.get(ext)
+    if media_type is None:
+        media_type = mimetypes.guess_type(p.name)[0] or 'application/octet-stream'
+    # No `filename=` -> no Content-Disposition, so the browser plays the
+    # video inline instead of offering it as a download.
+    return FileResponse(p, media_type=media_type)
 
 
 @FilesApi.patch('/location')

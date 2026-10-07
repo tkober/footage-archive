@@ -186,7 +186,7 @@ footage-archive/
 ├── api/
 │   ├── base.py             # GET / (redirect to /docs), GET /version
 │   ├── config.py           # GET /config  ← root_dir, task_poll_interval_ms, google_maps_api_key, google_maps_map_id, trash_dir_name
-│   ├── files.py            # POST /files/directory (trash dir hidden from the listing), GET /files/details, GET /files/exif (full exiftool dump), PATCH /files/rename (file or directory, routed through fileops/), POST /files/move + /files/move/preview, POST /files/mkdir, POST /files/delete + /files/delete/preview (#60, delete-to-trash, routed through fileops/service.py), GET /files/clip-preview/{md5_hash}, PATCH /files/location, POST /files/checksum
+│   ├── files.py            # POST /files/directory (trash dir hidden from the listing), GET /files/details, GET /files/exif (full exiftool dump), PATCH /files/rename (file or directory, routed through fileops/), POST /files/move + /files/move/preview, POST /files/mkdir, POST /files/delete + /files/delete/preview (#60, delete-to-trash, routed through fileops/service.py), GET /files/clip-preview/{md5_hash}, GET /files/stream/{md5_hash} (#109, original-video streaming with HTTP Range for the player), PATCH /files/location, POST /files/checksum
 │   ├── search.py           # GET /files/search-facets (facet autocomplete), POST /files/search (filtered, paginated search; incl. list_ids + list_code)
 │   ├── keywords.py         # GET /keywords (all), POST /keywords (add to file), DELETE /keywords (remove from file)
 │   ├── lists.py            # GET/POST /lists, PATCH/DELETE /lists/{id}, GET/POST /lists/{id}/items, DELETE /lists/{id}/items/{md5_hash}, GET /lists/{id}/items/by-code/{code}, GET /lists/{id}/export.pdf (cut-out cards, cols/rows query params)
@@ -226,7 +226,12 @@ footage-archive/
 ├── sql/                    # LEGACY raw-SQL files (setup.sql etc.) — superseded by Alembic + db/models.py, no longer loaded
 └── frontend/               # Angular 21 app
     ├── Dockerfile          # Multi-stage: Node builds the prod bundle → nginx serves it
-    ├── nginx.conf          # Serves SPA (try_files fallback) + reverse-proxies /api → backend:8051
+    ├── nginx.conf          # Serves SPA (try_files fallback) + reverse-proxies /api → backend:8051; a separate
+    │                       #   `/api/files/stream/` location (#109, matched before the general `/api/` one since
+    │                       #   nginx picks the longest matching prefix) turns `proxy_buffering`/`proxy_request_buffering`
+    │                       #   off and raises `proxy_read_timeout` — otherwise nginx would buffer a large original
+    │                       #   video into a temp file before forwarding it, defeating Range-based seeking; the
+    │                       #   `Range` request header is passed through to the backend by default either way
     ├── src/environments/
     │   ├── environment.ts             # dev: apiUrl http://localhost:8051
     │   └── environment.production.ts  # prod: apiUrl /api (swapped in via angular.json fileReplacements)
