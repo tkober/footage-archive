@@ -132,8 +132,9 @@
   background: rgba(8, 9, 11, .62);
 }
 
-/* The live player fills the stage exactly like the frames grid did. */
-.stage app-video-player { width: 100%; height: 100%; }
+/* The live player fills the stage like `.viewer` does: taken out of the
+   stage's auto-sized grid row so the video's intrinsic size can't grow it (#128). */
+.stage app-video-player { position: absolute; inset: 0; }
 
 .tc {
   position: absolute;
