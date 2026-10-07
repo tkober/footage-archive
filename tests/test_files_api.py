@@ -215,6 +215,144 @@ def test_full_image_render_does_not_block_other_requests(db, root_dir, monkeypat
     )
 
 
+def test_stream_video_without_range_returns_full_body(db, root_dir):
+    client = _make_client()
+    video_path = root_dir / 'clip.mp4'
+    content = b'0123456789' * 10  # 100 bytes
+    video_path.write_bytes(content)
+    _insert_file_row(str(root_dir), 'clip.mp4', 'vidhash', media_type='video')
+
+    resp = client.get('/files/stream/vidhash')
+
+    assert resp.status_code == 200
+    assert resp.headers['content-type'] == 'video/mp4'
+    assert resp.headers['accept-ranges'] == 'bytes'
+    assert resp.content == content
+    # Must play inline in the browser, never offered as a download.
+    assert 'content-disposition' not in resp.headers
+
+
+def test_stream_video_mov_extension_is_quicktime_content_type(db, root_dir):
+    client = _make_client()
+    video_path = root_dir / 'clip.mov'
+    video_path.write_bytes(b'mov-bytes')
+    _insert_file_row(str(root_dir), 'clip.mov', 'movhash', media_type='video')
+
+    resp = client.get('/files/stream/movhash')
+
+    assert resp.status_code == 200
+    assert resp.headers['content-type'] == 'video/quicktime'
+
+
+def test_stream_video_with_closed_range_returns_206(db, root_dir):
+    client = _make_client()
+    video_path = root_dir / 'clip.mp4'
+    content = bytes(range(256)) * 4  # 1024 bytes, distinct values
+    video_path.write_bytes(content)
+    _insert_file_row(str(root_dir), 'clip.mp4', 'vidhash', media_type='video')
+
+    resp = client.get('/files/stream/vidhash', headers={'Range': 'bytes=0-99'})
+
+    assert resp.status_code == 206
+    assert resp.headers['content-range'] == f'bytes 0-99/{len(content)}'
+    assert resp.content == content[0:100]
+
+
+def test_stream_video_with_open_range_returns_rest_of_file(db, root_dir):
+    client = _make_client()
+    video_path = root_dir / 'clip.mp4'
+    content = bytes(range(256)) * 8  # 2048 bytes
+    video_path.write_bytes(content)
+    _insert_file_row(str(root_dir), 'clip.mp4', 'vidhash', media_type='video')
+
+    resp = client.get('/files/stream/vidhash', headers={'Range': 'bytes=1000-'})
+
+    assert resp.status_code == 206
+    assert resp.headers['content-range'] == f'bytes 1000-{len(content) - 1}/{len(content)}'
+    assert resp.content == content[1000:]
+
+
+def test_stream_video_with_invalid_range_returns_416(db, root_dir):
+    client = _make_client()
+    video_path = root_dir / 'clip.mp4'
+    content = b'x' * 100
+    video_path.write_bytes(content)
+    _insert_file_row(str(root_dir), 'clip.mp4', 'vidhash', media_type='video')
+
+    resp = client.get('/files/stream/vidhash', headers={'Range': 'bytes=1000-2000'})
+
+    assert resp.status_code == 416
+
+
+def test_stream_unknown_hash_is_404(db, root_dir):
+    client = _make_client()
+
+    resp = client.get('/files/stream/does-not-exist')
+
+    assert resp.status_code == 404
+
+
+def test_stream_photo_is_400(db, root_dir):
+    client = _make_client()
+    photo_path = root_dir / 'photo.jpg'
+    photo_path.write_bytes(b'x')
+    _insert_file_row(str(root_dir), 'photo.jpg', 'photohash', media_type='photo')
+
+    resp = client.get('/files/stream/photohash')
+
+    assert resp.status_code == 400
+
+
+def test_stream_360_video_is_400(db, root_dir):
+    """360 video is out of scope for the MVP player (#109) — no in-browser
+    360 playback yet, so the stream endpoint rejects it like a still."""
+    client = _make_client()
+    video_path = root_dir / 'clip.insv'
+    video_path.write_bytes(b'x')
+    _insert_file_row(str(root_dir), 'clip.insv', '360hash', media_type='360_video')
+
+    resp = client.get('/files/stream/360hash')
+
+    assert resp.status_code == 400
+
+
+def test_stream_outside_root_dir_is_403(db, root_dir, tmp_path_factory):
+    client = _make_client()
+    outside_dir = tmp_path_factory.mktemp('outside')
+    video_path = outside_dir / 'clip.mp4'
+    video_path.write_bytes(b'x')
+    _insert_file_row(str(outside_dir), 'clip.mp4', 'outsidehash', media_type='video')
+
+    resp = client.get('/files/stream/outsidehash')
+
+    assert resp.status_code == 403
+
+
+def test_stream_missing_file_on_disk_is_404(db, root_dir):
+    client = _make_client()
+    # Tracked in the DB but never written to disk.
+    _insert_file_row(str(root_dir), 'ghost.mp4', 'ghosthash', media_type='video')
+
+    resp = client.get('/files/stream/ghosthash')
+
+    assert resp.status_code == 404
+
+
+def test_stream_file_in_trash_is_404(db, root_dir):
+    """Defensive only: tracked files should never point into the trash, but
+    the endpoint must refuse to stream from there if one somehow does."""
+    client = _make_client()
+    trash_dir = root_dir / '.trash'
+    trash_dir.mkdir()
+    video_path = trash_dir / 'clip.mp4'
+    video_path.write_bytes(b'x')
+    _insert_file_row(str(trash_dir), 'clip.mp4', 'trashedhash', media_type='video')
+
+    resp = client.get('/files/stream/trashedhash')
+
+    assert resp.status_code == 404
+
+
 def test_config_reports_trash_dir_name(root_dir, monkeypatch):
     monkeypatch.setenv('TRASH_DIR_NAME', '.my-trash')
     app = FastAPI()
