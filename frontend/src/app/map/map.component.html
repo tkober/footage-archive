@@ -5,7 +5,35 @@
       @if (mapsReady()) {
         <button type="button" class="search-area-btn" (click)="searchThisArea()">
           <app-icon name="search" [size]="14" />Search this area
+          @if (totalMarkerCount() > 0) {
+            <span class="search-area-count">· {{ totalMarkerCount().toLocaleString() }}</span>
+          }
         </button>
+
+        <!-- App-styled replacements for Google's own map-type/zoom controls (#104) -->
+        <div class="map-controls">
+          <div class="seg map-type-seg">
+            <button type="button" class="seg-btn" [class.on]="mapTypeId() === 'roadmap'"
+                    (click)="setMapType('roadmap')">Map</button>
+            <button type="button" class="seg-btn" [class.on]="mapTypeId() === 'hybrid'"
+                    (click)="setMapType('hybrid')">Satellite</button>
+          </div>
+          <div class="zoom-group">
+            <button type="button" class="icon-btn zoom-btn" aria-label="Zoom in"
+                    (click)="zoomByOne(1)">+</button>
+            <button type="button" class="icon-btn zoom-btn" aria-label="Zoom out"
+                    (click)="zoomByOne(-1)">−</button>
+          </div>
+        </div>
+
+        @if (loading()) {
+          <div class="map-loading-bar"></div>
+        }
+
+        @if (showEmptyState()) {
+          <div class="map-empty-chip">No files with a location in this area</div>
+        }
+
         @for (k of [mapKey()]; track k) {
           <google-map
             class="map-container"

@@ -51,6 +51,26 @@ export class MapComponent implements OnInit, OnDestroy {
   infoPoint = signal<MapPoint | null>(null);
   infoKind = signal<MarkerKind>('single');
 
+  /** Sum of `count` over the currently rendered markers — shown in the
+      "Search this area · N" pill without an extra request. */
+  readonly totalMarkerCount = computed(() => this.markers().reduce((sum, m) => sum + m.point.count, 0));
+
+  /** True while a `/locations/map-points` request is in flight — drives the
+      thin loading bar at the top of the map (#104). */
+  loading = signal(false);
+  /** True once the first response (success or empty) has been rendered, so
+      the empty-state chip never flashes before the initial fetch resolves. */
+  private loadedOnce = signal(false);
+  /** Empty state: the last response had 0 points and nothing is in flight. */
+  readonly showEmptyState = computed(() =>
+    this.loadedOnce() && !this.loading() && this.markers().length === 0);
+
+  /** Google basemap type (roadmap/satellite), controlled by the segmented
+      control (#104). Stored in a signal — rather than mutated directly on
+      `googleMap` only — so a #102 theme-triggered map rebuild (`mapKey`)
+      recreates the map with the same choice instead of resetting to roadmap. */
+  mapTypeId = signal<'roadmap' | 'hybrid'>('roadmap');
+
   // Embedded detail panel (slides in like the Browser/Search views)
   selectedFile = signal<FileInfo | null>(null);
   loadingDetails = signal(false);
@@ -72,9 +92,14 @@ export class MapComponent implements OnInit, OnDestroy {
       system theme change while on "System") is picked up live — see `mapKey`. */
   readonly mapOptions = computed<google.maps.MapOptions>(() => ({
     colorScheme: this.theme.resolved() === 'light' ? 'LIGHT' : 'DARK',
+    mapTypeId: this.mapTypeId(),
+    // All of Google's own chrome is replaced by our own styled overlays
+    // (#104) — only the legal/attribution footer stays, it can't be removed.
     streetViewControl: false,
     fullscreenControl: false,
-    mapTypeControl: true,
+    mapTypeControl: false,
+    zoomControl: false,
+    cameraControl: false,
     clickableIcons: false,
   }));
 
@@ -104,13 +129,18 @@ export class MapComponent implements OnInit, OnDestroy {
         if (!bounds) return EMPTY;
         const ne = bounds.getNorthEast();
         const sw = bounds.getSouthWest();
+        this.loading.set(true);
         return this.api.getMapPoints(
           { west: sw.lng(), south: sw.lat(), east: ne.lng(), north: ne.lat() },
           zoom,
           // Keep existing markers + the stream alive on a transient failure.
-        ).pipe(catchError(() => EMPTY));
+        ).pipe(catchError(() => { this.loading.set(false); return EMPTY; }));
       }),
-    ).subscribe(points => this.renderPoints(points as MapPoint[]));
+    ).subscribe(points => {
+      this.loading.set(false);
+      this.loadedOnce.set(true);
+      this.renderPoints(points as MapPoint[]);
+    });
 
     this.mapsReady.set(true);
   }
@@ -162,6 +192,21 @@ export class MapComponent implements OnInit, OnDestroy {
     const ne = bounds.getNorthEast();
     const sw = bounds.getSouthWest();
     this.navigateToSearch(sw.lng(), sw.lat(), ne.lng(), ne.lat());
+  }
+
+  /** Map/Satellite segmented control (#104) — switched live via `setMapTypeId`
+      (no map rebuild needed), and mirrored into `mapTypeId` so a theme-
+      triggered rebuild (#102's `mapKey`) re-creates the map with the same type. */
+  setMapType(kind: 'roadmap' | 'hybrid'): void {
+    this.mapTypeId.set(kind);
+    this.map()?.googleMap?.setMapTypeId(kind);
+  }
+
+  /** Zoom +/− buttons (#104), replacing Google's own zoom control. */
+  zoomByOne(delta: 1 | -1): void {
+    const map = this.map()?.googleMap;
+    const current = map?.getZoom() ?? this.savedZoom;
+    map?.setZoom(current + delta);
   }
 
   private navigateToSearch(west: number | null, south: number | null,
