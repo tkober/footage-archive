@@ -16,6 +16,7 @@ import { MediaCardComponent } from '../shared/media-card/media-card.component';
 import { LoadMoreFooterComponent } from '../shared/load-more-footer/load-more-footer.component';
 import { InfiniteScrollDirective } from '../shared/infinite-scroll/infinite-scroll.directive';
 import { ApiService } from '../services/api.service';
+import { OpenInService } from '../services/open-in.service';
 import { PreviewCacheService } from '../services/preview-cache.service';
 import { TaskPollService } from '../services/task-poll.service';
 import { ToastService } from '../shared/toast/toast.service';
@@ -76,6 +77,7 @@ export class BrowserComponent implements OnInit {
   private header = inject(HeaderService);
   private previewCache = inject(PreviewCacheService);
   private taskPoll = inject(TaskPollService);
+  private openIn = inject(OpenInService);
 
   rootDir = signal<string | null>(null);
   /** `.trash` by default — folder under rootDir delete-to-trash moves into (#61). */
@@ -550,6 +552,9 @@ export class BrowserComponent implements OnInit {
     const tracked = entry.tracked === true && !!entry.md5_hash;
     return [
       { id: 'open', label: 'Open', icon: 'eye', shortcut: 'Space' },
+      ...this.openIn.appsFor(entry.file_extension).map((app, i) => ({
+        id: `open-in:${app.id}`, label: `Open in ${app.label}`, icon: app.icon, shortcut: i === 0 ? 'P' : undefined,
+      })),
       ...(tracked
         ? [{ id: 'rescan', label: 'Rescan', icon: 'scan', shortcut: 'R' }]
         : [{ id: 'track', label: 'Track file', icon: 'plus', shortcut: 'T' }]),
@@ -576,6 +581,7 @@ export class BrowserComponent implements OnInit {
   }
 
   private runEntryAction(id: string, entry: PathChild, source: HTMLElement | null) {
+    if (id.startsWith('open-in:')) { this.openInApp(id.slice('open-in:'.length), entry); return; }
     switch (id) {
       case 'open':
         this.openEntry(entry);
@@ -627,6 +633,17 @@ export class BrowserComponent implements OnInit {
     });
   }
 
+  /** "Open in <App>" (#126): hands the file off to the device's Opener (#97/#125). */
+  private openInApp(appId: string, entry: PathChild) {
+    const app = this.openIn.apps.find(a => a.id === appId);
+    if (!app) return;
+    if (this.openIn.open(app, entry.path)) {
+      this.toast.show(`Opening ${entry.name} in ${app.label}…`);
+    } else {
+      this.toast.show(`Couldn't open ${entry.name}: path is outside the archive root`);
+    }
+  }
+
   // ── Keyboard shortcuts on the focused card / folder tile (#41) ──
 
   @HostListener('document:keydown', ['$event'])
@@ -641,8 +658,10 @@ export class BrowserComponent implements OnInit {
     const entry = host && this.entries().find(e => e.path === host.dataset['path']);
     if (!host || !entry) return;
     const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
-    const id = SHORTCUTS[key];
-    if (!id || !this.menuItemsFor(entry).some(i => i.id === id && !i.disabled)) return;
+    const items = this.menuItemsFor(entry);
+    // `P` is the shortcut for the (dynamic) first open-in:<appId> item, not a static SHORTCUTS entry.
+    const id = key === 'p' ? items.find(i => i.id.startsWith('open-in:'))?.id : SHORTCUTS[key];
+    if (!id || !items.some(i => i.id === id && !i.disabled)) return;
     event.preventDefault();
     this.runEntryAction(id, entry, host);
   }

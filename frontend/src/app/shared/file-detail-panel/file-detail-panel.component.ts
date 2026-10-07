@@ -17,6 +17,7 @@ import { ThemeService } from '../../services/theme.service';
 import { ApiService } from '../../services/api.service';
 import { GoogleMapsLoaderService } from '../../services/google-maps-loader.service';
 import { MapPrefsService } from '../../services/map-prefs.service';
+import { OpenInService } from '../../services/open-in.service';
 import { PreviewCacheService } from '../../services/preview-cache.service';
 import { TaskPollService } from '../../services/task-poll.service';
 import { DeletePreviewResponse, ExifTag, FileInfo, FileList, FileListMembership, Location, ShotClassification, VIDEO_TYPES, PHOTO_TYPES, formatDeletePreview, formatDurationTc } from '../../models';
@@ -51,6 +52,7 @@ export class FileDetailPanelComponent implements OnDestroy {
   private geocoder = inject(MapGeocoder);
   private previewCache = inject(PreviewCacheService);
   private taskPoll = inject(TaskPollService);
+  private openIn = inject(OpenInService);
 
   // ── Inputs / Outputs ──
   file    = input<FileInfo | null>(null);
@@ -98,16 +100,20 @@ export class FileDetailPanelComponent implements OnDestroy {
   // ── Rescan (#64) ──
   rescanning = signal(false);
 
-  // ── More actions menu (#67: "Rescan" / "Move to trash", off the top bar) ──
+  // ── More actions menu (#67: "Rescan" / "Move to trash", off the top bar;
+  //     #126 adds "Open in <App>" at the top) ──
   moreMenuAnchor = signal<HTMLElement | null>(null);
   moreMenuItems = computed<MenuItem[]>(() => {
     const file = this.selectedFile();
     const tracked = !!file?.tracked && !!file?.md5_hash;
-    const items: MenuItem[] = [];
+    const openInItems: MenuItem[] = this.openIn.appsFor(file?.file_extension).map((app, i) => ({
+      id: `open-in:${app.id}`, label: `Open in ${app.label}`, icon: app.icon, shortcut: i === 0 ? 'P' : undefined,
+    }));
+    const items: MenuItem[] = [...openInItems];
     if (tracked) {
-      items.push({ id: 'rescan', label: 'Rescan', icon: 'scan', disabled: this.rescanning() });
+      items.push({ id: 'rescan', label: 'Rescan', icon: 'scan', disabled: this.rescanning(), separatorBefore: openInItems.length > 0 });
     }
-    items.push({ id: 'delete', label: 'Move to trash', icon: 'trash', danger: true, separatorBefore: tracked });
+    items.push({ id: 'delete', label: 'Move to trash', icon: 'trash', danger: true, separatorBefore: tracked || openInItems.length > 0 });
     return items;
   });
 
@@ -432,6 +438,10 @@ export class FileDetailPanelComponent implements OnDestroy {
     if (t?.closest('input, textarea, select, [contenteditable="true"]')) return;
     if (e.key === 'ArrowLeft') { this.step(-1); e.preventDefault(); }
     else if (e.key === 'ArrowRight') { this.step(1); e.preventDefault(); }
+    else if (e.key.toLowerCase() === 'p') {
+      const app = this.openIn.appsFor(this.selectedFile()?.file_extension)[0];
+      if (app) { this.openInApp(app.id); e.preventDefault(); }
+    }
   }
 
   trackFile() {
@@ -802,8 +812,22 @@ export class FileDetailPanelComponent implements OnDestroy {
 
   onMoreMenuSelect(id: string) {
     this.moreMenuAnchor.set(null);
-    if (id === 'rescan') this.rescanFile();
+    if (id.startsWith('open-in:')) this.openInApp(id.slice('open-in:'.length));
+    else if (id === 'rescan') this.rescanFile();
     else if (id === 'delete') this.requestDelete();
+  }
+
+  /** "Open in <App>" (#126): hands the file off to the device's Opener (#97/#125). */
+  private openInApp(appId: string) {
+    const file = this.selectedFile();
+    if (!file) return;
+    const app = this.openIn.apps.find(a => a.id === appId);
+    if (!app) return;
+    if (this.openIn.open(app, file.path)) {
+      this.toast.show(`Opening ${file.name} in ${app.label}…`);
+    } else {
+      this.toast.show(`Couldn't open ${file.name}: path is outside the archive root`);
+    }
   }
 
   // ── Move to trash (#61) ──

@@ -36,6 +36,53 @@
   cursor: not-allowed;
 }
 
+/* ── Open in section (#125) ──────────────────────────────────────── */
+
+.sub-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .02em;
+  margin: 0;
+}
+
+.setup-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.setup-downloads {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* The downloads are <a> elements wearing the button classes — drop the link underline. */
+.setup-downloads .btn {
+  text-decoration: none;
+}
+
+.setup-cmd {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--space-2) var(--space-3);
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  user-select: all;
+}
+
+.test-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
 /* ── Performance section (#71) ───────────────────────────────────── */
 
 .kv-list {
