@@ -222,9 +222,16 @@
   transform: translateY(50%) scale(1.1);
 }
 
-:host ::ng-deep .marker:focus-visible {
-  outline: 2px solid var(--text);
-  outline-offset: 2px;
+/* Keyboard focus sits on the advanced marker itself (it has a click
+   listener). Its default outline ignores the translateY(50%) anchor fix, so
+   replace it with a ring on the visible shape, like the selected state. */
+:host ::ng-deep gmp-advanced-marker:focus-visible {
+  outline: none;
+}
+
+:host ::ng-deep gmp-advanced-marker:focus-visible .marker-circle,
+:host ::ng-deep gmp-advanced-marker:focus-visible .marker-tile--front {
+  box-shadow: 0 0 0 2px var(--text);
 }
 
 /* One shared amber-bordered, drop-shadowed tile — the single-file photo and

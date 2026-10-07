@@ -392,15 +392,13 @@ export class MapComponent implements OnInit, OnDestroy {
   }
 
   /** Root element shared by every marker kind: accessible title, focusable
-      (advanced-marker content with a click listener needs `tabindex` to take
-      keyboard focus — the `:focus-visible` outline lives in the CSS), and the
+      (the advanced marker itself takes keyboard focus because it has a click
+      listener — the `:focus-visible` outline lives in the CSS), and the
       hover-scale/selected-ring hook via `marker--<kind>`. */
   private createMarkerRoot(p: MapPoint, kind: MarkerKind): HTMLElement {
     const el = document.createElement('div');
     el.className = `marker marker--${kind}`;
     el.title = p.place ? `${this.pluralize(p.count, 'file')} in ${p.place}` : this.pluralize(p.count, 'file');
-    el.tabIndex = 0;
-    el.setAttribute('role', 'button');
     return el;
   }
 
