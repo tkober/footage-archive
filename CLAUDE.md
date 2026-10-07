@@ -257,6 +257,12 @@ footage-archive/
         │                           #   every `task_poll_interval_ms` (from `/config`) and completes once the task is COMPLETED/FAILED; used
         │                           #   after starting a rescan to know when to bump `PreviewCacheService` + reload file details
         ├── services/theme.service.ts # Dark/light theme (signal-based, localStorage `fa-theme`, resolves "system" via matchMedia)
+        ├── services/open-in.service.ts # `OpenInService` (#97/#125, signal-based, `providedIn: 'root'`) — "Open in Photoshop"-style
+        │                           #   hand-off to a per-device helper ("the Opener") via the custom `footage-archive://` URL scheme;
+        │                           #   `enabled` signal (`localStorage` `fa-open-in-enabled`, default off) gates `appsFor(extension)`;
+        │                           #   `open(app, path)` builds `footage-archive://open?app=<id>&path=<rel>` (rel = `path` minus
+        │                           #   `root_dir` from `/config`, `/`-separated, each segment `encodeURIComponent`'d) and navigates to
+        │                           #   it, fire-and-forget; `test()` navigates to `footage-archive://test`
         ├── services/header.service.ts # `HeaderService` (#38, signal-based, `providedIn: 'root'`) — lets the active page drive the
         │                           #   topbar's breadcrumb slot: `setCrumbs([{label, action?}, …])` (last item has no action, renders
         │                           #   bold/current) or `setTitle(title)` for a plain one-item trail. `AppComponent` clears it to `null`
@@ -385,7 +391,7 @@ footage-archive/
         ├── maintenance/            # Maintenance page: hosts troubleshooting sections — "Path conflicts" (above) then "Missing files" (below)
         │   ├── path-conflicts/     # Path-conflicts section (#25): GET /tracking/conflicts → one card per md5 (thumbnail if has_preview, file name, keyword/location/list badges), radio list of every path (tracked path first, labelled "currently tracked"; missing paths disabled), per-card "Apply" → POST /tracking/conflicts/resolve; header "Keep all current" / "Use new location for all" → ConfirmDialogComponent → POST /tracking/conflicts/resolve-batch, shows "N resolved · M skipped (reason)"; fires `ApiService.conflictsChanged$` after any resolve so the sidebar badge updates
         │   └── missing-files/      # Missing-files section as its own embeddable component: auto-checks on page open, "Re-check" button, grouped-by-directory cards (thumbnail, keyword/location/list badges), "Rediscover…" button per group opens `app-rediscover-dialog` (#25)
-        └── settings/               # Settings page — "Appearance" section (theme segmented control over `ThemeService`), "Map" section (#107, Off/On segment over `MapPrefsService`, disabled + hint when `mapIdPoi` is blank)
+        └── settings/               # Settings page — "Appearance" section (theme segmented control over `ThemeService`), "Map" section (#107, Off/On segment over `MapPrefsService`, disabled + hint when `mapIdPoi` is blank), "Open in" section (#125, Not installed/Installed segment over `OpenInService.enabled`, macOS/Windows setup downloads + `<pre>` setup commands with the real origin from `openIn.appOrigin`, "Test" button disabled until enabled)
 ```
 
 ---

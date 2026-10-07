@@ -6,7 +6,9 @@ import { SystemDiagnosticsResponse } from '../models';
 import { ApiService } from '../services/api.service';
 import { GoogleMapsLoaderService } from '../services/google-maps-loader.service';
 import { MapPrefsService } from '../services/map-prefs.service';
+import { OpenInService } from '../services/open-in.service';
 import { ThemeChoice, ThemeService } from '../services/theme.service';
+import { ToastService } from '../shared/toast/toast.service';
 
 const DIAGNOSTICS_POLL_MS = 5000;
 
@@ -21,6 +23,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
   private api = inject(ApiService);
   private loader = inject(GoogleMapsLoaderService);
   private mapPrefs = inject(MapPrefsService);
+  private toast = inject(ToastService);
+  protected openIn = inject(OpenInService);
   private pollSub?: Subscription;
 
   choice = this.themeService.choice;
@@ -43,6 +47,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
     { value: true, label: 'On' },
   ];
 
+  readonly openInOptions: { value: boolean; label: string }[] = [
+    { value: false, label: 'Not installed' },
+    { value: true, label: 'Installed' },
+  ];
+
   /** Settings displayed in the "Performance" section's read-only key/value
       list, in display order. */
   readonly settingsRows: { label: string; key: keyof SystemDiagnosticsResponse['settings'] }[] = [
@@ -62,6 +71,15 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   selectPlaces(value: boolean) {
     this.mapPrefs.setShowPlaces(value);
+  }
+
+  selectOpenIn(value: boolean) {
+    this.openIn.setEnabled(value);
+  }
+
+  testOpener() {
+    this.openIn.test();
+    this.toast.show('Test sent — the Opener shows a dialog.');
   }
 
   ngOnInit() {

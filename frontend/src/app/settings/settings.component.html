@@ -43,6 +43,57 @@
 </section>
 
 <section class="section">
+  <h2 class="section-title">Open in</h2>
+  <p class="section-hint">
+    Open stills in a desktop app such as Photoshop. Needs the Footage Archive
+    Opener, installed once per computer — the browser can't start desktop
+    apps on its own.
+  </p>
+
+  <div class="seg" role="radiogroup" aria-label="Opener on this device">
+    @for (opt of openInOptions; track opt.label) {
+      <button
+        type="button"
+        class="seg-btn"
+        [class.on]="openIn.enabled() === opt.value"
+        role="radio"
+        [attr.aria-checked]="openIn.enabled() === opt.value"
+        (click)="selectOpenIn(opt.value)"
+      >{{ opt.label }}</button>
+    }
+  </div>
+
+  <div class="setup-block">
+    <h3 class="sub-title">Setup</h3>
+
+    <div class="setup-downloads">
+      <a class="btn btn-sm" href="opener/footage-archive-opener-macos.sh" download>macOS</a>
+      <a class="btn btn-sm" href="opener/footage-archive-opener-windows.ps1" download>Windows</a>
+    </div>
+
+    <pre class="setup-cmd">bash ~/Downloads/footage-archive-opener-macos.sh --root /Volumes/footage --origin {{ openIn.appOrigin }}</pre>
+    <pre class="setup-cmd">powershell -ExecutionPolicy Bypass -File "$HOME\Downloads\footage-archive-opener-windows.ps1" -Root \\192.168.2.230\footage -Origin {{ openIn.appOrigin }}</pre>
+
+    <p class="section-hint">
+      <code>--root</code> is where the footage share is mounted on that
+      computer; <code>--origin</code> lets Chrome open the Opener without
+      asking every time (restart Chrome afterwards). Run with
+      <code>--uninstall</code> / <code>-Uninstall</code> to remove it.
+    </p>
+  </div>
+
+  <div class="test-row">
+    <button
+      type="button"
+      class="btn btn-primary btn-sm"
+      [disabled]="!openIn.enabled()"
+      (click)="testOpener()"
+    >Test</button>
+    <p class="section-hint">Opens a dialog from the Opener that checks the share and Photoshop.</p>
+  </div>
+</section>
+
+<section class="section">
   <h2 class="section-title">Performance</h2>
   <p class="section-hint">
     Load limits for video and photo processing. Set via environment variables
