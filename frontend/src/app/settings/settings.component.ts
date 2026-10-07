@@ -4,6 +4,8 @@ import { catchError, switchMap } from 'rxjs/operators';
 
 import { SystemDiagnosticsResponse } from '../models';
 import { ApiService } from '../services/api.service';
+import { GoogleMapsLoaderService } from '../services/google-maps-loader.service';
+import { MapPrefsService } from '../services/map-prefs.service';
 import { ThemeChoice, ThemeService } from '../services/theme.service';
 
 const DIAGNOSTICS_POLL_MS = 5000;
@@ -17,15 +19,28 @@ const DIAGNOSTICS_POLL_MS = 5000;
 export class SettingsComponent implements OnInit, OnDestroy {
   private themeService = inject(ThemeService);
   private api = inject(ApiService);
+  private loader = inject(GoogleMapsLoaderService);
+  private mapPrefs = inject(MapPrefsService);
   private pollSub?: Subscription;
 
   choice = this.themeService.choice;
   diagnostics = signal<SystemDiagnosticsResponse | null>(null);
 
+  /** Second Map ID (#107) needed for the "Places" toggle; empty once the
+      loader resolves means maps are disabled or no such Map ID is set, in
+      which case the Map section's segment is disabled with a hint. */
+  mapIdPoi = signal('');
+  showPlaces = this.mapPrefs.showPlaces;
+
   readonly options: { value: ThemeChoice; label: string }[] = [
     { value: 'system', label: 'System' },
     { value: 'dark', label: 'Dark' },
     { value: 'light', label: 'Light' },
+  ];
+
+  readonly placesOptions: { value: boolean; label: string }[] = [
+    { value: false, label: 'Off' },
+    { value: true, label: 'On' },
   ];
 
   /** Settings displayed in the "Performance" section's read-only key/value
@@ -45,7 +60,13 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.themeService.setChoice(choice);
   }
 
+  selectPlaces(value: boolean) {
+    this.mapPrefs.setShowPlaces(value);
+  }
+
   ngOnInit() {
+    this.loader.load().then(() => this.mapIdPoi.set(this.loader.mapIdPoi));
+
     this.pollSub = timer(0, DIAGNOSTICS_POLL_MS)
       .pipe(switchMap(() => this.api.getSystemDiagnostics().pipe(catchError(() => of(null)))))
       .subscribe({ next: data => { if (data) this.diagnostics.set(data); } });

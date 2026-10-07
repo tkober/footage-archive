@@ -103,6 +103,36 @@
   box-shadow: var(--shadow-2);
 }
 
+/* "Places" toggle (#107) — styled like the other floating overlay controls
+   above/below it, but its own small pill rather than a `.seg`/`.icon-btn`
+   since it's a single on/off button with a label, not a pair or an icon
+   alone. */
+.places-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--raised);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  box-shadow: var(--shadow-2);
+  cursor: pointer;
+}
+
+.places-btn:hover {
+  background: var(--hover);
+}
+
+.places-btn.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
 .zoom-group {
   display: flex;
   flex-direction: column;

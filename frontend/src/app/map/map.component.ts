@@ -6,6 +6,7 @@ import { GoogleMap, MapAdvancedMarker } from '@angular/google-maps';
 
 import { ApiService } from '../services/api.service';
 import { GoogleMapsLoaderService } from '../services/google-maps-loader.service';
+import { MapPrefsService } from '../services/map-prefs.service';
 import { ThemeService } from '../services/theme.service';
 import { IconComponent } from '../shared/icon/icon.component';
 import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
@@ -40,6 +41,7 @@ export class MapComponent implements OnInit, OnDestroy {
   private loader = inject(GoogleMapsLoaderService);
   private router = inject(Router);
   private theme = inject(ThemeService);
+  private mapPrefs = inject(MapPrefsService);
 
   readonly map = viewChild(GoogleMap);
   readonly previewPanel = viewChild(MapPreviewPanelComponent);
@@ -47,6 +49,15 @@ export class MapComponent implements OnInit, OnDestroy {
   mapsReady = signal(false);
   mapsDisabled = signal(false);
   mapId = signal('');
+  mapIdPoi = signal('');
+  /** "Places" toggle (#107) — seeded from the Settings-page default on each
+      visit to this page, then session-only: it is never written back to
+      `MapPrefsService`, so flipping it here doesn't change what Settings
+      shows next time. */
+  placesOn = signal(false);
+  /** Effective Map ID: the POI-style one while the toggle is on and a
+      second Map ID is actually configured, else the quiet default. */
+  readonly effectiveMapId = computed(() => this.placesOn() && this.mapIdPoi() ? this.mapIdPoi() : this.mapId());
   markers = signal<RenderedMarker[]>([]);
   /** The point backing the currently-open preview panel (#106). Kept as the
       exact `MapPoint` object the user clicked on, so the panel survives a
@@ -112,10 +123,13 @@ export class MapComponent implements OnInit, OnDestroy {
   }));
 
   /** `@for` track key for the `<google-map>`: changing it destroys and
-      recreates the map, which is the only way to apply a new colorScheme
-      (Google doesn't support switching it on a live map). #107 will extend
-      this to `${scheme}|${mapId}` once the Map ID can change too. */
-  readonly mapKey = computed(() => this.theme.resolved());
+      recreates the map, which is the only way to apply a new colorScheme or
+      Map ID (Google doesn't support switching either on a live map).
+      `placesOn` is folded in explicitly (not just the resulting
+      `effectiveMapId`) so a toggle always forces a rebuild even in the
+      degenerate case where `GOOGLE_MAPS_MAP_ID_POI` happens to equal
+      `GOOGLE_MAPS_MAP_ID`. */
+  readonly mapKey = computed(() => `${this.theme.resolved()}|${this.effectiveMapId()}|${this.placesOn()}`);
 
   private reload$ = new Subject<void>();
   private sub?: Subscription;
@@ -127,6 +141,8 @@ export class MapComponent implements OnInit, OnDestroy {
       return;
     }
     this.mapId.set(this.loader.mapId);
+    this.mapIdPoi.set(this.loader.mapIdPoi);
+    this.placesOn.set(this.mapPrefs.showPlaces());
 
     this.sub = this.reload$.pipe(
       debounceTime(300),
@@ -261,6 +277,15 @@ export class MapComponent implements OnInit, OnDestroy {
   setMapType(kind: 'roadmap' | 'hybrid'): void {
     this.mapTypeId.set(kind);
     this.map()?.googleMap?.setMapTypeId(kind);
+  }
+
+  /** "Places" toggle (#107) — a Map ID can't change on a live map, so
+      flipping it rebuilds the map via `mapKey`, same as the #102 theme
+      switch; `savedCenter`/`savedZoom`, `mapTypeId` and the open preview
+      panel all already survive that rebuild. Session-only — never written
+      back to `MapPrefsService`. */
+  togglePlaces(): void {
+    this.placesOn.update(v => !v);
   }
 
   /** Zoom +/− buttons (#104), replacing Google's own zoom control. */

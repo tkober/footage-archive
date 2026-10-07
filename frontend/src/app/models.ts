@@ -4,6 +4,8 @@ export interface Config {
   browser_hidden_extensions: string[];
   google_maps_api_key: string;
   google_maps_map_id: string;
+  /** Second Map ID (#107) whose style shows points of interest; empty when unset. */
+  google_maps_map_id_poi: string;
   /** Single folder name under `root_dir` that delete-to-trash moves files into (#61). */
   trash_dir_name: string;
 }

@@ -16,6 +16,7 @@ import { ToastService } from '../toast/toast.service';
 import { ThemeService } from '../../services/theme.service';
 import { ApiService } from '../../services/api.service';
 import { GoogleMapsLoaderService } from '../../services/google-maps-loader.service';
+import { MapPrefsService } from '../../services/map-prefs.service';
 import { PreviewCacheService } from '../../services/preview-cache.service';
 import { TaskPollService } from '../../services/task-poll.service';
 import { DeletePreviewResponse, ExifTag, FileInfo, FileList, FileListMembership, Location, ShotClassification, VIDEO_TYPES, PHOTO_TYPES, formatDeletePreview, formatDurationTc } from '../../models';
@@ -46,6 +47,7 @@ export class FileDetailPanelComponent implements OnDestroy {
   private toast = inject(ToastService);
   private host: ElementRef<HTMLElement> = inject(ElementRef);
   private loader = inject(GoogleMapsLoaderService);
+  private mapPrefs = inject(MapPrefsService);
   private geocoder = inject(MapGeocoder);
   private previewCache = inject(PreviewCacheService);
   private taskPoll = inject(TaskPollService);
@@ -296,7 +298,13 @@ export class FileDetailPanelComponent implements OnDestroy {
   // ── Maps (Google) ──
   mapsReady = signal(false);
   mapId = signal('');
+  mapIdPoi = signal('');
   private theme = inject(ThemeService);
+  /** Effective Map ID (#107): the POI-style one when Settings' "Places" is
+      on and a second Map ID is configured, else the quiet default. No
+      control here — this panel just follows the Settings-page preference. */
+  readonly effectiveMapId = computed(() =>
+    this.mapPrefs.showPlaces() && this.mapIdPoi() ? this.mapIdPoi() : this.mapId());
   /** Options depend on the resolved theme so switching it (Settings, or a
       system theme change while on "System") is picked up live — see
       `detailMapKey`/`locMapKey`, which rebuild the `<google-map>`s since
@@ -310,10 +318,10 @@ export class FileDetailPanelComponent implements OnDestroy {
     streetViewControl: false, fullscreenControl: false, mapTypeControl: true, clickableIcons: false,
   }));
   /** `@for` track keys for the two `<google-map>`s: changing one destroys
-      and recreates just that map. #107 will extend this to
-      `${scheme}|${mapId}` once the Map ID can change too. */
-  readonly detailMapKey = computed(() => this.theme.resolved());
-  readonly locMapKey = computed(() => this.theme.resolved());
+      and recreates just that map — the only way to apply a new colorScheme
+      or Map ID (#107) on a live map. */
+  readonly detailMapKey = computed(() => `${this.theme.resolved()}|${this.effectiveMapId()}`);
+  readonly locMapKey = computed(() => `${this.theme.resolved()}|${this.effectiveMapId()}`);
   /** Read-only detail-map coords: assigned-location coords first, raw GPS fallback. */
   detailCoords = computed<google.maps.LatLngLiteral | null>(() => {
     const f = this.selectedFile();
@@ -395,6 +403,7 @@ export class FileDetailPanelComponent implements OnDestroy {
       if (ok) {
         this.mapsReady.set(true);
         this.mapId.set(this.loader.mapId);
+        this.mapIdPoi.set(this.loader.mapIdPoi);
       }
     });
   }

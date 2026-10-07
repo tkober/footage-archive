@@ -19,6 +19,13 @@
             <button type="button" class="seg-btn" [class.on]="mapTypeId() === 'hybrid'"
                     (click)="setMapType('hybrid')">Satellite</button>
           </div>
+          @if (mapIdPoi()) {
+            <button type="button" class="places-btn" [class.on]="placesOn()"
+                    [attr.aria-pressed]="placesOn()" title="Show sights, parks and train stations"
+                    (click)="togglePlaces()">
+              <app-icon name="pin" [size]="14" />Places
+            </button>
+          }
           <div class="zoom-group">
             <button type="button" class="icon-btn zoom-btn" aria-label="Zoom in"
                     (click)="zoomByOne(1)">+</button>
@@ -42,7 +49,7 @@
             height="100%"
             [center]="savedCenter"
             [zoom]="savedZoom"
-            [mapId]="mapId()"
+            [mapId]="effectiveMapId()"
             [options]="mapOptions()"
             (mapInitialized)="refresh()"
             (idle)="onIdle()"
