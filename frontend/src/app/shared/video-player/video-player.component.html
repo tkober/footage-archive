@@ -26,6 +26,7 @@
          (timeupdate)="onTimeUpdate(video)"
          (durationchange)="onDurationChange(video)"
          (progress)="onProgress(video)"
+         (seeked)="onSeeked(video)"
          (waiting)="onWaiting()"
          (canplay)="onCanPlay()"
          (loadedmetadata)="onLoadedMetadata(video)"
@@ -69,7 +70,7 @@
         }
       </div>
 
-      <span class="time">{{ formatTime(currentTime()) }} / {{ formatTime(duration()) }}</span>
+      <span class="time">{{ timecodeCurrent() }} / {{ timecodeTotal() }}</span>
 
       <button type="button" tabindex="-1" class="ctl-btn" (click)="toggleMute()"
               [attr.aria-label]="muted() || volume() === 0 ? 'Unmute (M)' : 'Mute (M)'"
@@ -92,10 +93,38 @@
         <app-icon [name]="isFullscreen() ? 'minimize' : 'maximize'" [size]="18" />
       </button>
 
+      <button type="button" tabindex="-1" class="ctl-btn" (click)="toggleHelp()"
+              aria-label="Keyboard shortcuts (?)" title="Keyboard shortcuts (?)">
+        <app-icon name="info" [size]="18" />
+      </button>
+
       <button type="button" tabindex="-1" class="ctl-btn" (click)="closed.emit()"
               aria-label="Close player (Esc)" title="Close player (Esc)">
         <app-icon name="x" [size]="18" />
       </button>
+    </div>
+  }
+
+  <!-- Keyboard shortcuts overlay (#111) — same dark stage-overlay look as the
+       unplayable message above. Click outside the list (the backdrop) or
+       ?/Esc (handleKey) closes it. -->
+  @if (showHelp()) {
+    <div class="help-backdrop" (click)="toggleHelp()">
+      <div class="help-sheet" (click)="$event.stopPropagation()">
+        <div class="help-title">Keyboard shortcuts</div>
+        <div class="help-grid">
+          <span class="kbd">Space / K</span><span>Play / pause</span>
+          <span class="kbd">←/→</span><span>−5 / +5 s</span>
+          <span class="kbd">J / L</span><span>−10 / +10 s</span>
+          <span class="kbd">, / .</span><span>Previous / next frame</span>
+          <span class="kbd">0–9</span><span>Jump to 0–90%</span>
+          <span class="kbd">Home / End</span><span>Start / end</span>
+          <span class="kbd">M</span><span>Mute</span>
+          <span class="kbd">F</span><span>Fullscreen</span>
+          <span class="kbd">Shift+←/→</span><span>Previous / next file</span>
+          <span class="kbd">Esc</span><span>Close</span>
+        </div>
+      </div>
     </div>
   }
 </div>

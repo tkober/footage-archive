@@ -77,6 +77,46 @@ video {
 }
 .stage-retry:hover { background: rgba(255, 255, 255, .16); }
 
+/* ── Keyboard shortcuts overlay (#111) — same dark-stage convention as the
+   messages above: fixed light-on-dark colors, not the light/dark design
+   tokens (the stage is always dark regardless of app theme). Reuses the
+   global `.kbd` class for the key chips but overrides its token-based
+   colors to match. ── */
+.help-backdrop {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(8, 9, 11, .55);
+  z-index: 1;
+}
+.help-sheet {
+  max-width: min(460px, calc(100% - var(--space-6)));
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--r-lg);
+  background: rgba(21, 23, 27, .96);
+  border: 1px solid rgba(255, 255, 255, .14);
+  box-shadow: var(--shadow-2);
+  color: #e7e9ec;
+}
+.help-title {
+  margin-bottom: var(--space-3);
+  font: 600 var(--fs-md) var(--font);
+}
+.help-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+  font-size: var(--fs-sm);
+  color: #cfd2d8;
+}
+.help-grid .kbd {
+  justify-self: start;  /* hug the key label instead of stretching to the column */
+  color: #e7e9ec;
+  border-color: rgba(255, 255, 255, .28);
+}
+
 /* ── Controls bar ───────────────────────────────────────────────── */
 .bar {
   position: absolute;
@@ -167,6 +207,7 @@ video {
 
 .time {
   flex: none;
+  margin-left: var(--space-2);
   font: 500 var(--fs-xs)/1 var(--mono);
   color: #e7e9ec;
   font-variant-numeric: tabular-nums;
