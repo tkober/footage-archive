@@ -154,10 +154,12 @@ for part in keypath.split('.'):
         print('')
         sys.exit(0)
 
-if isinstance(current, (dict, list)):
-    # Print "{}" for an empty dict rather than nothing, so callers that
-    # check "is this app listed at all" see it as present.
-    print(json.dumps(current))
+if isinstance(current, dict):
+    # Like `plutil -extract <key> raw`: a dictionary prints its keys, one
+    # per line (an empty dictionary prints nothing).
+    print('\n'.join(current.keys()))
+elif isinstance(current, list):
+    print(len(current))
 elif current is None:
     print('')
 else:
@@ -166,6 +168,14 @@ PY_EOF
 )" || value=""
   fi
   printf '%s' "$value"
+}
+
+# True when <id> is a key of "apps" in config.json. `plutil -extract apps raw`
+# prints a dictionary's keys one per line — an empty dict like
+# "photoshop": {} would print nothing, so the check is on the key, not the
+# value.
+cfg_has_app() {
+  cfg_get apps | grep -Fqx -- "$1"
 }
 
 app_label() {
@@ -222,7 +232,7 @@ cmd_test() {
 
   local id bundle label app_path
   for id in $KNOWN_APPS; do
-    if [ -z "$(cfg_get "apps.$id")" ]; then
+    if ! cfg_has_app "$id"; then
       continue
     fi
     label="$(app_label "$id")"
@@ -248,7 +258,7 @@ cmd_open() {
   # Only apps explicitly listed in the local config may be used, regardless
   # of whether the app id is otherwise known — the URL itself only ever
   # carries an app id, never a program path or arguments.
-  if [ -z "$(cfg_get "apps.$app")" ]; then
+  if ! cfg_has_app "$app"; then
     echo "Unknown app: $app" >&2
     exit 1
   fi
