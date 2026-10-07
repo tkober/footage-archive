@@ -50,14 +50,16 @@
                 #adv="mapAdvancedMarker"
                 [position]="m.position"
                 [content]="m.content"
+                [zIndex]="m.point.count"
+                [options]="markerOptions()"
                 (mapClick)="onMarkerClick(m, adv)" />
             }
-            <map-info-window>
+            <map-info-window (closeclick)="onInfoWindowClosed()">
               @if (infoPoint(); as p) {
                 @switch (infoKind()) {
                   @case ('strip') {
                     <div class="map-info">
-                      <div class="map-info-counts">{{ p.count }} photos</div>
+                      <div class="map-info-counts">{{ countsLabel(p) }}</div>
                       <div class="map-info-strip">
                         @for (m of p.members ?? []; track m.md5_hash) {
                           <button type="button" class="map-info-thumb"
@@ -70,10 +72,7 @@
                   }
                   @case ('cluster') {
                     <div class="map-info">
-                      <div class="map-info-counts">
-                        {{ p.photo_count }} photo{{ p.photo_count === 1 ? '' : 's' }},
-                        {{ p.video_count }} video{{ p.video_count === 1 ? '' : 's' }}
-                      </div>
+                      <div class="map-info-counts">{{ countsLabel(p) }}</div>
                       <div class="map-info-actions">
                         <button type="button" class="map-info-link" (click)="zoomIn(p)">Zoom in</button>
                         <button type="button" class="map-info-link" (click)="openInSearch(p)">Open in search →</button>
