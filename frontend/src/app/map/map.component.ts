@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, inject, signal, viewChild } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { EMPTY, Subject, Subscription } from 'rxjs';
 import { catchError, debounceTime, switchMap } from 'rxjs/operators';
@@ -38,6 +38,7 @@ export class MapComponent implements OnInit, OnDestroy {
   private api = inject(ApiService);
   private loader = inject(GoogleMapsLoaderService);
   private router = inject(Router);
+  private theme = inject(ThemeService);
 
   readonly map = viewChild(GoogleMap);
   readonly infoWindow = viewChild(MapInfoWindow);
@@ -54,15 +55,34 @@ export class MapComponent implements OnInit, OnDestroy {
   selectedFile = signal<FileInfo | null>(null);
   loadingDetails = signal(false);
 
-  readonly center: google.maps.LatLngLiteral = { lat: 20, lng: 0 };
-  readonly zoom = 2;
-  readonly mapOptions: google.maps.MapOptions = {
-    colorScheme: inject(ThemeService).resolved() === 'light' ? 'LIGHT' : 'DARK',
+  readonly initialCenter: google.maps.LatLngLiteral = { lat: 20, lng: 0 };
+  readonly initialZoom = 2;
+  /** Current viewport, kept in sync on every `(idle)` so a theme-triggered
+      map rebuild (see `mapKey`) re-opens at the same place instead of
+      resetting to the world view. `savedCenter`'s object identity is never
+      replaced (its lat/lng are mutated in place) — @angular/google-maps
+      calls `setCenter()` again whenever it sees a *new* `center` object, so
+      reassigning it on every `idle` would fight the user's own pan/zoom and
+      retrigger `idle` in a feedback loop. `savedZoom` is a primitive, so
+      Angular only re-applies it when the number actually changes. */
+  savedCenter: google.maps.LatLngLiteral = { ...this.initialCenter };
+  savedZoom = this.initialZoom;
+
+  /** Options depend on the resolved theme so switching it (Settings, or a
+      system theme change while on "System") is picked up live — see `mapKey`. */
+  readonly mapOptions = computed<google.maps.MapOptions>(() => ({
+    colorScheme: this.theme.resolved() === 'light' ? 'LIGHT' : 'DARK',
     streetViewControl: false,
     fullscreenControl: false,
     mapTypeControl: true,
     clickableIcons: false,
-  };
+  }));
+
+  /** `@for` track key for the `<google-map>`: changing it destroys and
+      recreates the map, which is the only way to apply a new colorScheme
+      (Google doesn't support switching it on a live map). #107 will extend
+      this to `${scheme}|${mapId}` once the Map ID can change too. */
+  readonly mapKey = computed(() => this.theme.resolved());
 
   private reload$ = new Subject<void>();
   private sub?: Subscription;
@@ -98,6 +118,21 @@ export class MapComponent implements OnInit, OnDestroy {
   /** Refetch markers whenever the view settles (after pan/zoom) and on first render. */
   refresh(): void {
     this.reload$.next();
+  }
+
+  /** `(idle)` handler: snapshot the viewport (so a theme-triggered rebuild
+      reopens at the same place) then refetch markers as before. */
+  onIdle(): void {
+    const googleMap = this.map()?.googleMap;
+    const c = googleMap?.getCenter();
+    if (c) {
+      // Mutate in place — see the comment on `savedCenter` for why.
+      this.savedCenter.lat = c.lat();
+      this.savedCenter.lng = c.lng();
+    }
+    const z = googleMap?.getZoom();
+    if (z != null) this.savedZoom = z;
+    this.refresh();
   }
 
   onMarkerClick(marker: RenderedMarker, anchor: MapAdvancedMarker): void {

@@ -231,9 +231,11 @@
           @if (detailCoords(); as coords) {
             @if (mapsReady()) {
               <div class="mini-map">
-                <google-map width="100%" height="100%" [center]="coords" [zoom]="13" [mapId]="mapId()" [options]="detailMapOptions">
-                  <map-advanced-marker [position]="coords" [content]="detailPinContent" />
-                </google-map>
+                @for (k of [detailMapKey()]; track k) {
+                  <google-map width="100%" height="100%" [center]="coords" [zoom]="13" [mapId]="mapId()" [options]="detailMapOptions()">
+                    <map-advanced-marker [position]="coords" [content]="detailPinContent" />
+                  </google-map>
+                }
               </div>
             }
           }
@@ -374,25 +376,27 @@
         <span class="loc-geocode-error">No results found</span>
       }
       @if (mapsReady()) {
-        <google-map
-          #locMapRef
-          class="loc-map-container"
-          width="100%"
-          height="100%"
-          [center]="locCenter()"
-          [zoom]="locZoom()"
-          [mapId]="mapId()"
-          [options]="locMapOptions"
-          (mapClick)="onLocMapClick($event)">
-          @if (locMarkerPos(); as pos) {
-            <map-advanced-marker
-              #lm="mapAdvancedMarker"
-              [position]="pos"
-              [content]="locPinContent"
-              [gmpDraggable]="true"
-              (mapDragend)="onLocMarkerDragend(lm)" />
-          }
-        </google-map>
+        @for (k of [locMapKey()]; track k) {
+          <google-map
+            #locMapRef
+            class="loc-map-container"
+            width="100%"
+            height="100%"
+            [center]="locCenter()"
+            [zoom]="locZoom()"
+            [mapId]="mapId()"
+            [options]="locMapOptions()"
+            (mapClick)="onLocMapClick($event)">
+            @if (locMarkerPos(); as pos) {
+              <map-advanced-marker
+                #lm="mapAdvancedMarker"
+                [position]="pos"
+                [content]="locPinContent"
+                [gmpDraggable]="true"
+                (mapDragend)="onLocMarkerDragend(lm)" />
+            }
+          </google-map>
+        }
       }
 
       <div class="location-create-actions">

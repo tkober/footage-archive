@@ -23,7 +23,7 @@ archive, stays comfortably inside the free tier (see [Cost & free quota](#cost--
 - A Google account.
 - A credit/debit card. Google **requires a billing account** on Maps Platform even though
   your usage will be free. You will not be charged within the free limits below, and you
-  can add a budget alert (step 7) as a safety net.
+  can add a budget alert (step 8) as a safety net.
 
 ---
 
@@ -94,14 +94,59 @@ The custom pins/badges use **Advanced Markers**, which require a Map ID.
    (recommended — vector maps support Advanced Markers fully).
 4. **Save**, then copy the generated **Map ID** — this is your `GOOGLE_MAPS_MAP_ID`.
 
-## Step 7 — (Recommended) Guard against surprise charges
+## Step 7 — Create the map style and attach it to the Map ID
+
+The app wants a calm, POI-free basemap in its own colours (dark/light). Google only applies
+a custom style when the map has a Map ID — the `styles` option in the Maps JS API is ignored
+once a Map ID is set — so the style has to be created and attached by hand in the Console;
+there is no API for this.
+
+1. Navigation menu (☰) → **Google Maps Platform → Map Styles**
+   (direct link: <https://console.cloud.google.com/google/maps-apis/studio/styles>).
+2. **Create style → JavaScript**. Name it `footage-archive-quiet`.
+3. The editor has a **Light mode** and a **Dark mode** variant — edit both (use the mode
+   switch at the top of the editor). Apply the settings below to each, substituting that
+   mode's colour column.
+4. **Save**, then **Publish**.
+5. **Google Maps Platform → Map management** → open the Map ID created in Step 6 →
+   **Associate a style** → pick `footage-archive-quiet` → **Save**.
+
+Feature settings (same for both modes — only the colour differs):
+
+| Feature | Visibility | Light colour | Dark colour |
+|---|---|---|---|
+| Points of interest — all categories (attractions, business, government, medical, parks, places of worship, schools, sports): icons & labels | Off | — | — |
+| Points of interest — park *areas* (fill only, no labels) | On | `#e4eae4` | `#1a1f1c` |
+| Transit — lines and all stations (rail, bus, airport, ferry) | Off | — | — |
+| Road — highways & arterials (geometry) | On | `#ffffff` | `#313740` |
+| Road — local roads (geometry) | On | `#ffffff` | `#252a31` |
+| Road — shields / route numbers | Off | — | — |
+| Road — local road labels | Off | — | — |
+| Political — country, admin area, locality labels | On | `#59616b` | `#8d949e` |
+| Political — neighbourhood labels | On | `#8a919a` | `#6b727c` |
+| Political — land parcel | Off | — | — |
+| Landscape — land | On | `#eef0f2` | `#181b20` |
+| Water | On | `#d5dce2` | `#0b0e12` |
+| Labels — text (non-prominent, e.g. local roads/neighbourhoods) | — | `#8a919a` | `#6b727c` |
+| Labels — text stroke/halo | — | `#eef0f2` (= land) | `#181b20` (= land) |
+
+Notes on the table:
+- "Prominent" labels (countries, cities) get the slightly lighter/brighter shade
+  (`#59616b` light / `#8d949e` dark); everything else (local roads, neighbourhoods) uses the
+  muted shade (`#8a919a` light / `#6b727c` dark).
+- The label stroke (halo) is always set to the same colour as the land fill, so text sits on
+  top of the map without a hard outline.
+- These colours mirror the app's own design tokens in `frontend/src/styles.css` — if that
+  palette ever changes, update the style to match.
+
+## Step 8 — (Recommended) Guard against surprise charges
 
 1. **Billing → Budgets & alerts → Create budget**, set a small amount (e.g. €1) so you get
    an email if anything ever bills.
 2. Optional hard cap: **APIs & Services → (each API) → Quotas** lets you cap requests per
    day so you can never exceed the free tier.
 
-## Step 8 — Put the values in your `.env`
+## Step 9 — Put the values in your `.env`
 
 Add the two values you copied to the project's `.env` (same file as the DB credentials —
 see `.env.example`):
@@ -155,6 +200,7 @@ Open the browser devtools **Console** — Google prints a specific error name:
 | Map shows but pins/badges are missing; console warns about Advanced Markers / Map ID | `GOOGLE_MAPS_MAP_ID` is missing or not a *Vector* JS Map ID (step 6). |
 | "Locate" button never finds anything | Geocoding API not enabled or not in the key's API restrictions (steps 3 & 5). |
 | "Map unavailable" placeholder on the Map page | `GOOGLE_MAPS_API_KEY` is blank in `.env`, or `/config` isn't returning it — confirm the backend restarted. |
+| POIs/transit still show, or colours look unchanged, right after editing/publishing the style | Normal — a published style change can take a few minutes to roll out, and the browser also caches map tiles. Wait a bit, then hard-reload (or reload in a private window) before assuming the edit didn't take (step 7). |
 
 ---
 

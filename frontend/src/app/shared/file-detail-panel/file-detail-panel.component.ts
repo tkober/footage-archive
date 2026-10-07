@@ -222,16 +222,24 @@ export class FileDetailPanelComponent implements OnDestroy {
   // ── Maps (Google) ──
   mapsReady = signal(false);
   mapId = signal('');
-  /** Google maps can't switch scheme after creation; follow the app theme at open time. */
-  private readonly colorScheme = inject(ThemeService).resolved() === 'light' ? 'LIGHT' : 'DARK';
-  readonly detailMapOptions: google.maps.MapOptions = {
-    colorScheme: this.colorScheme,
+  private theme = inject(ThemeService);
+  /** Options depend on the resolved theme so switching it (Settings, or a
+      system theme change while on "System") is picked up live — see
+      `detailMapKey`/`locMapKey`, which rebuild the `<google-map>`s since
+      Google can't switch `colorScheme` on a live map. */
+  readonly detailMapOptions = computed<google.maps.MapOptions>(() => ({
+    colorScheme: this.theme.resolved() === 'light' ? 'LIGHT' : 'DARK',
     streetViewControl: false, fullscreenControl: false, mapTypeControl: false, clickableIcons: false,
-  };
-  readonly locMapOptions: google.maps.MapOptions = {
-    colorScheme: this.colorScheme,
+  }));
+  readonly locMapOptions = computed<google.maps.MapOptions>(() => ({
+    colorScheme: this.theme.resolved() === 'light' ? 'LIGHT' : 'DARK',
     streetViewControl: false, fullscreenControl: false, mapTypeControl: true, clickableIcons: false,
-  };
+  }));
+  /** `@for` track keys for the two `<google-map>`s: changing one destroys
+      and recreates just that map. #107 will extend this to
+      `${scheme}|${mapId}` once the Map ID can change too. */
+  readonly detailMapKey = computed(() => this.theme.resolved());
+  readonly locMapKey = computed(() => this.theme.resolved());
   /** Read-only detail-map coords: assigned-location coords first, raw GPS fallback. */
   detailCoords = computed<google.maps.LatLngLiteral | null>(() => {
     const f = this.selectedFile();
