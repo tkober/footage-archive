@@ -249,7 +249,7 @@
             @if (mapsReady()) {
               <div class="mini-map">
                 @for (k of [detailMapKey()]; track k) {
-                  <google-map width="100%" height="100%" [center]="coords" [zoom]="13" [mapId]="mapId()" [options]="detailMapOptions()">
+                  <google-map width="100%" height="100%" [center]="coords" [zoom]="13" [mapId]="effectiveMapId()" [options]="detailMapOptions()">
                     <map-advanced-marker [position]="coords" [content]="detailPinContent" />
                   </google-map>
                 }
@@ -401,7 +401,7 @@
             height="100%"
             [center]="locCenter()"
             [zoom]="locZoom()"
-            [mapId]="mapId()"
+            [mapId]="effectiveMapId()"
             [options]="locMapOptions()"
             (mapClick)="onLocMapClick($event)">
             @if (locMarkerPos(); as pos) {

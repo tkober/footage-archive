@@ -79,6 +79,13 @@ class Environment:
         # Cloud Map ID required for Advanced Markers (custom HTML pins/badges).
         return self.loadEnvironmentVariable("GOOGLE_MAPS_MAP_ID", "")
 
+    def get_google_maps_map_id_poi(self) -> str:
+        # Optional second Cloud Map ID (#107) whose attached style shows
+        # points of interest (sights/parks/transit) instead of the quiet,
+        # POI-free style attached to GOOGLE_MAPS_MAP_ID. Empty disables the
+        # frontend's "Places" toggle — see GOOGLE_SETUP.md.
+        return self.loadEnvironmentVariable("GOOGLE_MAPS_MAP_ID_POI", "")
+
     def get_worker_pool_size(self) -> int:
         return int(self.loadEnvironmentVariable("WORKER_POOL_SIZE", "4"))
 

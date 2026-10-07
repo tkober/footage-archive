@@ -120,6 +120,7 @@ class ConfigResponse(BaseModel):
     browser_hidden_extensions: list[str]
     google_maps_api_key: str
     google_maps_map_id: str
+    google_maps_map_id_poi: str
     trash_dir_name: str
 
 

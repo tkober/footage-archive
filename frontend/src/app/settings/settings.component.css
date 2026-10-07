@@ -26,6 +26,16 @@
   width: fit-content;
 }
 
+/* Map section (#107): disabled when no second Map ID is configured — dims
+   the segment and shows a "not allowed" cursor instead of the pointer. */
+.seg-disabled {
+  opacity: .5;
+}
+
+.seg-disabled .seg-btn {
+  cursor: not-allowed;
+}
+
 /* ── Performance section (#71) ───────────────────────────────────── */
 
 .kv-list {

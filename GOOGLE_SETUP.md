@@ -8,10 +8,16 @@ uses the **Geocoding API**. Both are read from two environment variables:
 |---|---|
 | `GOOGLE_MAPS_API_KEY` | Browser API key for the Maps JS + Geocoding APIs |
 | `GOOGLE_MAPS_MAP_ID` | A Cloud "Map ID" required for Advanced Markers (the pins/badges) |
+| `GOOGLE_MAPS_MAP_ID_POI` | Optional second Map ID whose style shows points of interest — enables the app's "Places" toggle (#107) |
 
 The backend serves both to the frontend through `GET /config`, so they live only in your
 `.env` (never in git). If they are blank, the app still runs — the Map page shows a
 "Map unavailable" placeholder and the detail-panel maps are hidden.
+
+Optionally, Step 8 below sets up a **second** Map ID, `GOOGLE_MAPS_MAP_ID_POI`, whose style
+shows points of interest. With it set, a "Places" toggle appears on the Map page and in
+Settings to switch sights/parks/transit on and off on demand; without it the app works exactly
+as before, just without that toggle.
 
 This guide produces those two values. It takes ~10 minutes and, for a single-user
 archive, stays comfortably inside the free tier (see [Cost & free quota](#cost--free-quota)).
@@ -23,7 +29,7 @@ archive, stays comfortably inside the free tier (see [Cost & free quota](#cost--
 - A Google account.
 - A credit/debit card. Google **requires a billing account** on Maps Platform even though
   your usage will be free. You will not be charged within the free limits below, and you
-  can add a budget alert (step 8) as a safety net.
+  can add a budget alert (step 9) as a safety net.
 
 ---
 
@@ -139,21 +145,56 @@ Notes on the table:
 - These colours mirror the app's own design tokens in `frontend/src/styles.css` — if that
   palette ever changes, update the style to match.
 
-## Step 8 — (Recommended) Guard against surprise charges
+## Step 8 — Optional: a second style with places
+
+The "Places" toggle (#107) needs a *second* Map ID whose style shows sights, parks and
+train stations instead of hiding them — a Map ID's style is all-or-nothing per map
+instance, so toggling live means swapping Map IDs (see "Disabling maps" below / the app's
+own comments on `mapKey`), not editing one style in place.
+
+1. **Google Maps Platform → Map Styles** → open `footage-archive-quiet` (from Step 7) →
+   **Duplicate** → name the copy `footage-archive-places`.
+2. Edit both the Light and Dark mode variants of `footage-archive-places`:
+   - **Points of interest — attractions: icons & labels** → **On**.
+   - **Points of interest — parks: icons & labels** → **On**.
+   - **Transit — rail stations (+ airport)** → **On**. Leave bus stations off.
+   - Leave every other POI category **off** — business, food & drink, lodging, medical,
+     government, schools, sports, and transit's bus stations stay hidden, same as the
+     quiet style.
+   - Recolour the three now-visible icon categories to a muted tone that still reads
+     clearly against the basemap (text labels keep the quiet style's existing label
+     colours):
+
+     | Category | Light colour | Dark colour |
+     |---|---|---|
+     | Attractions | `#9585b8` | `#7c6f9a` |
+     | Parks | `#6fa47f` | `#5f8a6c` |
+     | Transit (rail/airport) | `#6f8fb3` | `#5a7898` |
+3. **Save**, then **Publish**.
+4. **Google Maps Platform → Map management** → **Create Map ID** → name it e.g.
+   `footage-archive-web-places`, **Map type: JavaScript**, **Vector** (same as Step 6) →
+   **Save**.
+5. Open the new Map ID → **Associate a style** → pick `footage-archive-places` → **Save**.
+6. Copy the new Map ID — this is your `GOOGLE_MAPS_MAP_ID_POI` (added to `.env` in Step 10
+   below, alongside the other two values).
+
+## Step 9 — (Recommended) Guard against surprise charges
 
 1. **Billing → Budgets & alerts → Create budget**, set a small amount (e.g. €1) so you get
    an email if anything ever bills.
 2. Optional hard cap: **APIs & Services → (each API) → Quotas** lets you cap requests per
    day so you can never exceed the free tier.
 
-## Step 9 — Put the values in your `.env`
+## Step 10 — Put the values in your `.env`
 
-Add the two values you copied to the project's `.env` (same file as the DB credentials —
+Add the values you copied to the project's `.env` (same file as the DB credentials —
 see `.env.example`):
 
 ```dotenv
 GOOGLE_MAPS_API_KEY=AIzaSy...your key...
 GOOGLE_MAPS_MAP_ID=...your map id...
+# Optional — only if you did Step 8:
+GOOGLE_MAPS_MAP_ID_POI=...your second map id...
 ```
 
 - **Local dev:** restart the backend (`uv run python app.py`) so it re-reads `.env`, then

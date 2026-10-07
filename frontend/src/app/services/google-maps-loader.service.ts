@@ -13,10 +13,17 @@ export class GoogleMapsLoaderService {
   private api = inject(ApiService);
   private loadPromise: Promise<boolean> | null = null;
   private _mapId = '';
+  private _mapIdPoi = '';
 
   /** Cloud Map ID required for Advanced Markers (empty when maps are disabled). */
   get mapId(): string {
     return this._mapId;
+  }
+
+  /** Second Cloud Map ID (#107) whose style shows points of interest (empty
+      when unset — maps disabled, or no second Map ID configured). */
+  get mapIdPoi(): string {
+    return this._mapIdPoi;
   }
 
   /**
@@ -37,6 +44,7 @@ export class GoogleMapsLoaderService {
     }
     const cfg = await firstValueFrom(this.api.getConfig());
     this._mapId = cfg.google_maps_map_id ?? '';
+    this._mapIdPoi = cfg.google_maps_map_id_poi ?? '';
     const key = cfg.google_maps_api_key;
     if (!key) {
       return false; // maps disabled — components fall back to a placeholder
