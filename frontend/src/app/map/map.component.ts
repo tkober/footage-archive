@@ -1,14 +1,15 @@
-import { Component, OnDestroy, OnInit, computed, inject, signal, viewChild } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { EMPTY, Subject, Subscription } from 'rxjs';
 import { catchError, debounceTime, switchMap } from 'rxjs/operators';
-import { GoogleMap, MapAdvancedMarker, MapInfoWindow } from '@angular/google-maps';
+import { GoogleMap, MapAdvancedMarker } from '@angular/google-maps';
 
 import { ApiService } from '../services/api.service';
 import { GoogleMapsLoaderService } from '../services/google-maps-loader.service';
 import { ThemeService } from '../services/theme.service';
 import { IconComponent } from '../shared/icon/icon.component';
 import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
+import { MapPreviewPanelComponent } from './map-preview-panel/map-preview-panel.component';
 import { FileInfo, MapMember, MapPoint } from '../models';
 
 type MarkerKind = 'single' | 'strip' | 'cluster';
@@ -29,7 +30,7 @@ const ICON_360   = '<svg viewBox="0 0 24 24"><path d="M12 7C6.48 7 2 9.24 2 12c0
 @Component({
   selector: 'app-map',
   standalone: true,
-  imports: [GoogleMap, MapAdvancedMarker, MapInfoWindow, FileDetailPanelComponent, IconComponent],
+  imports: [GoogleMap, MapAdvancedMarker, FileDetailPanelComponent, MapPreviewPanelComponent, IconComponent],
   templateUrl: './map.component.html',
   styleUrl: './map.component.css',
   host: { class: 'page-flush' },
@@ -41,17 +42,21 @@ export class MapComponent implements OnInit, OnDestroy {
   private theme = inject(ThemeService);
 
   readonly map = viewChild(GoogleMap);
-  readonly infoWindow = viewChild(MapInfoWindow);
+  readonly previewPanel = viewChild(MapPreviewPanelComponent);
 
   mapsReady = signal(false);
   mapsDisabled = signal(false);
   mapId = signal('');
   markers = signal<RenderedMarker[]>([]);
-  /** The point + kind backing the currently-open info window. */
-  infoPoint = signal<MapPoint | null>(null);
-  infoKind = signal<MarkerKind>('single');
-  /** Key of the marker whose info window is open (#105) — drives the selected
-      ring via `applySelectionRing`, cleared on close/re-render/another click. */
+  /** The point backing the currently-open preview panel (#106). Kept as the
+      exact `MapPoint` object the user clicked on, so the panel survives a
+      marker refetch (pan/zoom) that may replace the markers array —
+      nothing re-renders it unless the user closes it or clicks another
+      marker. */
+  previewPoint = signal<MapPoint | null>(null);
+  /** Key of the marker whose preview panel is open (#105/#106) — drives the
+      selected ring via `applySelectionRing`, cleared on close/re-render/
+      another click. */
   private selectedKey = signal<string | null>(null);
 
   /** Sum of `count` over the currently rendered markers — shown in the
@@ -168,19 +173,35 @@ export class MapComponent implements OnInit, OnDestroy {
     this.refresh();
   }
 
-  onMarkerClick(marker: RenderedMarker, anchor: MapAdvancedMarker): void {
-    this.infoPoint.set(marker.point);
-    this.infoKind.set(marker.kind);
+  onMarkerClick(marker: RenderedMarker): void {
+    this.previewPoint.set(marker.point);
     this.selectedKey.set(marker.key);
     this.applySelectionRing();
-    this.infoWindow()?.open(anchor);
+    // Content replaces in place (the panel isn't destroyed/recreated), so
+    // explicitly refocus the close button rather than relying on an
+    // init-only lifecycle hook — see the component's own comment.
+    queueMicrotask(() => this.previewPanel()?.focusClose());
   }
 
-  /** `(closeclick)` on `map-info-window` — the ring belongs to the open info
-      window, so it's cleared whenever that window closes, however it closes. */
-  onInfoWindowClosed(): void {
+  /** Close via ×, Escape, or a click on the empty map — the selected ring
+      belongs to the open panel, so it's cleared whenever the panel closes,
+      however it closes. */
+  closePreview(): void {
+    if (this.previewPoint() === null) return;
+    this.previewPoint.set(null);
     this.selectedKey.set(null);
     this.applySelectionRing();
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    this.closePreview();
+  }
+
+  /** `(mapClick)` on `<google-map>` — clicking the empty map (not a marker,
+      which stops its own click from bubbling here) closes the panel. */
+  onMapClick(): void {
+    this.closePreview();
   }
 
   /** Marker options shared by every marker (#105): bigger clusters win over
@@ -200,17 +221,28 @@ export class MapComponent implements OnInit, OnDestroy {
     }
   }
 
-  // ── Info-window actions ──
+  // ── Preview panel actions (#106) ──
 
-  zoomIn(p: MapPoint): void {
-    this.infoWindow()?.close();
+  /** "Zoom in" footer button — fits the map to the open point's bbox. A
+      larger left padding on desktop keeps the fitted area clear of the
+      panel itself (300px wide + 12px margins ≈ 312px, +40px breathing room). */
+  zoomToPreview(): void {
+    const p = this.previewPoint();
     const map = this.map()?.googleMap;
-    map?.panTo({ lat: p.latitude, lng: p.longitude });
-    map?.setZoom((this.map()?.getZoom() ?? 2) + 3);
+    if (!p || !map) return;
+    if (p.bbox_west == null || p.bbox_south == null || p.bbox_east == null || p.bbox_north == null) return;
+    const bounds = new google.maps.LatLngBounds(
+      { lat: p.bbox_south, lng: p.bbox_west },
+      { lat: p.bbox_north, lng: p.bbox_east },
+    );
+    const mobile = window.innerWidth <= 680;
+    map.fitBounds(bounds, mobile
+      ? { top: 60, right: 60, bottom: 60, left: 60 }
+      : { top: 60, right: 60, bottom: 60, left: 352 });
   }
 
   openInSearch(p: MapPoint): void {
-    this.infoWindow()?.close();
+    this.closePreview();
     this.navigateToSearch(p.bbox_west, p.bbox_south, p.bbox_east, p.bbox_north);
   }
 
@@ -245,16 +277,12 @@ export class MapComponent implements OnInit, OnDestroy {
     });
   }
 
-  openDetails(p: MapPoint): void {
-    if (p.directory && p.file_name) this.openDetailsPath(`${p.directory}/${p.file_name}`);
-  }
-
   openDetailsMember(m: MapMember): void {
     this.openDetailsPath(`${m.directory}/${m.file_name}`);
   }
 
   private openDetailsPath(path: string): void {
-    this.infoWindow()?.close();
+    this.closePreview();
     this.selectedFile.set(null);
     this.loadingDetails.set(true);
     this.api.getFileDetails(path).subscribe({
@@ -278,20 +306,9 @@ export class MapComponent implements OnInit, OnDestroy {
 
   // ── Display helpers ──
 
-  previewUrlFor(p: MapPoint): string | null {
-    return p.md5_hash ? this.api.clipPreviewUrl(p.md5_hash) : null;
-  }
-
-  memberPreview(m: MapMember): string {
-    return this.api.clipPreviewUrl(m.md5_hash);
-  }
-
-  mediaLabel(p: MapPoint): string {
-    return p.media_type?.replace('_', ' ') ?? 'unknown';
-  }
-
-  /** "188 photos, 26 videos" (omits a zero part; singular below 2). Shared by
-      the cluster/strip info-window body and the marker hover tooltip. */
+  /** "188 photos, 26 videos" (omits a zero part; singular below 2). Used by
+      the marker hover tooltip (#105) — the preview panel (#106) builds its
+      own copy of this from the `MapPoint` it's given. */
   countsLabel(p: MapPoint): string {
     const parts: string[] = [];
     if (p.photo_count > 0) parts.push(this.pluralize(p.photo_count, 'photo'));

@@ -1,0 +1,78 @@
+<aside class="preview-panel" aria-label="Preview">
+  <header class="preview-header">
+    <div class="preview-header-text">
+      <div class="preview-title">{{ title() }}</div>
+      @if (subLine()) {
+        <div class="preview-sub">{{ subLine() }}</div>
+      }
+    </div>
+    <button #closeButton type="button" class="icon-btn preview-close" aria-label="Close" title="Close"
+            (click)="closed.emit()">
+      <app-icon name="x" [size]="16" />
+    </button>
+  </header>
+
+  @if (placeChip() || dateChip()) {
+    <div class="preview-chips">
+      @if (placeChip(); as place) {
+        <span class="chip">{{ place }}</span>
+      }
+      @if (dateChip(); as range) {
+        <span class="chip">{{ range }}</span>
+      }
+    </div>
+  }
+
+  <div class="preview-body">
+    @if (isSingle()) {
+      <div class="preview-single">
+        <div class="preview-single-stage">
+          @if (singlePreviewUrl(); as src) {
+            <img [src]="src" alt="" (error)="onSingleImgError()" />
+          } @else {
+            <app-icon [name]="singleFallbackIcon()" [size]="28" />
+          }
+        </div>
+        @if (singleFileName(); as name) {
+          <div class="preview-single-name">{{ name }}</div>
+        }
+        @if (singleDateLine(); as line) {
+          <div class="preview-single-date">{{ line }}</div>
+        }
+      </div>
+    } @else {
+      <div class="preview-grid">
+        @for (tile of tiles(); track tile.member?.md5_hash ?? 'overflow') {
+          @if (tile.member; as m) {
+            <button type="button" class="preview-tile" [class.preview-tile--fallback]="failedTiles().has(m.md5_hash)"
+                    [title]="m.file_name" (click)="onThumbClick(tile)">
+              @if (failedTiles().has(m.md5_hash)) {
+                <app-icon [name]="fallbackIcon(m)" [size]="18" />
+              } @else {
+                <img [src]="memberPreview(m)" alt="" (error)="onTileImgError(m)" />
+                @if (m.media_type === 'video' || m.media_type === '360_video') {
+                  <span class="preview-tile-badge"><app-icon name="film" [size]="11" /></span>
+                }
+              }
+            </button>
+          } @else {
+            <button type="button" class="preview-tile preview-tile--overflow" (click)="onThumbClick(tile)">
+              +{{ tile.overflowCount }}
+            </button>
+          }
+        }
+      </div>
+    }
+  </div>
+
+  <footer class="preview-footer">
+    <button type="button" class="btn btn-primary preview-primary" (click)="onPrimary()">{{ primaryLabel() }}</button>
+    @if (!isSingle()) {
+      @if (bboxDegenerate()) {
+        <div class="preview-hint">All files are at the same spot</div>
+      } @else {
+        <button type="button" class="btn preview-secondary" (click)="zoomTo.emit()">Zoom in</button>
+      }
+    }
+  </footer>
+</aside>

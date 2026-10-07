@@ -1,0 +1,191 @@
+/* ── Preview panel (#106) — replaces Google's MapInfoWindow. Desktop:
+   floating card over the map, left side. Mobile: bottom sheet. ── */
+:host {
+  display: block;
+}
+
+.preview-panel {
+  position: absolute;
+  /* Sized to its content, capped to the map height (body scrolls). */
+  top: 12px;
+  left: 12px;
+  width: 300px;
+  max-height: calc(100% - 24px);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+}
+
+.preview-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-4) 0;
+}
+
+.preview-header-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.preview-title {
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.preview-sub {
+  margin-top: 2px;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+.preview-close {
+  flex: none;
+  margin-top: -2px;
+  margin-right: -4px;
+}
+
+.preview-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) 0;
+}
+
+.preview-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+/* ── Multi-file grid: up to 7 tiles + an optional "+N" overflow tile ── */
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-2);
+}
+
+.preview-tile {
+  position: relative;
+  aspect-ratio: 1;
+  border: 0;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  padding: 0;
+  cursor: pointer;
+  background: var(--raised);
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.preview-tile--fallback {
+  background: var(--raised);
+}
+
+.preview-tile-badge {
+  position: absolute;
+  bottom: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, .55);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-tile--overflow {
+  font: 600 var(--fs-md) var(--font);
+  color: var(--text);
+  background: var(--hover);
+}
+
+/* ── Single-file body ── */
+.preview-single {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.preview-single-stage {
+  aspect-ratio: 4 / 3;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--raised);
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-single-stage img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.preview-single-name {
+  font: 500 var(--fs-sm) var(--mono);
+  color: var(--text);
+  word-break: break-all;
+}
+
+.preview-single-date {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+/* ── Footer ── */
+.preview-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-top: 1px solid var(--line);
+}
+
+.preview-primary,
+.preview-secondary {
+  width: 100%;
+  justify-content: center;
+}
+
+.preview-hint {
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+/* ── Mobile: bottom sheet ── */
+@media (max-width: 680px) {
+  .preview-panel {
+    top: auto;
+    max-height: 55%;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: auto;
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    border-bottom: 0;
+  }
+}
