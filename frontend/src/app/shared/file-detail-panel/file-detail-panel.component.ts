@@ -11,6 +11,7 @@ import { ListPickerComponent } from '../list-picker/list-picker.component';
 import { IconComponent } from '../icon/icon.component';
 import { MenuComponent, MenuItem } from '../menu/menu.component';
 import { PopoverComponent } from '../popover/popover.component';
+import { VideoPlayerComponent } from '../video-player/video-player.component';
 import { ToastService } from '../toast/toast.service';
 import { ThemeService } from '../../services/theme.service';
 import { ApiService } from '../../services/api.service';
@@ -30,11 +31,13 @@ export interface DetailNavItem {
 /** Clip previews hold 5 frames taken at 1/6 … 5/6 of the duration
     (`ffmpeg.timestamp_for_keyframes`). */
 const STRIP_FRAMES = [1, 2, 3, 4, 5];
+/** ffprobe codec names → how people know them, for the player's error overlay (#110). */
+const CODEC_LABELS: Record<string, string> = { h264: 'H.264', hevc: 'HEVC', prores: 'ProRes', av1: 'AV1', vp9: 'VP9' };
 
 @Component({
   selector: 'app-file-detail-panel',
   standalone: true,
-  imports: [DatePipe, JsonPipe, RouterLink, ModalComponent, ImageViewerComponent, ConfirmDialogComponent, ListPickerComponent, IconComponent, MenuComponent, PopoverComponent, GoogleMap, MapAdvancedMarker],
+  imports: [DatePipe, JsonPipe, RouterLink, ModalComponent, ImageViewerComponent, ConfirmDialogComponent, ListPickerComponent, IconComponent, MenuComponent, PopoverComponent, VideoPlayerComponent, GoogleMap, MapAdvancedMarker],
   templateUrl: './file-detail-panel.component.html',
   styleUrl: './file-detail-panel.component.css',
 })
@@ -207,6 +210,77 @@ export class FileDetailPanelComponent implements OnDestroy {
     }));
   });
   hasNav = computed(() => this.navItems().length > 1);
+
+  // ── Inline video player (#110) ──
+  /** Keyed by md5, not by the `FileInfo` object, so `reloadFile()`
+      re-fetching the same file (e.g. after a rescan) never resets the
+      player — see the md5-only effect below. `null` = filmstrip showing. */
+  playingHash = signal<string | null>(null);
+  private lastPlayerMd5: string | null = null;
+  /** The active `<app-video-player>` instance, used only to check
+      `document.activeElement` against it (see `playerActive()` below). */
+  private playerRef = viewChild(VideoPlayerComponent);
+
+  /** Same three conditions as the issue's Play-button guard: a tracked
+      video (not 360°) with a hash. There's no "exists on disk" field on
+      `FileInfo` — `tracked` already implies that. */
+  canPlayFile(file: FileInfo | null): boolean {
+    return !!file && file.media_type === 'video' && file.tracked && !!file.md5_hash;
+  }
+  canPlayCurrent = computed(() => this.canPlayFile(this.selectedFile()));
+  /** "HEVC" or "H.264 · 10-bit" — shown in the player's unplayable overlay. */
+  videoCodecLabel = computed<string | null>(() => {
+    const vd = this.selectedFile()?.video_details;
+    if (!vd?.video_codec) return null;
+    const codec = CODEC_LABELS[vd.video_codec.toLowerCase()] ?? vd.video_codec.toUpperCase();
+    return vd.bit_depth ? `${codec} · ${vd.bit_depth}-bit` : codec;
+  });
+  /** Built only once the player is actually mounted for this file — the
+      stage's filmstrip never builds this, so opening the details never
+      fires a `/files/stream` request before Play is clicked. */
+  playerSrc = computed<string | null>(() => {
+    const hash = this.playingHash();
+    return hash ? this.api.streamUrl(hash) : null;
+  });
+  /** Independent of the template's `@if (selectedFile(); as file)` scope —
+      used for the `.stage`'s own class binding (mobile CSS needs a fixed
+      aspect box in player mode instead of the frames grid's auto height). */
+  playerShowing = computed(() => {
+    const hash = this.selectedFile()?.md5_hash;
+    return !!hash && this.playingHash() === hash;
+  });
+
+  playCurrent() {
+    const file = this.selectedFile();
+    if (!this.canPlayFile(file) || !file?.md5_hash) return;
+    this.playingHash.set(file.md5_hash);
+  }
+
+  closePlayer() {
+    this.playingHash.set(null);
+    // Give the keyboard focus back to the Play button (#110) — it's
+    // rendered again now that the player is gone.
+    setTimeout(() => this.host.nativeElement.querySelector<HTMLButtonElement>('.play-btn')?.focus());
+  }
+
+  onPlayerNavigate(dir: number) {
+    this.step(dir);
+  }
+
+  onPlayerUnplayable(_reason: string) {
+    // No extra panel-side handling needed (#110) — the player's own
+    // overlay already explains it and offers "Back to preview".
+  }
+
+  /** True only while the player is both active *and* focused — used by
+      `onKey()`'s guard list so ←/→ fall back to neighbour navigation the
+      moment the user clicks outside the player (its own element-level
+      keydown handler already intercepts ←/→ while it has focus; this is
+      the belt-and-suspenders check for everything else that bails early
+      on `showExif()` etc.). */
+  playerActive(): boolean {
+    return !!this.playingHash() && !!this.playerRef()?.containsFocus();
+  }
   /** "1/640 · f/2.8 · ISO 100" */
   exposure = computed(() => {
     const pd = this.selectedFile()?.photo_details;
@@ -293,6 +367,26 @@ export class FileDetailPanelComponent implements OnDestroy {
         .querySelector('.film .cur')?.scrollIntoView({ inline: 'center', block: 'nearest' }));
     });
 
+    // Follow the player along to a neighbour (#110) — keyed on the md5
+    // actually changing, not on `selectedFile()` getting a new object:
+    // `reloadFile()` (rescan, keyword add, …) re-fetches the *same* file
+    // into a new `FileInfo` and must never reset/reload the player. Only
+    // a real navigation (next/prev/jump/track) changes the md5.
+    effect(() => {
+      const file = this.selectedFile();
+      const md5 = file?.md5_hash ?? null;
+      if (md5 === this.lastPlayerMd5) return;
+      this.lastPlayerMd5 = md5;
+      // untracked: don't depend on playingHash() itself — this effect only
+      // reacts to the file actually changing, same convention as resetHq().
+      if (!untracked(() => this.playingHash())) return; // player wasn't showing — nothing to follow
+      // Still an active, playable video → stay in player mode and let the
+      // video-player's own `src` effect swap the clip (paused, no autoplay).
+      // Anything else (photo, untracked, 360°, panel closed) → back to the
+      // filmstrip.
+      this.playingHash.set(this.canPlayFile(file) ? md5 : null);
+    });
+
     // Load the Google Maps JS API once (key + Map ID come from /config). The
     // <google-map> elements stay hidden behind mapsReady() until it resolves.
     // The detail map is declarative (detailCoords); the new-location map is
@@ -324,7 +418,7 @@ export class FileDetailPanelComponent implements OnDestroy {
   onKey(ev: Event) {
     const e = ev as KeyboardEvent;
     if (!this.selectedFile() || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (this.showCreateLocation() || this.showExif() || this.pendingRemoveList() || this.locationPicker() || this.pendingDelete() || this.moreMenuAnchor()) return;
+    if (this.showCreateLocation() || this.showExif() || this.pendingRemoveList() || this.locationPicker() || this.pendingDelete() || this.moreMenuAnchor() || this.playerActive()) return;
     const t = e.target as HTMLElement | null;
     if (t?.closest('input, textarea, select, [contenteditable="true"]')) return;
     if (e.key === 'ArrowLeft') { this.step(-1); e.preventDefault(); }

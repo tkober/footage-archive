@@ -330,6 +330,27 @@ footage-archive/
         │   │                           #   Stage mirrors the media-card's tile logic (#77) at larger size: 'failed'/'unsupported' show the
         │   │                           #   extension badge + `preview_error` reason + a "Retry" button (same `rescanFile()`, "Retrying…"
         │   │                           #   while `rescanning()`); 'missing'/'generating'/untracked share the existing plain stage message.
+        │   │                           #   Play button over the filmstrip for a tracked, non-360° video (#110) swaps the stage to
+        │   │                           #   `shared/video-player/` (keyed by md5, not the `FileInfo` object, so `reloadFile()` never
+        │   │                           #   disturbs it); nav arrows hide while it's showing. `playerActive()` (`document.activeElement`
+        │   │                           #   inside the player's host, via a `viewChild(VideoPlayerComponent)`) joins `onKey()`'s guard
+        │   │                           #   list so ←/→ fall back to neighbour navigation once the player loses focus.
+        │   ├── video-player/            # `VideoPlayerComponent` (#110) — presentational inline player for the detail panel's stage,
+        │   │                           #   `<video preload="metadata">` + custom controls (play/pause, scrubbable timeline with
+        │   │                           #   buffered/hover, time, volume/mute with `localStorage` `fa-player-volume`, speed cycle,
+        │   │                           #   fullscreen on the wrapper so its own controls survive, close); native `<video controls>`
+        │   │                           #   below 760px / `(pointer: coarse)` (not `hover: none`, which headless/kiosk desktops also report). Keyboard is centralised in `handleKey()` (one switch) so
+        │   │                           #   #111's frame-stepping can add cases without touching the DOM plumbing; the wrapper
+        │   │                           #   (`tabindex="0"`, `(keydown)`) intercepts Space/K, ←/→ (±5s; Shift+←/→ emits `navigate`),
+        │   │                           #   F, M, Esc before the panel's/browser's own `document:keydown` listeners ever see them
+        │   │                           #   (`preventDefault`+`stopPropagation`, same convention as the rest of the app); unhandled
+        │   │                           #   keys (anything with Meta/Ctrl/Alt) fall through untouched. Control buttons are
+        │   │                           #   `tabindex="-1"` — only the wrapper is focusable, so Space can't both toggle playback and
+        │   │                           #   re-fire a focused button's native click. Unplayable detection is three-tier (no transcoded
+        │   │                           #   proxy in the MVP): an `error` event, `videoWidth === 0` after `loadedmetadata` (HEVC with no
+        │   │                           #   decoder plays audio with zero video, no error), or `getVideoPlaybackQuality().totalVideoFrames
+        │   │                           #   === 0` a few seconds into playback — all three pause + drop the `src` and show a dark overlay
+        │   │                           #   ("Can't play this video here" + the reason) with "Back to preview" (→ `closed`).
         │   ├── image-viewer/            # Zoomable/pannable image viewer used by the detail panel
         │   ├── confirm-dialog/          # Generic confirm/cancel dialog on top of ModalComponent (reused by lists, rename/move, future callers)
         │   ├── quick-jump/              # Header box (#38): one `.jump` field ("Jump to code…", ⌘K/Ctrl+K hint — global, focuses it;
@@ -568,6 +589,16 @@ bring their own button/menu/toast styles.
   the existing `app-context-menu` there (#41 will redo that menu itself). Search results and list-detail
   swap their card markup for `MediaCardComponent` too (code/date slots) with a minimal token pass over
   their surrounding containers so they read correctly in dark — their own redesigns are #44/#45.
+- [x] Video player (#109/#110): `GET /files/stream/{md5_hash}` streams the original file with HTTP
+  Range support (#109, see `api/files.py` + nginx's dedicated unbuffered location above); the detail
+  panel's stage gets an explicit Play button over the filmstrip for a tracked, non-360° video, swapping
+  in `shared/video-player/`'s `VideoPlayerComponent` (#110) — nothing is fetched before that click. Own
+  controls on desktop (scrubbable timeline, volume/mute, speed, fullscreen on the player's own wrapper
+  so its controls survive), native `<video controls>` on phones/touch; keyboard is centralised in the
+  player's `handleKey()` and intercepted at the element level before it can reach the panel's/browser's
+  `document:keydown` listeners. Three-tier unplayable detection (error event / zero-width video after
+  metadata / zero decoded frames a few seconds in) surfaces a clear "Can't play this video here" overlay
+  instead of a blank frame — there's no transcoded proxy in this MVP.
 
 ---
 

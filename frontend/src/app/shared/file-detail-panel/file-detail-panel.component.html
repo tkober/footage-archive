@@ -43,7 +43,7 @@
   </div>
 
   <!-- Stage: the photo, or all five frames of a video -->
-  <div class="stage" [class.video]="isVideo()">
+  <div class="stage" [class.video]="isVideo()" [class.playing]="playerShowing()">
     @if (loading() && !selectedFile()) {
       <div class="stage-msg">Loading…</div>
     } @else if (selectedFile(); as file) {
@@ -77,6 +77,17 @@
           [modifierZoom]="true"
           [showNav]="false"
           (aspectChange)="viewerAspect.set($event)" />
+      } @else if (playerShowing() && playerSrc(); as src) {
+        <!-- #110: nothing loads until Play is clicked — `playerSrc()` only
+             builds a /files/stream URL once `playingHash` is actually set. -->
+        <app-video-player
+          #videoPlayer
+          [src]="src"
+          [fps]="file.video_details?.frame_rate_verbose ?? null"
+          [codecLabel]="videoCodecLabel()"
+          (closed)="closePlayer()"
+          (navigate)="onPlayerNavigate($event)"
+          (unplayable)="onPlayerUnplayable($event)" />
       } @else {
         <div class="frames">
           @for (fr of videoFrames(); track $index) {
@@ -84,9 +95,15 @@
               @if (fr.time) { <span class="tc">{{ fr.time }}</span> }
             </div>
           }
+          @if (canPlayCurrent()) {
+            <button type="button" class="play-btn" (click)="playCurrent()" aria-label="Play video" title="Play video">
+              <span class="play-btn-circle"><app-icon name="play" [size]="28" /></span>
+              <span class="play-btn-label">Play</span>
+            </button>
+          }
         </div>
       }
-      @if (hasNav()) {
+      @if (hasNav() && !playerShowing()) {
         <button type="button" class="nav-arrow prev" (click)="step(-1)" [disabled]="navIndex() <= 0" aria-label="Previous (←)">
           <app-icon name="chevron-left" [size]="20" />
         </button>

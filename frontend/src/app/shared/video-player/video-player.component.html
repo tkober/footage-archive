@@ -1,0 +1,101 @@
+<!-- Wrapper owns keyboard + fullscreen (#110): tabindex so its own `keydown`
+     fires before the panel's/browser's `document:keydown` listeners (DOM
+     events bubble target → document). Control buttons are `tabindex="-1"`
+     on purpose — focus never leaves the wrapper, so a Space press can't
+     both toggle playback here *and* re-trigger a focused button's native
+     click; the Tab key still reaches the wrapper itself (Esc/arrows/etc.),
+     just not into the individual controls. -->
+<div #wrapper
+     class="player"
+     tabindex="0"
+     [class.fullscreen]="isFullscreen()"
+     [class.controls-hidden]="isFullscreen() && !controlsVisible()"
+     (keydown)="onWrapperKeydown($event)"
+     (mousemove)="onActivity()"
+     (pointermove)="onActivity()">
+
+  <video #video
+         preload="metadata"
+         playsinline
+         [muted]="muted()"
+         [controls]="nativeControls()"
+         (click)="!nativeControls() && onVideoClick()"
+         (dblclick)="!nativeControls() && onVideoDblClick()"
+         (play)="onPlay()"
+         (pause)="onPause()"
+         (timeupdate)="onTimeUpdate(video)"
+         (durationchange)="onDurationChange(video)"
+         (progress)="onProgress(video)"
+         (waiting)="onWaiting()"
+         (canplay)="onCanPlay()"
+         (loadedmetadata)="onLoadedMetadata(video)"
+         (error)="onError(video)"></video>
+
+  @if (loading() && !unplayableReason()) {
+    <div class="stage-msg player-loading">
+      <span class="spinner" aria-hidden="true"></span>
+      <span>Loading…</span>
+    </div>
+  }
+
+  @if (unplayableReason(); as reason) {
+    <div class="stage-msg stage-fmt player-unplayable">
+      <span class="why"><span class="dot"></span> Can't play this video here</span>
+      <span class="reason">{{ reason }}</span>
+      <button type="button" class="stage-retry" (click)="closed.emit()">Back to preview</button>
+    </div>
+  }
+
+  @if (!nativeControls() && !unplayableReason()) {
+    <div class="bar" [class.hidden]="isFullscreen() && !controlsVisible()">
+      <button type="button" tabindex="-1" class="ctl-btn" (click)="togglePlay()"
+              [attr.aria-label]="playing() ? 'Pause (Space)' : 'Play (Space)'"
+              [title]="playing() ? 'Pause (Space)' : 'Play (Space)'">
+        <app-icon [name]="playing() ? 'pause' : 'play'" [size]="18" />
+      </button>
+
+      <div #timeline class="timeline"
+           (pointerdown)="onTimelinePointerDown($event)"
+           (pointermove)="onTimelinePointerMove($event)"
+           (pointerup)="onTimelinePointerUp($event)"
+           (pointerleave)="onTimelineLeave()">
+        <div class="timeline-track">
+          <div class="timeline-buffered" [style.width.%]="bufferedPercent()"></div>
+          <div class="timeline-progress" [style.width.%]="progressPercent()"></div>
+          <div class="timeline-knob" [style.left.%]="progressPercent()"></div>
+        </div>
+        @if (hoverTime() != null) {
+          <div class="timeline-tooltip" [style.left.px]="hoverX()">{{ formatTime(hoverTime()) }}</div>
+        }
+      </div>
+
+      <span class="time">{{ formatTime(currentTime()) }} / {{ formatTime(duration()) }}</span>
+
+      <button type="button" tabindex="-1" class="ctl-btn" (click)="toggleMute()"
+              [attr.aria-label]="muted() || volume() === 0 ? 'Unmute (M)' : 'Mute (M)'"
+              [title]="muted() || volume() === 0 ? 'Unmute (M)' : 'Mute (M)'">
+        <app-icon [name]="muted() || volume() === 0 ? 'volume-x' : 'volume'" [size]="18" />
+      </button>
+      <input type="range" tabindex="-1" class="volume" min="0" max="1" step="0.05"
+             aria-label="Volume"
+             [value]="muted() ? 0 : volume()"
+             (input)="onVolumeInput($any($event.target).valueAsNumber)" />
+
+      <button type="button" tabindex="-1" class="ctl-btn speed" (click)="cycleSpeed()"
+              aria-label="Playback speed" title="Playback speed">
+        {{ playbackRate() }}×
+      </button>
+
+      <button type="button" tabindex="-1" class="ctl-btn" (click)="toggleFullscreen()"
+              [attr.aria-label]="isFullscreen() ? 'Exit fullscreen (F)' : 'Fullscreen (F)'"
+              [title]="isFullscreen() ? 'Exit fullscreen (F)' : 'Fullscreen (F)'">
+        <app-icon [name]="isFullscreen() ? 'minimize' : 'maximize'" [size]="18" />
+      </button>
+
+      <button type="button" tabindex="-1" class="ctl-btn" (click)="closed.emit()"
+              aria-label="Close player (Esc)" title="Close player (Esc)">
+        <app-icon name="x" [size]="18" />
+      </button>
+    </div>
+  }
+</div>
