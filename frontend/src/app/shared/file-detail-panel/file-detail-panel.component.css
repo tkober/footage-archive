@@ -87,6 +87,54 @@
   outline: 1px solid rgba(255, 255, 255, .08);
 }
 .frame:nth-child(4) { grid-column: 2 / span 2; }
+
+/* ── Play button (#110) — centered over the filmstrip ──────────────── */
+.play-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: #e7e9ec;
+}
+.play-btn-circle {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  /* Sits on top of busy footage frames: a dark, blurred disc keeps it legible
+     on any image, bright or dark. */
+  background: rgba(8, 9, 11, .62);
+  backdrop-filter: blur(6px);
+  border: 1.5px solid rgba(255, 255, 255, .55);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .45);
+  transition: background var(--dur-fast), transform var(--dur-fast), border-color var(--dur-fast);
+}
+.play-btn-circle app-icon { margin-left: 4px; } /* optical centre of the triangle */
+.play-btn:hover .play-btn-circle { background: rgba(8, 9, 11, .78); border-color: #fff; transform: scale(1.05); }
+.play-btn:focus-visible { outline: none; }
+.play-btn:focus-visible .play-btn-circle { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  .play-btn:hover .play-btn-circle { transform: none; }
+}
+.play-btn-label {
+  font: 500 var(--fs-sm) var(--font);
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(8, 9, 11, .62);
+}
+
+/* The live player fills the stage exactly like the frames grid did. */
+.stage app-video-player { width: 100%; height: 100%; }
+
 .tc {
   position: absolute;
   left: var(--space-2);
@@ -334,6 +382,10 @@
   .dbar .lbl { display: none; }
   .stage { height: 46vh; }
   .stage.video { height: auto; display: block; padding: var(--space-3); }
+  /* The live player (#110) wants a fixed-height box like the photo stage,
+     not the frames grid's auto/padded layout — mobile uses the <video>'s
+     own native controls either way (`nativeControls()` in the component). */
+  .stage.video.playing { height: 46vh; display: grid; place-items: center; padding: 0; }
   .frames { width: 100%; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
   .frame, .frame:nth-child(4) { grid-column: auto; }
   .frame:first-child { grid-column: 1 / -1; }

@@ -45,6 +45,14 @@ const ICONS: Record<string, string> = {
   image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m21 16-5-5a2 2 0 0 0-3 0l-7 7"/>',
   alert: '<path d="M12 2 1 21h22z"/><path d="M12 9v5M12 17h.01"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
+  // Video player controls (#110). play/pause are filled (currentColor) —
+  // a stroked triangle/bars read poorly at small control-bar sizes.
+  play: '<path d="M7 4.5v15l13-7.5z" fill="currentColor" stroke="none"/>',
+  pause: '<path d="M7 4.5h3.5v15H7z" fill="currentColor" stroke="none"/><path d="M13.5 4.5H17v15h-3.5z" fill="currentColor" stroke="none"/>',
+  volume: '<path d="M4 9v6h4l5 5V4L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19.5 5.5a9 9 0 0 1 0 13"/>',
+  'volume-x': '<path d="M4 9v6h4l5 5V4L8 9z"/><path d="M16 9l5 6M21 9l-5 6"/>',
+  maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/>',
+  minimize: '<path d="M9 3v4a2 2 0 0 1-2 2H3M21 9h-4a2 2 0 0 1-2-2V3M15 21v-4a2 2 0 0 1 2-2h4M3 15h4a2 2 0 0 1 2 2v4"/>',
 };
 
 /**

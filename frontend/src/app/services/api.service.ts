@@ -62,6 +62,14 @@ export class ApiService {
     return v ? `${base}?v=${v}` : base;
   }
 
+  /** GET /files/stream/{md5_hash} (#109, Range-capable original video) —
+      the inline player's `<video>` source (#110). Just a URL builder, no
+      request: nothing is fetched until the `<video>` element actually sets
+      this as its `src`. */
+  streamUrl(md5Hash: string): string {
+    return `${this.base}/files/stream/${encodeURIComponent(md5Hash)}`;
+  }
+
   /** POST /tracking/refresh (#64) — "rescan" already-tracked files: re-probe
       metadata and regenerate the preview for each hash without re-hashing.
       Returns the started task's id. */
