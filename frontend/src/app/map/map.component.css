@@ -68,6 +68,123 @@
   background: var(--hover);
 }
 
+/* Marker count suffix — "Search this area · N" */
+.search-area-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ── Top-right control stack: Map/Satellite + zoom, replacing Google's
+   own white controls (#104) ── */
+.map-controls {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.map-type-seg {
+  background: var(--raised);
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-2);
+}
+
+.zoom-group {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--raised);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+}
+
+.zoom-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 0;
+  font-size: var(--fs-lg);
+  line-height: 1;
+}
+
+.zoom-group .zoom-btn + .zoom-btn {
+  border-top: 1px solid var(--line);
+}
+
+/* ── Loading bar: thin accent strip at the top of the map while a
+   /locations/map-points request is in flight (#104) ── */
+.map-loading-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 6;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.map-loading-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: var(--accent);
+  animation: map-loading-sweep 1.1s ease-in-out infinite;
+}
+
+@keyframes map-loading-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-loading-bar::after {
+    animation: none;
+    width: 100%;
+    transform: none;
+  }
+}
+
+/* ── Empty state: no points in the current viewport ── */
+.map-empty-chip {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: var(--raised);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+/* ── Mobile: pill moves to the top-left so it never overlaps the
+   top-right control stack ── */
+@media (max-width: 680px) {
+  .search-area-btn {
+    top: 8px;
+    left: 8px;
+    transform: none;
+    height: 30px;
+    padding: 0 var(--space-3);
+    font-size: var(--fs-sm);
+  }
+
+  .map-controls {
+    top: 8px;
+    right: 8px;
+  }
+}
+
 /* Maps-disabled placeholder (no API key configured) */
 .map-disabled {
   position: absolute;
