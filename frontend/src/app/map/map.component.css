@@ -68,6 +68,15 @@
   background: var(--hover);
 }
 
+/* Nice-to-have (#106): when the preview panel is open on desktop, keep the
+   pill centered in the space actually left of it rather than half-hidden
+   behind it. Panel is 300px wide + 12px margins either side = 324px. */
+@media (min-width: 681px) {
+  .search-area-btn.shifted {
+    left: calc(50% + 162px);
+  }
+}
+
 /* Marker count suffix — "Search this area · N" */
 .search-area-count {
   font-variant-numeric: tabular-nums;
@@ -372,81 +381,3 @@
   color: var(--muted);
 }
 
-/* ── Info-window flyout ── */
-:host ::ng-deep .map-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 140px;
-  max-width: 240px;
-  font-size: 0.85rem;
-}
-
-:host ::ng-deep .map-info-preview {
-  width: 100%;
-  max-height: 140px;
-  object-fit: cover;
-  border-radius: 4px;
-  display: block;
-  background: var(--hover);
-}
-
-:host ::ng-deep .map-info-name {
-  word-break: break-all;
-}
-
-:host ::ng-deep .map-info-counts {
-  font-weight: 600;
-}
-
-:host ::ng-deep .map-popup-type {
-  font-size: 0.75rem;
-  color: var(--muted);
-  text-transform: capitalize;
-}
-
-:host ::ng-deep .map-info-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-:host ::ng-deep .map-info-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-:host ::ng-deep .map-info-thumb {
-  width: 64px;
-  height: 64px;
-  padding: 0;
-  border: none;
-  border-radius: 4px;
-  overflow: hidden;
-  cursor: pointer;
-  background: var(--hover);
-}
-
-:host ::ng-deep .map-info-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-:host ::ng-deep .map-info-link {
-  align-self: flex-start;
-  margin-top: 2px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--accent);
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-:host ::ng-deep .map-info-link:hover {
-  text-decoration: underline;
-}
