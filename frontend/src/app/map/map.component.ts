@@ -9,7 +9,7 @@ import { GoogleMapsLoaderService } from '../services/google-maps-loader.service'
 import { ThemeService } from '../services/theme.service';
 import { IconComponent } from '../shared/icon/icon.component';
 import { FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
-import { FileInfo, MapMember, MapPoint, VIDEO_TYPES } from '../models';
+import { FileInfo, MapMember, MapPoint } from '../models';
 
 type MarkerKind = 'single' | 'strip' | 'cluster';
 
@@ -21,7 +21,7 @@ interface RenderedMarker {
   kind: MarkerKind;
 }
 
-// White marker glyphs (Material Symbols paths) shown inside single-file badges.
+// White marker glyphs (Material Symbols paths) shown on a missing-preview tile.
 const ICON_IMAGE = '<svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>';
 const ICON_FILM  = '<svg viewBox="0 0 24 24"><path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/></svg>';
 const ICON_360   = '<svg viewBox="0 0 24 24"><path d="M12 7C6.48 7 2 9.24 2 12c0 2.24 2.94 4.13 7 4.77V20l4-4-4-4v2.73c-3.15-.56-5-1.9-5-2.73 0-1.06 3.04-3 8-3s8 1.94 8 3c0 .73-1.46 1.89-4 2.53v2.05c3.53-.77 6-2.53 6-4.58 0-2.76-4.48-5-10-5z"/></svg>';
@@ -50,6 +50,9 @@ export class MapComponent implements OnInit, OnDestroy {
   /** The point + kind backing the currently-open info window. */
   infoPoint = signal<MapPoint | null>(null);
   infoKind = signal<MarkerKind>('single');
+  /** Key of the marker whose info window is open (#105) — drives the selected
+      ring via `applySelectionRing`, cleared on close/re-render/another click. */
+  private selectedKey = signal<string | null>(null);
 
   /** Sum of `count` over the currently rendered markers — shown in the
       "Search this area · N" pill without an extra request. */
@@ -168,7 +171,33 @@ export class MapComponent implements OnInit, OnDestroy {
   onMarkerClick(marker: RenderedMarker, anchor: MapAdvancedMarker): void {
     this.infoPoint.set(marker.point);
     this.infoKind.set(marker.kind);
+    this.selectedKey.set(marker.key);
+    this.applySelectionRing();
     this.infoWindow()?.open(anchor);
+  }
+
+  /** `(closeclick)` on `map-info-window` — the ring belongs to the open info
+      window, so it's cleared whenever that window closes, however it closes. */
+  onInfoWindowClosed(): void {
+    this.selectedKey.set(null);
+    this.applySelectionRing();
+  }
+
+  /** Marker options shared by every marker (#105): bigger clusters win over
+      smaller ones under the same point via `[zIndex]`, and — on a vector map
+      only, a no-op elsewhere — colliding markers are forced to hide the
+      lower-priority one instead of just overlapping. */
+  markerOptions(): google.maps.marker.AdvancedMarkerElementOptions {
+    return { collisionBehavior: google.maps.CollisionBehavior.REQUIRED_AND_HIDES_OPTIONAL };
+  }
+
+  /** Toggle the selected-ring class on every marker's content element so it
+      tracks `selectedKey` through clicks, closes and re-renders alike. */
+  private applySelectionRing(): void {
+    const key = this.selectedKey();
+    for (const m of this.markers()) {
+      m.content.classList.toggle('marker--selected', m.key === key);
+    }
   }
 
   // ── Info-window actions ──
@@ -261,36 +290,160 @@ export class MapComponent implements OnInit, OnDestroy {
     return p.media_type?.replace('_', ' ') ?? 'unknown';
   }
 
-  // ── Marker building ──
+  /** "188 photos, 26 videos" (omits a zero part; singular below 2). Shared by
+      the cluster/strip info-window body and the marker hover tooltip. */
+  countsLabel(p: MapPoint): string {
+    const parts: string[] = [];
+    if (p.photo_count > 0) parts.push(this.pluralize(p.photo_count, 'photo'));
+    if (p.video_count > 0) parts.push(this.pluralize(p.video_count, 'video'));
+    return parts.join(', ');
+  }
+
+  private pluralize(n: number, word: string): string {
+    return `${n} ${word}${n === 1 ? '' : 's'}`;
+  }
+
+  // ── Marker building (#105) ──
+  //
+  // One marker family, amber (`--accent`) only: a single photo tile (count 1),
+  // a small stack of tiles with a count badge (2–3), or a number circle sized
+  // by magnitude (4+). All three share a root `.marker` element that carries
+  // the hover-tooltip/selected-ring/focus behaviour (map.component.css) so the
+  // kind-specific bit below only has to build the visual itself.
 
   private renderPoints(points: MapPoint[]): void {
-    this.markers.set(points.map((p, i) => {
+    const newMarkers = points.map(p => {
       let kind: MarkerKind;
       let content: HTMLElement;
       if (p.count === 1) {
         kind = 'single';
         content = this.buildSingleContent(p);
-      } else if (p.count < 5 && p.video_count === 0 && p.members?.length) {
+      } else if (p.count <= 3) {
         kind = 'strip';
-        content = this.buildStripContent(p);
+        content = this.buildStackContent(p);
       } else {
         kind = 'cluster';
         content = this.buildClusterContent(p);
       }
-      const key = kind === 'single'
-        ? (p.md5_hash ?? `p:${i}`)
-        : `${kind}:${p.latitude},${p.longitude}`;
+      // Keyed by position (not kind) so a point crossing the 1/3/4 count
+      // thresholds between refetches updates the existing marker's content
+      // in place instead of destroying/recreating it (less flicker). A
+      // single file is keyed by its own hash so it keeps its identity even
+      // if the server's grid rounding nudges its reported position.
+      const key = p.count === 1
+        ? (p.md5_hash ?? `single:${p.latitude},${p.longitude}`)
+        : `${p.latitude},${p.longitude}`;
       return { key, position: { lat: p.latitude, lng: p.longitude }, content, point: p, kind };
-    }));
+    });
+    this.markers.set(newMarkers);
+    // The selected marker may no longer exist after a refetch (panned away,
+    // or its count/position moved it to a new key) — drop a stale selection
+    // instead of leaving a ring on a marker that no longer represents it.
+    if (this.selectedKey() !== null && !newMarkers.some(m => m.key === this.selectedKey())) {
+      this.selectedKey.set(null);
+    }
+    this.applySelectionRing();
   }
 
-  /** Single file → cluster-sized badge with a type glyph (easy to spot). */
+  /** count 1 → a single 38×38 photo tile, no number. */
   private buildSingleContent(p: MapPoint): HTMLElement {
-    const isVideo = VIDEO_TYPES.includes(p.media_type as any);
-    const el = document.createElement('div');
-    el.className = `leaf-badge ${isVideo ? 'leaf-badge--video' : 'leaf-badge--still'}`;
-    el.innerHTML = this.iconFor(p.media_type);
+    const el = this.createMarkerRoot(p, 'single');
+    const tile = this.buildTile(p.md5_hash, p.media_type);
+    tile.classList.add('marker-tile--front');
+    el.appendChild(tile);
+    this.appendTooltip(el, p);
     return el;
+  }
+
+  /** count 2–3 → a stack of per-file tiles (newest/front on top) plus a
+      count badge at the corner. */
+  private buildStackContent(p: MapPoint): HTMLElement {
+    const el = this.createMarkerRoot(p, 'strip');
+    const stack = document.createElement('div');
+    stack.className = 'marker-stack';
+    const members = (p.members ?? []).slice(0, p.count);
+    // Append back-to-front so the front tile (members[0]) paints last and
+    // sits visually on top without needing an explicit z-index.
+    for (let i = members.length - 1; i >= 0; i--) {
+      const m = members[i];
+      const tile = this.buildTile(m.md5_hash, m.media_type);
+      tile.classList.add('marker-tile--stack', `marker-tile--stack-${i}`);
+      if (i === 0) tile.classList.add('marker-tile--front');
+      stack.appendChild(tile);
+    }
+    const badge = document.createElement('div');
+    badge.className = 'marker-count-badge';
+    badge.textContent = String(p.count);
+    stack.appendChild(badge);
+    el.appendChild(stack);
+    this.appendTooltip(el, p);
+    return el;
+  }
+
+  /** count ≥ 4 → a number circle, sized by magnitude. */
+  private buildClusterContent(p: MapPoint): HTMLElement {
+    const el = this.createMarkerRoot(p, 'cluster');
+    const circle = document.createElement('div');
+    circle.className = `marker-circle marker-circle--${this.clusterSize(p.count)}`;
+    circle.textContent = this.formatClusterCount(p.count);
+    el.appendChild(circle);
+    this.appendTooltip(el, p);
+    return el;
+  }
+
+  /** Root element shared by every marker kind: accessible title, focusable
+      (advanced-marker content with a click listener needs `tabindex` to take
+      keyboard focus — the `:focus-visible` outline lives in the CSS), and the
+      hover-scale/selected-ring hook via `marker--<kind>`. */
+  private createMarkerRoot(p: MapPoint, kind: MarkerKind): HTMLElement {
+    const el = document.createElement('div');
+    el.className = `marker marker--${kind}`;
+    el.title = p.place ? `${this.pluralize(p.count, 'file')} in ${p.place}` : this.pluralize(p.count, 'file');
+    el.tabIndex = 0;
+    el.setAttribute('role', 'button');
+    return el;
+  }
+
+  /** Hover tooltip: "214 files · 188 photos, 26 videos" — the "· …" part is
+      its own span so the CSS can mute it independently. Hidden entirely
+      while the marker is selected (see `.marker--selected .marker-tooltip`). */
+  private appendTooltip(el: HTMLElement, p: MapPoint): void {
+    const tooltip = document.createElement('div');
+    tooltip.className = 'marker-tooltip';
+    const main = document.createElement('span');
+    main.textContent = this.pluralize(p.count, 'file');
+    tooltip.appendChild(main);
+    const sub = this.countsLabel(p);
+    if (sub) {
+      const subEl = document.createElement('span');
+      subEl.className = 'marker-tooltip-sub';
+      subEl.textContent = ` · ${sub}`;
+      tooltip.appendChild(subEl);
+    }
+    el.appendChild(tooltip);
+  }
+
+  /** One file's tile: its preview image, or — on a 404 (preview not yet
+      generated) — a neutral tile with a white media-type glyph. */
+  private buildTile(md5: string | null, mediaType: string | null): HTMLElement {
+    const tile = document.createElement('div');
+    tile.className = 'marker-tile';
+    if (md5) {
+      const img = document.createElement('img');
+      img.loading = 'lazy';
+      img.alt = '';
+      img.src = this.api.clipPreviewUrl(md5);
+      img.addEventListener('error', () => {
+        img.remove();
+        tile.classList.add('marker-tile--fallback');
+        tile.innerHTML = this.iconFor(mediaType);
+      }, { once: true });
+      tile.appendChild(img);
+    } else {
+      tile.classList.add('marker-tile--fallback');
+      tile.innerHTML = this.iconFor(mediaType);
+    }
+    return tile;
   }
 
   private iconFor(mediaType: string | null): string {
@@ -299,29 +452,21 @@ export class MapComponent implements OnInit, OnDestroy {
     return ICON_IMAGE;
   }
 
-  /** Small all-stills leaf → a contact-sheet strip of the actual thumbnails. */
-  private buildStripContent(p: MapPoint): HTMLElement {
-    const el = document.createElement('div');
-    el.className = 'leaf-strip';
-    for (const m of (p.members ?? []).slice(0, 4)) {
-      const img = document.createElement('img');
-      img.className = 'leaf-strip-thumb';
-      img.loading = 'lazy';
-      img.src = this.api.clipPreviewUrl(m.md5_hash);
-      img.alt = '';
-      el.appendChild(img);
-    }
-    return el;
+  /** 4–9 → 30px, 10–99 → 36px, 100–999 → 42px, ≥1000 → 48px. */
+  private clusterSize(count: number): number {
+    if (count < 10) return 30;
+    if (count < 100) return 36;
+    if (count < 1000) return 42;
+    return 48;
   }
 
-  private buildClusterContent(p: MapPoint): HTMLElement {
-    const colorClass = p.video_count === 0 ? 'mc-badge--photo'
-      : p.photo_count === 0 ? 'mc-badge--video'
-      : 'mc-badge--mixed';
-    const el = document.createElement('div');
-    el.className = `mc-badge ${colorClass}`;
-    el.textContent = String(p.count);
-    return el;
+  /** < 1000 plain; ≥ 1000 as "1.2k"/"12k" (one decimal below 10k, none at or
+      above it, trailing ".0" dropped). */
+  private formatClusterCount(count: number): string {
+    if (count < 1000) return String(count);
+    const thousands = count / 1000;
+    const decimals = thousands < 10 ? 1 : 0;
+    return `${thousands.toFixed(decimals).replace(/\.0$/, '')}k`;
   }
 
   ngOnDestroy(): void {

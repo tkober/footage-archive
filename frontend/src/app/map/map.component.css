@@ -202,95 +202,167 @@
   font-size: 0.85rem;
 }
 
-/* Advanced-marker content is anchored bottom-centre by Google Maps; translateY(50%)
-   re-centres the badge/strip over the exact coordinate. */
+/* Advanced-marker content is anchored bottom-centre by Google Maps;
+   translateY(50%) re-centres the content over the exact coordinate — kept on
+   `.marker` itself (not swapped out) so the hover scale below composes with
+   it instead of overwriting it. */
 
-/* ── Single-file badge (icon by media type) ── */
-:host ::ng-deep .leaf-badge {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  border: 2px solid var(--surface);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* ── Marker root (#105) — shared by single/strip/cluster: positioning,
+   hover scale + tooltip, focus outline and the selected ring all live here
+   so the three kind-specific blocks further down only build the visual. ── */
+:host ::ng-deep .marker {
+  position: relative;
+  display: inline-flex;
   cursor: pointer;
   transform: translateY(50%);
-  transition: transform 0.1s ease;
+  transition: transform var(--dur-fast) ease;
 }
 
-:host ::ng-deep .leaf-badge:hover {
-  transform: translateY(50%) scale(1.12);
+:host ::ng-deep .marker:hover {
+  transform: translateY(50%) scale(1.1);
 }
 
-:host ::ng-deep .leaf-badge svg {
-  width: 19px;
-  height: 19px;
-  fill: var(--text);
+:host ::ng-deep .marker:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
 }
 
-:host ::ng-deep .leaf-badge--still {
-  background: var(--ok);
+/* One shared amber-bordered, drop-shadowed tile — the single-file photo and
+   every tile in a 2–3 stack. */
+:host ::ng-deep .marker-tile {
+  width: 38px;
+  height: 38px;
+  border-radius: 7px;
+  border: 2px solid var(--accent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 3px 10px rgba(0, 0, 0, .25);
+  overflow: hidden;
+  background: var(--raised);
 }
 
-:host ::ng-deep .leaf-badge--video {
-  background: var(--accent);
-}
-
-/* ── Small all-stills leaf: inline thumbnail strip ── */
-:host ::ng-deep .leaf-strip {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 6px;
-  background: var(--surface);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
-  cursor: pointer;
-  transform: translateY(50%);
-}
-
-:host ::ng-deep .leaf-strip-thumb {
-  width: 28px;
-  height: 28px;
+:host ::ng-deep .marker-tile img {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
-  border-radius: 3px;
   display: block;
-  background: var(--hover);
 }
 
-/* ── Cluster badges ── */
-:host ::ng-deep .mc-badge {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  border: 2px solid var(--surface);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+/* Preview not generated yet (clip-preview 404) — neutral tile + glyph
+   instead of the broken image. */
+:host ::ng-deep .marker-tile--fallback {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.75rem;
+}
+
+:host ::ng-deep .marker-tile--fallback svg {
+  width: 18px;
+  height: 18px;
+  fill: var(--muted);
+}
+
+:host ::ng-deep .marker--selected .marker-tile--front {
+  box-shadow: 0 0 0 2px var(--text), 0 0 0 8px var(--accent-soft);
+}
+
+/* ── 2–3 files: a small stack of tiles, front one on top, plus a count
+   badge at the corner ── */
+:host ::ng-deep .marker-stack {
+  position: relative;
+  width: 46px;
+  height: 46px;
+}
+
+:host ::ng-deep .marker-tile--stack {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+}
+
+:host ::ng-deep .marker-tile--stack-1 {
+  transform: translate(4px, -4px);
+}
+
+:host ::ng-deep .marker-tile--stack-2 {
+  transform: translate(8px, -8px);
+}
+
+:host ::ng-deep .marker-count-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  z-index: 1;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 4px;
+  border-radius: 10px;
+  border: 2px solid var(--surface);
+  background: var(--accent);
+  color: var(--accent-ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10.5px;
   font-weight: 600;
+}
+
+/* ── 4+ files: a number circle sized by magnitude ── */
+:host ::ng-deep .marker-circle {
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 3px 10px rgba(0, 0, 0, .25);
+  background: var(--accent);
+  color: var(--accent-ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+:host ::ng-deep .marker--selected .marker-circle {
+  box-shadow: 0 0 0 2px var(--text), 0 0 0 8px var(--accent-soft);
+}
+
+:host ::ng-deep .marker-circle--30 { width: 30px; height: 30px; font-size: 11px; }
+:host ::ng-deep .marker-circle--36 { width: 36px; height: 36px; font-size: 12.5px; }
+:host ::ng-deep .marker-circle--42 { width: 42px; height: 42px; font-size: 14px; }
+:host ::ng-deep .marker-circle--48 { width: 48px; height: 48px; font-size: 15px; }
+
+/* ── Hover tooltip, shared by every kind — hidden while selected since the
+   ring already marks it as the active one. ── */
+:host ::ng-deep .marker-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  padding: 5px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--raised);
   color: var(--text);
-  cursor: pointer;
-  transform: translateY(50%);
-  transition: transform 0.1s ease;
+  box-shadow: var(--shadow-2);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--dur-fast) ease;
 }
 
-:host ::ng-deep .mc-badge:hover {
-  transform: translateY(50%) scale(1.15);
+:host ::ng-deep .marker:hover .marker-tooltip {
+  opacity: 1;
+  visibility: visible;
 }
 
-:host ::ng-deep .mc-badge--photo {
-  background: var(--ok);
+:host ::ng-deep .marker--selected .marker-tooltip {
+  opacity: 0 !important;
+  visibility: hidden !important;
 }
 
-:host ::ng-deep .mc-badge--video {
-  background: var(--accent);
-}
-
-:host ::ng-deep .mc-badge--mixed {
-  background: var(--accent);
+:host ::ng-deep .marker-tooltip-sub {
+  color: var(--muted);
 }
 
 /* ── Info-window flyout ── */
