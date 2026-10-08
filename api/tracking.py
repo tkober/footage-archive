@@ -30,7 +30,7 @@ from fileops.trash import is_in_trash
 from ffmpeg.ffmpeg import FFmpegInput, FFmpeg, FFprobe, VideoProbeResult
 from photos.exif import probe_photo, generate_photo_thumbnail
 from scanner.media_type import classify_media_type
-from scanner.scanner import Scanner, ScanResult
+from scanner.scanner import Scanner, ScanCandidate, ScanResult
 from tasks.preview_registry import discard as discard_pending_preview, pending_previews
 from tasks.taskmanager import TaskManager, TaskRequest
 from tasks.workerpool import parallel_map
@@ -355,12 +355,16 @@ class ScanSummary:
     """Counts for one streaming scan's worth of reconciliation (#135) — a
     single call for `index_single_file`, or summed across every batch for
     `index_files_in_directory` via `_index_candidates` — so the final
-    "Indexed N files · M relinked · K conflicts[ · F failed]" message can be
-    composed once the whole scan (every batch) is done, not per batch."""
+    "Indexed N files · M skipped unchanged · K relinked · J conflicts[ · F
+    failed]" message can be composed once the whole scan (every batch) is
+    done, not per batch. `skipped` (#136) is only ever set once, up front,
+    by `_index_candidates`'s incremental skip rule — no batch contributes to
+    it, but it rides along through `__add__` like every other field."""
     indexed: int = 0
     relinked: int = 0
     conflicts: int = 0
     failed: int = 0
+    skipped: int = 0
 
     def __add__(self, other: 'ScanSummary') -> 'ScanSummary':
         return ScanSummary(
@@ -368,18 +372,77 @@ class ScanSummary:
             relinked=self.relinked + other.relinked,
             conflicts=self.conflicts + other.conflicts,
             failed=self.failed + other.failed,
+            skipped=self.skipped + other.skipped,
         )
 
 
 def _format_scan_summary(summary: ScanSummary) -> str:
-    message = f'Indexed {summary.indexed} files · {summary.relinked} relinked · {summary.conflicts} conflicts'
+    message = f'Indexed {summary.indexed} files'
+    if summary.skipped:
+        message += f' · {summary.skipped} skipped unchanged'
+    message += f' · {summary.relinked} relinked · {summary.conflicts} conflicts'
     if summary.failed:
         message += f' · {summary.failed} failed'
     return message
 
 
-def _index_candidates(candidates: list[Path], db: Database, report: Callable[[str], None],
-                       generate_clip_preview: bool, scanned_directory: str) -> ScanSummary:
+def _filter_unchanged_candidates(candidates: list[ScanCandidate],
+                                  db: Database) -> tuple[list[ScanCandidate], int]:
+    """Incremental scan skip rule (#136): drop a candidate, before it's ever
+    hashed, when a `Files` row already exists at exactly its (directory,
+    file_name) with both `size_bytes`/`mtime_ns` non-NULL and exactly equal
+    to what `collect_candidates` just stat'd. Signatures are fetched one
+    query per *directory* (`Database.get_file_signatures_in_directory`), not
+    per file or per batch, by grouping candidates on their parent directory
+    first.
+
+    `Files` has no uniqueness on (directory, file_name) — a file whose
+    content changed is a new hash, and the old row can keep pointing at the
+    same path — so a candidate matches if ANY row for that path carries
+    exactly its signature, not just one.
+
+    Known gap (documented in CLAUDE.md too): a file replaced by a different
+    one with the same size AND mtime (e.g. a `cp -p` over it) is skipped
+    like any other unchanged file. `force_rehash=True` is the escape hatch.
+
+    Returns the surviving candidates plus how many were skipped."""
+    by_directory: dict[str, list[ScanCandidate]] = {}
+    for c in candidates:
+        by_directory.setdefault(str(c.path.parent), []).append(c)
+
+    kept: list[ScanCandidate] = []
+    skipped = 0
+    for directory, dir_candidates in by_directory.items():
+        signatures = db.get_file_signatures_in_directory(directory)
+        for c in dir_candidates:
+            known = signatures.get(c.path.name)
+            if known and (c.size_bytes, c.mtime_ns) in known:
+                skipped += 1
+                continue
+            kept.append(c)
+    return kept, skipped
+
+
+def _save_signatures(db: Database, scan_results: list[ScanResult]) -> None:
+    """Persist `Files.size_bytes`/`mtime_ns` (#136) for every `ScanResult`
+    whose probe step just finished *without raising* — see the CRASH-SAFETY
+    note on `_scan_and_reconcile` for why this must only ever run after a
+    successful probe, never from the pre-probe `insert_scan_results` upsert.
+    A `ScanResult` with no signature of its own (`refresh_tracked_files`
+    builds one straight from an existing `Files` row, never through this
+    path) is skipped rather than writing NULLs over a real signature."""
+    rows = [
+        {'md5_hash': sc.md5_hash, 'directory': sc.directory, 'file_name': sc.file_name,
+         'size_bytes': sc.size_bytes, 'mtime_ns': sc.mtime_ns}
+        for sc in scan_results
+        if sc.size_bytes is not None and sc.mtime_ns is not None
+    ]
+    db.set_file_signatures(rows)
+
+
+def _index_candidates(candidates: list[ScanCandidate], db: Database, report: Callable[[str], None],
+                       generate_clip_preview: bool, scanned_directory: str,
+                       force_rehash: bool = False) -> ScanSummary:
     """Streaming scan (#135): hash + reconcile `candidates` in batches of
     `SCAN_BATCH_SIZE` (env, default 25) instead of over the whole tree at
     once, so early batches land in the DB — and show in the browser — while
@@ -387,6 +450,15 @@ def _index_candidates(candidates: list[Path], db: Database, report: Callable[[st
     `index_files_in_directory` so a later ticket (#137, a persistent queue
     whose unit is one directory's direct files, no recursion) can call it
     the same way.
+
+    Incremental skip rule (#136, `force_rehash=False` the default): before
+    anything is batched, `_filter_unchanged_candidates` drops any candidate
+    already tracked at exactly its path with a matching size+mtime
+    signature — it's never hashed, never probed, and `last_indexed_at` is
+    never bumped. `force_rehash=True` (the context menu's "Scan folder
+    (force rehash)") skips this entirely, hashing/probing every candidate.
+    The `_ProbeProgress` totals below are sized off the *post-skip* count,
+    so "Hashed x / n"/"Probed x / n" only count files actually processed.
 
     Candidates are sorted alphabetically once, up front, before batching —
     not per batch — so the "first sorted path wins" duplicate rule
@@ -398,11 +470,11 @@ def _index_candidates(candidates: list[Path], db: Database, report: Callable[[st
     two new copies found in two different batches).
 
     One `_ProbeProgress` each for 'Hashed'/'Probed' spans the whole scan
-    (total = `len(candidates)`), not just one batch, so both stay monotonic
-    across every batch. A candidate that ends this batch unprobed — a
-    conflict, or a hash failure — still advances the Probed counter once the
-    batch is done (`_ProbeProgress.skip`), so it can still reach its total
-    even though it never calls `record()` itself.
+    (total = the post-skip candidate count), not just one batch, so both
+    stay monotonic across every batch. A candidate that ends this batch
+    unprobed — a conflict, or a hash failure — still advances the Probed
+    counter once the batch is done (`_ProbeProgress.skip`), so it can still
+    reach its total even though it never calls `record()` itself.
 
     Failure isolation: a candidate that can't be hashed (`OSError` —
     vanished, permission, I/O) is logged and counted as failed, the rest of
@@ -411,11 +483,18 @@ def _index_candidates(candidates: list[Path], db: Database, report: Callable[[st
     one of that batch's hashed files counts as failed — but the next batch
     still runs, unlike the whole-tree scan this replaces, where a single bad
     file today aborts everything via `parallel_map`."""
-    total = len(candidates)
-    if total == 0:
+    if not candidates:
         return ScanSummary()
 
-    sorted_candidates = sorted(candidates, key=str)
+    skipped = 0
+    if not force_rehash:
+        candidates, skipped = _filter_unchanged_candidates(candidates, db)
+
+    total = len(candidates)
+    if total == 0:
+        return ScanSummary(skipped=skipped)
+
+    sorted_candidates = sorted(candidates, key=lambda c: str(c.path))
     batch_size = Environment().get_scan_batch_size()
 
     scanner = Scanner()
@@ -425,7 +504,7 @@ def _index_candidates(candidates: list[Path], db: Database, report: Callable[[st
     def hash_progress(path: Path, ok: bool):
         hashed_progress.record(path.name, ok)
 
-    summary = ScanSummary()
+    summary = ScanSummary(skipped=skipped)
     for start in range(0, total, batch_size):
         batch = sorted_candidates[start:start + batch_size]
         scan_results = scanner.hash_candidates(batch, progress=hash_progress, isolate_errors=True)
@@ -461,7 +540,8 @@ def index_files_in_directory(query: FileQuery, report: Callable[[str], None]):
         db = Database()
         summary = _index_candidates(candidates, db, report,
                                      generate_clip_preview=query.generate_clip_preview,
-                                     scanned_directory=str(directory))
+                                     scanned_directory=str(directory),
+                                     force_rehash=query.force_rehash)
         report(_format_scan_summary(summary))
 
 
@@ -492,7 +572,7 @@ def rediscover_directory(query: RediscoverQuery, report: Callable[[str], None]):
             db.insert_scan_results(to_track)
             progress = _ProbeProgress(len(to_track), report)
 
-            def probe(sc: ScanResult):
+            def probe(sc: ScanResult) -> bool:
                 ok = True
                 try:
                     _probe_and_save(sc, db, generate_clip_preview=query.generate_clip_preview)
@@ -501,6 +581,7 @@ def rediscover_directory(query: RediscoverQuery, report: Callable[[str], None]):
                     ok = False
                 finally:
                     progress.record(sc.file_name, ok)
+                return ok
 
             # Registered for just the hashes about to be probed here, not the
             # whole rediscover (`unchanged`/`relinked` hashes aren't probed by
@@ -508,7 +589,13 @@ def rediscover_directory(query: RediscoverQuery, report: Callable[[str], None]):
             # requested (#77).
             ctx = pending_previews(sc.md5_hash for sc in to_track) if query.generate_clip_preview else nullcontext()
             with ctx:
-                parallel_map(to_track, probe)
+                oks = parallel_map(to_track, probe)
+            # Newly-tracked files get their size+mtime signature too (#136),
+            # same as a normal scan's new hashes — so a later incremental
+            # scan of this folder can skip them. Only hashes/relinks
+            # rediscover applies without probing (unchanged/relinked) never
+            # get here, which is fine: their signature (if any) is untouched.
+            _save_signatures(db, [sc for sc, ok in zip(to_track, oks) if ok])
 
         report('Applying changes…')
         result = apply_rediscover(
@@ -551,7 +638,17 @@ def _scan_and_reconcile(scan_results: list[ScanResult], db: Database, report: Ca
     single `ScanSummary` right away. `progress`, if given, is the caller's
     own shared 'Probed x / y' counter spanning every batch — otherwise
     (e.g. `index_single_file`) one is created here, scoped to just this
-    call, as before #135."""
+    call, as before #135.
+
+    CRASH-SAFETY (#136, relied on by a later ticket): `probe_batch` writes
+    each batch's signatures (`Files.size_bytes`/`mtime_ns`, via
+    `_save_signatures`/`Database.set_file_signatures`) only *after* every
+    file in it has finished probing — a recorded ffprobe failure that
+    returns normally still counts as finished, only an exception doesn't.
+    If the process dies (or the scan is cancelled) between `insert_scan_results`
+    and a file's probe completing, that file keeps a NULL (or stale,
+    now-mismatching) signature, so the next incremental scan re-hashes and
+    re-probes it instead of skipping it forever."""
     md5_hashes = sorted({sc.md5_hash for sc in scan_results})
     tracked = db.get_tracked_paths_for_hashes(md5_hashes)
     report('Matching against database…')
@@ -567,7 +664,7 @@ def _scan_and_reconcile(scan_results: list[ScanResult], db: Database, report: Ca
         total_to_probe = len(classification.new) + len(classification.unchanged) + len(classification.relinked)
         progress = _ProbeProgress(total_to_probe, report)
 
-    def probe_one(sc: ScanResult):
+    def probe_one(sc: ScanResult) -> bool:
         ok = True
         try:
             _probe_and_save(sc, db, generate_clip_preview=generate_clip_preview)
@@ -577,6 +674,7 @@ def _scan_and_reconcile(scan_results: list[ScanResult], db: Database, report: Ca
             ok = False
         finally:
             progress.record(sc.file_name, ok)
+        return ok
 
     def probe_batch(batch: list[ScanResult]):
         if not batch:
@@ -584,9 +682,12 @@ def _scan_and_reconcile(scan_results: list[ScanResult], db: Database, report: Ca
         # `insert_scan_results` is only ever called here with ScanResults that
         # already match the (post-relink) tracked path, so this upsert can
         # never move a Files row — it only inserts new hashes or bumps
-        # last_indexed_at for ones that stayed put.
+        # last_indexed_at for ones that stayed put. It also never touches
+        # size_bytes/mtime_ns (#136, see Database.insert_scan_results) — only
+        # the write below does, and only for files that just finished probing.
         db.insert_scan_results(batch)
-        parallel_map(batch, probe_one)
+        oks = parallel_map(batch, probe_one)
+        _save_signatures(db, [sc for sc, ok in zip(batch, oks) if ok])
 
     # Every hash that's about to be probed in this scan — registered for the
     # duration of the whole reconciliation (both probe_batch() calls below),

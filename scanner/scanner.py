@@ -1,6 +1,8 @@
 import hashlib
 import logging
 import os
+import stat
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
@@ -19,6 +21,25 @@ class ScanResult(BaseModel):
     media_type: StrictStr | None
     directory: StrictStr
     last_indexed_at: datetime
+    # Signature (#136) from the single os.stat() collect_candidates already
+    # did — carried through so a successful probe can persist it (see
+    # api/tracking.py's CRASH-SAFETY note). Optional with a default because
+    # other code builds a ScanResult without a real file to stat (e.g.
+    # refresh_tracked_files, which rescans an already-tracked hash without
+    # touching its signature).
+    size_bytes: Optional[int] = None
+    mtime_ns: Optional[int] = None
+
+
+@dataclass
+class ScanCandidate:
+    """A file collect_candidates has decided to hash, plus the (size_bytes,
+    mtime_ns) signature from the single os.stat() that decision already
+    cost (#136) — carried into hash_candidates() so the resulting
+    ScanResult gets it for free, instead of a second stat later."""
+    path: Path
+    size_bytes: int
+    mtime_ns: int
 
 
 class Scanner:
@@ -41,12 +62,19 @@ class Scanner:
         candidates = self.collect_candidates(files)
         return self.hash_candidates(candidates)
 
-    def collect_candidates(self, files: [Path]) -> list[Path]:
+    def collect_candidates(self, files: [Path]) -> list[ScanCandidate]:
         """Filter `files` down to the paths a scan actually hashes: no
         hidden system junk (#81), nothing inside the trash, a regular
         existing file whose extension is configured for scanning. Split out
         of `scan_files` (#135) so a streaming caller can collect once for
-        the whole tree and then hash/reconcile it batch by batch."""
+        the whole tree and then hash/reconcile it batch by batch.
+
+        Regular-file-and-exists used to be two stats (`is_dir()` +
+        `exists()`); #136 collapses that into the one `os.stat()` a
+        candidate needs anyway for its skip-rule signature, kept on the
+        returned `ScanCandidate` instead of thrown away. A file that
+        vanishes or can't be stat'd between the directory walk and here is
+        silently skipped, same as the old `exists()` check."""
         env = Environment()
         considered_file_extensions = env.get_scanning_file_extensions()
         hidden_extensions = set(env.get_browser_hidden_extensions())
@@ -67,11 +95,18 @@ class Scanner:
                 continue
             if Path(os.path.abspath(f_path)).is_relative_to(trash_dir):  # never (re)track anything inside the trash
                 continue
-            if not f_path.is_dir() and f_path.exists() and f_path.suffix.lower() in considered_file_extensions:
-                candidates.append(f_path)
+            if f_path.suffix.lower() not in considered_file_extensions:
+                continue
+            try:
+                st = os.stat(f_path)
+            except OSError:
+                continue  # vanished/unreadable between the walk and here
+            if not stat.S_ISREG(st.st_mode):
+                continue
+            candidates.append(ScanCandidate(path=f_path, size_bytes=st.st_size, mtime_ns=st.st_mtime_ns))
         return candidates
 
-    def hash_candidates(self, candidates: list[Path],
+    def hash_candidates(self, candidates: list[ScanCandidate],
                          progress: Optional[Callable[[Path, bool], None]] = None,
                          isolate_errors: bool = False) -> list[ScanResult]:
         """Hash every candidate, fanned out across the shared worker pool
@@ -99,7 +134,8 @@ class Scanner:
         media_type_map = Environment().get_media_type_map()
         indexed_at = datetime.now()
 
-        def do_hash(f_path: Path) -> Optional[ScanResult]:
+        def do_hash(candidate: ScanCandidate) -> Optional[ScanResult]:
+            f_path = candidate.path
             try:
                 md5_hash = self.md5_hash(str(f_path))
             except OSError:
@@ -118,6 +154,8 @@ class Scanner:
                 media_type=media_type_map.get(f_path.suffix.lower()),
                 directory=str(f_path.parent),
                 last_indexed_at=indexed_at,
+                size_bytes=candidate.size_bytes,
+                mtime_ns=candidate.mtime_ns,
             )
 
         results = parallel_map(candidates, do_hash)

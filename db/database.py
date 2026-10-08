@@ -84,10 +84,63 @@ class Database:
     def insert_scan_results(self, scan_results: list[ScanResult],
                             identifier: str = generate_identifier()) -> None:
         df = pd.DataFrame([r.model_dump() for r in scan_results])
+        # size_bytes/mtime_ns (#136) are written only once a file's probe
+        # step finishes successfully (see Database.set_file_signatures) —
+        # never by this pre-probe upsert, not even with NULL, so a crash
+        # between this insert and the probe leaves the old/NULL signature in
+        # place and the next incremental scan re-hashes the file instead of
+        # skipping it forever.
+        df = df.drop(columns=['size_bytes', 'mtime_ns'], errors='ignore')
         records = _df_to_records(df, files_table)
         if records:
             with get_engine().begin() as conn:
                 conn.execute(upsert(files_table, records, ['md5_hash']))
+
+    def get_file_signatures_in_directory(self, directory: str) -> dict[str, set[tuple[int, int]]]:
+        """(size_bytes, mtime_ns) signatures of every tracked file at exactly
+        `directory` (not recursive), keyed by file_name — the incremental
+        scan's skip-rule lookup (#136), one query per directory instead of
+        per file or per batch. `Files` has no uniqueness on (directory,
+        file_name): a file whose content changed is a new hash, so several
+        rows can share a path — all of them are returned, so a candidate
+        matches if ANY one of them carries exactly its signature. A row with
+        a NULL size_bytes or mtime_ns (never probed since the migration, or
+        a signature write that never completed) is excluded — a NULL
+        signature can never "match" a real candidate anyway."""
+        stmt = (
+            select(files_table.c.file_name, files_table.c.size_bytes, files_table.c.mtime_ns)
+            .where(files_table.c.directory == directory,
+                   files_table.c.size_bytes.isnot(None),
+                   files_table.c.mtime_ns.isnot(None))
+        )
+        with get_engine().connect() as conn:
+            rows = conn.execute(stmt).fetchall()
+        result: dict[str, set[tuple[int, int]]] = {}
+        for row in rows:
+            result.setdefault(row.file_name, set()).add((row.size_bytes, row.mtime_ns))
+        return result
+
+    def set_file_signatures(self, rows: list[dict]) -> None:
+        """Write Files.size_bytes/mtime_ns (#136) for files whose probe step
+        has just finished successfully — see the CRASH-SAFETY note on
+        api/tracking.py's `_scan_and_reconcile`/`_save_signatures` for why
+        this must never run before that. Guarded on (md5_hash, directory,
+        file_name) — the row's path *right now*, as just inserted/relinked
+        by this same scan — so a concurrent relink onto this hash between
+        the insert and this call is never overwritten with a stale
+        signature. ``rows`` is a list of {'md5_hash', 'directory',
+        'file_name', 'size_bytes', 'mtime_ns'}."""
+        if not rows:
+            return
+        with get_engine().begin() as conn:
+            for r in rows:
+                conn.execute(
+                    update(files_table)
+                    .where(files_table.c.md5_hash == r['md5_hash'],
+                           files_table.c.directory == r['directory'],
+                           files_table.c.file_name == r['file_name'])
+                    .values(size_bytes=r['size_bytes'], mtime_ns=r['mtime_ns'])
+                )
 
     def insert_file_details(self, details: pd.DataFrame,
                             identifier: str = generate_identifier()) -> None:

@@ -49,8 +49,13 @@ export class ApiService {
     return this.http.get<ExifTag[]>(`${this.base}/files/exif`, { params: { path } });
   }
 
-  scanDirectory(path: string): Observable<string> {
-    return this.http.post<string>(`${this.base}/tracking/scan-directory`, { path, generate_clip_preview: true });
+  /** `options.forceRehash` (#136) hashes+probes every file in the folder
+      instead of skipping ones already tracked with an unchanged size+mtime
+      signature — the context menu's "Scan folder (force rehash)". */
+  scanDirectory(path: string, options: { forceRehash?: boolean } = {}): Observable<string> {
+    return this.http.post<string>(`${this.base}/tracking/scan-directory`, {
+      path, generate_clip_preview: true, force_rehash: options.forceRehash ?? false,
+    });
   }
 
   trackFile(path: string): Observable<string> {
