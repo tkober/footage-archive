@@ -3,10 +3,17 @@
 must reuse fileops/rediscover.py's classify()/apply() instead of silently moving a
 known hash's path via the `Files` upsert. `_probe_and_save` is monkeypatched so
 these tests never shell out to ffprobe/exiftool; it also records which ScanResults
-were actually probed, so "not probed" assertions have teeth."""
+were actually probed, so "not probed" assertions have teeth.
 
+The tests from `test_scan_directory_batching_matches_single_batch_size` onward
+cover the streaming scan (#135): `index_files_in_directory` now hashes +
+reconciles its candidates in batches of `SCAN_BATCH_SIZE` instead of over the
+whole tree at once."""
+
+import re
 from pathlib import Path
 
+import pytest
 from sqlalchemy import select
 
 import api.tracking as tracking
@@ -217,3 +224,173 @@ def test_scan_file_copy_of_tracked_file_is_conflict_no_path_flip(db, root_dir, m
     assert conflicts[0]['source'] == 'scan'
 
     assert str(copy) not in recorder.probed
+
+
+def _progress_values(messages: list[str], label: str) -> list[int]:
+    """Extract every `{label} x / y` message's `x` as a list, in report order."""
+    pattern = re.compile(rf'^{label} (\d+) / \d+')
+    values = []
+    for message in messages:
+        match = pattern.match(message)
+        if match:
+            values.append(int(match.group(1)))
+    return values
+
+
+@pytest.mark.parametrize('batch_size', [2, 100])
+def test_scan_directory_batching_matches_single_batch_size(db, root_dir, monkeypatch, batch_size):
+    """With SCAN_BATCH_SIZE=2, two byte-identical NEW files (`b.jpg`/`d.jpg`)
+    fall into different batches (candidates are sorted alphabetically before
+    batching: a, b, c, d, e). The second batch only sees `d.jpg` in its own
+    `scan_results`, but `b.jpg`'s hash is already tracked (inserted by the
+    first batch) and still exists on disk, so classify() takes rule 3 (old
+    path exists → conflict) — same outcome as a single SCAN_BATCH_SIZE=100
+    batch, where both copies are classified together directly (rule 3 too):
+    the alphabetically first copy (b) is tracked, the other (d) conflicts."""
+    monkeypatch.setenv('SCAN_BATCH_SIZE', str(batch_size))
+    recorder = _patch_probe(monkeypatch)
+
+    paths = {}
+    for name, content in [('a.jpg', b'a'), ('b.jpg', b'dup'), ('c.jpg', b'c'),
+                           ('d.jpg', b'dup'), ('e.jpg', b'e')]:
+        p = root_dir / name
+        _write(p, content)
+        paths[name] = p
+
+    scanner_module = __import__('scanner.scanner', fromlist=['Scanner'])
+    dup_hash = scanner_module.Scanner().scan_files([paths['b.jpg']])[0].md5_hash
+
+    report = _Report()
+    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), report)
+
+    row = _get_file_row(dup_hash)
+    assert row is not None
+    assert f"{row['directory']}/{row['file_name']}" == str(paths['b.jpg'])
+
+    conflicts = _get_path_conflicts(dup_hash)
+    assert len(conflicts) == 1
+    assert conflicts[0]['candidate_path'] == str(paths['d.jpg'])
+    assert len(_get_path_conflicts()) == 1  # no conflicts for a/c/e
+
+    assert set(recorder.probed) == {
+        str(paths['a.jpg']), str(paths['b.jpg']), str(paths['c.jpg']), str(paths['e.jpg']),
+    }
+    assert str(paths['d.jpg']) not in recorder.probed
+
+    # The summary counts the duplicate as one conflict whichever way the
+    # batches fall (new hash with a second copy, or rule-3 conflict).
+    assert 'Indexed 4 files · 0 relinked · 1 conflicts' in report.last
+
+
+def test_scan_directory_relink_then_conflict_split_across_batches_is_pinned(db, root_dir, monkeypatch):
+    """Known, accepted difference from a single-batch scan (#135): a tracked
+    hash whose old path is gone, found at two new copies that land in
+    different batches (SCAN_BATCH_SIZE=1 here), relinks to the first batch's
+    copy and records the second batch's copy as a conflict — instead of a
+    conflict-without-relink the way today's single-batch scan classifies it
+    (rule 5: old path gone, found more than once -> conflict, no relink).
+    Both copies stay visible (one tracked, one on the conflicts page);
+    nothing is lost. Pinned here so a later change notices if it drifts."""
+    recorder = _patch_probe(monkeypatch)
+    monkeypatch.setenv('SCAN_BATCH_SIZE', '1')
+
+    old_dir = root_dir / 'old'
+    old_path = old_dir / 'f.jpg'
+    _write(old_path, b'moved-bytes')
+    scanner_module = __import__('scanner.scanner', fromlist=['Scanner'])
+    scan_results = scanner_module.Scanner().scan_files([old_path])
+    md5_hash = scan_results[0].md5_hash
+    db.insert_scan_results(scan_results)
+
+    copy_a = root_dir / 'copy_a.jpg'
+    copy_b = root_dir / 'copy_b.jpg'
+    _write(copy_a, b'moved-bytes')
+    _write(copy_b, b'moved-bytes')
+    old_path.unlink()
+    old_dir.rmdir()
+
+    report = _Report()
+    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), report)
+
+    row = _get_file_row(md5_hash)
+    assert f"{row['directory']}/{row['file_name']}" == str(copy_a)  # first batch's copy wins the relink
+
+    conflicts = _get_path_conflicts(md5_hash)
+    assert len(conflicts) == 1
+    assert conflicts[0]['candidate_path'] == str(copy_b)
+
+    assert str(copy_a) in recorder.probed
+    assert str(copy_b) not in recorder.probed
+
+    assert 'Indexed 1 files · 1 relinked · 1 conflicts' in report.last
+
+
+def test_scan_directory_progress_messages_monotonic_and_reach_total(db, root_dir, monkeypatch):
+    """Hashed/Probed progress is one counter spanning the whole scan, not
+    reset per batch: with 5 distinct (non-conflicting) files and
+    SCAN_BATCH_SIZE=2 (three batches), both sequences must be non-decreasing
+    and finish at `n` — `n` being the total candidate count, not just the
+    per-batch size."""
+    monkeypatch.setenv('SCAN_BATCH_SIZE', '2')
+    _patch_probe(monkeypatch)
+
+    for i, name in enumerate(['a.jpg', 'b.jpg', 'c.jpg', 'd.jpg', 'e.jpg']):
+        _write(root_dir / name, bytes([i]))
+
+    report = _Report()
+    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), report)
+
+    hashed = _progress_values(report.messages, 'Hashed')
+    probed = _progress_values(report.messages, 'Probed')
+
+    assert hashed == sorted(hashed)
+    assert probed == sorted(probed)
+    assert hashed[-1] == 5
+    assert probed[-1] == 5
+    assert 'Indexed 5 files · 0 relinked · 0 conflicts' in report.last
+
+
+def test_scan_directory_batch_hash_failure_does_not_abort_later_batches(db, root_dir, monkeypatch):
+    """A file that can't be hashed (OSError — vanished, permission, I/O) is
+    logged, counted as failed, and skipped; the rest of its batch and every
+    later batch still run (#135). Today, a single unreadable file aborts the
+    whole scan via `parallel_map` — this isolation is new for the streaming
+    path only."""
+    monkeypatch.setenv('SCAN_BATCH_SIZE', '2')
+    recorder = _patch_probe(monkeypatch)
+
+    good_a = root_dir / 'a.jpg'
+    bad = root_dir / 'b.jpg'
+    good_c = root_dir / 'c.jpg'
+    _write(good_a, b'a')
+    _write(bad, b'b')
+    _write(good_c, b'c')
+
+    scanner_module = __import__('scanner.scanner', fromlist=['Scanner'])
+    original_md5_hash = scanner_module.Scanner.md5_hash
+
+    def flaky_md5_hash(self, path):
+        if path == str(bad):
+            raise OSError('vanished mid-scan')
+        return original_md5_hash(self, path)
+
+    monkeypatch.setattr(scanner_module.Scanner, 'md5_hash', flaky_md5_hash)
+
+    report = _Report()
+    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), report)
+
+    assert str(good_a) in recorder.probed
+    assert str(good_c) in recorder.probed
+    assert str(bad) not in recorder.probed
+
+    row_a = _get_file_row(scanner_module.Scanner().scan_files([good_a])[0].md5_hash)
+    assert row_a is not None
+    row_c = _get_file_row(scanner_module.Scanner().scan_files([good_c])[0].md5_hash)
+    assert row_c is not None
+
+    assert 'Indexed 2 files · 0 relinked · 0 conflicts · 1 failed' in report.last
+
+    hashed = _progress_values(report.messages, 'Hashed')
+    probed = _progress_values(report.messages, 'Probed')
+    assert hashed[-1] == 3
+    assert probed[-1] == 3

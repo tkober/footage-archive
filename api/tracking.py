@@ -1,9 +1,10 @@
 import logging
 from contextlib import nullcontext
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
-from typing import Callable
+from typing import Callable, Optional
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Response
@@ -303,11 +304,14 @@ async def import_metadata(query: FileQuery, background_tasks: BackgroundTasks):
 
 class _ProbeProgress:
     """Thread-safe completion counter — workers finish out of order, so the
-    running tally is guarded by a lock and reported as 'done / total'."""
+    running tally is guarded by a lock and reported as '{label} done / total'
+    (`label` defaults to 'Probed'; the streaming scan, #135, reuses this same
+    class for the 'Hashed' counter — see `_index_candidates`)."""
 
-    def __init__(self, total: int, report: Callable[[str], None]):
+    def __init__(self, total: int, report: Callable[[str], None], label: str = 'Probed'):
         self._total = total
         self._report = report
+        self._label = label
         self._lock = Lock()
         self._done = 0
         self._failed = 0
@@ -322,27 +326,159 @@ class _ProbeProgress:
             if not ok:
                 self._failed += 1
             suffix = f' ({self._failed} failed)' if self._failed else ''
-            self._report(f'Probed {self._done} / {self._total}{suffix}: {file_name}')
+            self._report(f'{self._label} {self._done} / {self._total}{suffix}: {file_name}')
+
+    @property
+    def done(self) -> int:
+        with self._lock:
+            return self._done
+
+    def skip(self, count: int, failed: int = 0):
+        """Advance the counter for `count` candidates that will never
+        individually reach `record()` — e.g. a streaming scan's batch (#135)
+        that ended with some candidates left unprobed (classified as a
+        conflict) or never hashed at all (failed to hash). Keeps 'Probed
+        x / y' monotonic and able to reach `y` even then. A no-op for
+        `count <= 0`, so a batch with nothing left over doesn't emit an
+        empty-looking message."""
+        if count <= 0:
+            return
+        with self._lock:
+            self._done += count
+            self._failed += failed
+            suffix = f' ({self._failed} failed)' if self._failed else ''
+            self._report(f'{self._label} {self._done} / {self._total}{suffix}')
+
+
+@dataclass
+class ScanSummary:
+    """Counts for one streaming scan's worth of reconciliation (#135) — a
+    single call for `index_single_file`, or summed across every batch for
+    `index_files_in_directory` via `_index_candidates` — so the final
+    "Indexed N files · M relinked · K conflicts[ · F failed]" message can be
+    composed once the whole scan (every batch) is done, not per batch."""
+    indexed: int = 0
+    relinked: int = 0
+    conflicts: int = 0
+    failed: int = 0
+
+    def __add__(self, other: 'ScanSummary') -> 'ScanSummary':
+        return ScanSummary(
+            indexed=self.indexed + other.indexed,
+            relinked=self.relinked + other.relinked,
+            conflicts=self.conflicts + other.conflicts,
+            failed=self.failed + other.failed,
+        )
+
+
+def _format_scan_summary(summary: ScanSummary) -> str:
+    message = f'Indexed {summary.indexed} files · {summary.relinked} relinked · {summary.conflicts} conflicts'
+    if summary.failed:
+        message += f' · {summary.failed} failed'
+    return message
+
+
+def _index_candidates(candidates: list[Path], db: Database, report: Callable[[str], None],
+                       generate_clip_preview: bool, scanned_directory: str) -> ScanSummary:
+    """Streaming scan (#135): hash + reconcile `candidates` in batches of
+    `SCAN_BATCH_SIZE` (env, default 25) instead of over the whole tree at
+    once, so early batches land in the DB — and show in the browser — while
+    later ones are still being hashed. Factored out of
+    `index_files_in_directory` so a later ticket (#137, a persistent queue
+    whose unit is one directory's direct files, no recursion) can call it
+    the same way.
+
+    Candidates are sorted alphabetically once, up front, before batching —
+    not per batch — so the "first sorted path wins" duplicate rule
+    (`fileops/rediscover.py::classify()`, rule 3) resolves the same way
+    regardless of batch size: a duplicate's alphabetically-first copy is
+    always in the same batch as, or an earlier batch than, any other copy.
+    See CLAUDE.md's scan flow section for the one behaviour difference this
+    still leaves vs. a single-batch scan (a tracked hash relinked to one of
+    two new copies found in two different batches).
+
+    One `_ProbeProgress` each for 'Hashed'/'Probed' spans the whole scan
+    (total = `len(candidates)`), not just one batch, so both stay monotonic
+    across every batch. A candidate that ends this batch unprobed — a
+    conflict, or a hash failure — still advances the Probed counter once the
+    batch is done (`_ProbeProgress.skip`), so it can still reach its total
+    even though it never calls `record()` itself.
+
+    Failure isolation: a candidate that can't be hashed (`OSError` —
+    vanished, permission, I/O) is logged and counted as failed, the rest of
+    its batch still hashing (`Scanner.hash_candidates(isolate_errors=True)`).
+    An unexpected exception while reconciling a batch is logged and every
+    one of that batch's hashed files counts as failed — but the next batch
+    still runs, unlike the whole-tree scan this replaces, where a single bad
+    file today aborts everything via `parallel_map`."""
+    total = len(candidates)
+    if total == 0:
+        return ScanSummary()
+
+    sorted_candidates = sorted(candidates, key=str)
+    batch_size = Environment().get_scan_batch_size()
+
+    scanner = Scanner()
+    hashed_progress = _ProbeProgress(total, report, label='Hashed')
+    probed_progress = _ProbeProgress(total, report, label='Probed')
+
+    def hash_progress(path: Path, ok: bool):
+        hashed_progress.record(path.name, ok)
+
+    summary = ScanSummary()
+    for start in range(0, total, batch_size):
+        batch = sorted_candidates[start:start + batch_size]
+        scan_results = scanner.hash_candidates(batch, progress=hash_progress, isolate_errors=True)
+        hash_failed = len(batch) - len(scan_results)
+
+        probed_before = probed_progress.done
+        try:
+            batch_summary = _scan_and_reconcile(
+                scan_results, db, report, generate_clip_preview, scanned_directory,
+                progress=probed_progress,
+            ) + ScanSummary(failed=hash_failed)
+            not_probed, not_probed_failed = len(batch) - batch_summary.indexed, hash_failed
+        except Exception:
+            logging.exception(f'Failed to reconcile a batch of {len(scan_results)} files')
+            batch_summary = ScanSummary(failed=len(batch))
+            # Some of the batch may already have been probed (and counted)
+            # before the exception, so only top up what's still open.
+            not_probed = len(batch) - (probed_progress.done - probed_before)
+            not_probed_failed = not_probed
+
+        probed_progress.skip(not_probed, failed=not_probed_failed)
+        summary += batch_summary
+
+    return summary
 
 
 def index_files_in_directory(query: FileQuery, report: Callable[[str], None]):
     directory = Path(query.path)
     with shared(str(directory)):
         report('Scanning files…')
-        scan_results = Scanner().scan_directory(directory)
-        report(f'Found {len(scan_results)} files, reconciling…')
+        candidates = Scanner().collect_candidates(directory.rglob('*'))
+        report(f'Found {len(candidates)} files, hashing…')
         db = Database()
-        _scan_and_reconcile(scan_results, db, report,
-                            generate_clip_preview=query.generate_clip_preview,
-                            scanned_directory=str(directory))
+        summary = _index_candidates(candidates, db, report,
+                                     generate_clip_preview=query.generate_clip_preview,
+                                     scanned_directory=str(directory))
+        report(_format_scan_summary(summary))
 
 
 def rediscover_directory(query: RediscoverQuery, report: Callable[[str], None]):
     directory = Path(query.path)
     with shared(str(directory)):
-        report('Hashing files…')
-        scan_results = Scanner().scan_directory(directory)
-        total = len(scan_results)
+        scanner = Scanner()
+        candidates = scanner.collect_candidates(directory.rglob('*'))
+        total = len(candidates)
+        # Progress during hashing (#135) — rediscover still hashes the whole
+        # tree in one go (its classification needs the complete hash set,
+        # see the module docstring), so no batching/isolation here, just the
+        # 'Hashed x / y' counter.
+        hashed_progress = _ProbeProgress(total, report, label='Hashed')
+        scan_results = scanner.hash_candidates(
+            candidates, progress=lambda p, ok: hashed_progress.record(p.name, ok),
+        )
         report(f'Hashed {total} files, matching against database…')
 
         db = Database()
@@ -395,7 +531,8 @@ def _rediscover_summary(result, track_new: bool) -> str:
 
 
 def _scan_and_reconcile(scan_results: list[ScanResult], db: Database, report: Callable[[str], None],
-                        generate_clip_preview: bool, scanned_directory: str) -> None:
+                        generate_clip_preview: bool, scanned_directory: str,
+                        progress: Optional[_ProbeProgress] = None) -> ScanSummary:
     """Shared reconciliation path for the normal scan (directory + single
     file): classify every hash found against the DB using the same rules as
     `/tracking/rediscover` (fileops/rediscover.py), then probe every hash
@@ -405,7 +542,16 @@ def _scan_and_reconcile(scan_results: list[ScanResult], db: Database, report: Ca
     once, so it was relinked like a rediscover before probing at the new
     path). A hash left in conflict (old path still exists, or found more
     than once with the old path gone) is never inserted/probed and its
-    `Files` row is left untouched."""
+    `Files` row is left untouched.
+
+    Returns its counts as a `ScanSummary` instead of reporting the final
+    "Indexed …" message itself (#135), so a caller that reconciles several
+    batches (`_index_candidates`) can sum them and report just once for the
+    whole scan; `index_single_file` (one call = the whole scan) reports its
+    single `ScanSummary` right away. `progress`, if given, is the caller's
+    own shared 'Probed x / y' counter spanning every batch — otherwise
+    (e.g. `index_single_file`) one is created here, scoped to just this
+    call, as before #135."""
     md5_hashes = sorted({sc.md5_hash for sc in scan_results})
     tracked = db.get_tracked_paths_for_hashes(md5_hashes)
     report('Matching against database…')
@@ -417,8 +563,9 @@ def _scan_and_reconcile(scan_results: list[ScanResult], db: Database, report: Ca
     # hashes tracked during apply_rediscover(), then unchanged/relinked
     # hashes probed at their settled path afterwards) so the per-file
     # "Probed X / Y" messages stay monotonic for the whole scan.
-    total_to_probe = len(classification.new) + len(classification.unchanged) + len(classification.relinked)
-    progress = _ProbeProgress(total_to_probe, report)
+    if progress is None:
+        total_to_probe = len(classification.new) + len(classification.unchanged) + len(classification.relinked)
+        progress = _ProbeProgress(total_to_probe, report)
 
     def probe_one(sc: ScanResult):
         ok = True
@@ -469,7 +616,7 @@ def _scan_and_reconcile(scan_results: list[ScanResult], db: Database, report: Ca
         probe_batch(settled)
 
     indexed = result.new_tracked + len(settled)
-    report(f'Indexed {indexed} files · {result.relinked} relinked · {result.conflicts} conflicts')
+    return ScanSummary(indexed=indexed, relinked=result.relinked, conflicts=result.conflicts)
 
 
 def index_single_file(query: FileQuery, report: Callable[[str], None]):
@@ -480,9 +627,10 @@ def index_single_file(query: FileQuery, report: Callable[[str], None]):
         if not scan_results:
             return
         db = Database()
-        _scan_and_reconcile(scan_results, db, report,
-                            generate_clip_preview=query.generate_clip_preview,
-                            scanned_directory=str(path.parent))
+        summary = _scan_and_reconcile(scan_results, db, report,
+                                       generate_clip_preview=query.generate_clip_preview,
+                                       scanned_directory=str(path.parent))
+        report(_format_scan_summary(summary))
 
 
 def refresh_tracked_files(query: RefreshQuery, report: Callable[[str], None]):

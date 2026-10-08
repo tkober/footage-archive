@@ -124,6 +124,13 @@ class Environment:
     def get_scanning_file_extensions(self) -> [str]:
         return list(self.get_media_type_map().keys())
 
+    def get_scan_batch_size(self) -> int:
+        # Candidates per hash+reconcile batch in the streaming scan (#135,
+        # api/tracking.py::_index_candidates) — smaller means results land
+        # in the DB (and show in the browser) sooner, at the cost of more
+        # round-trips for a large directory.
+        return int(self.loadEnvironmentVariable("SCAN_BATCH_SIZE", "25"))
+
     def get_media_type_map(self) -> dict[str, str]:
         # media_type here only decides a file's *extension-based* family
         # (video/photo, 360 or not); #79 refines it with real metadata once
