@@ -189,17 +189,11 @@
             }
           </div>
           @if (addingKeyword()) {
-            <form class="add-row" (submit)="$event.preventDefault(); addKeyword()">
-              <input class="input kw-input" list="keyword-suggestions" autocomplete="off" placeholder="e.g. beach"
-                     [value]="newKeywordValue()"
-                     (input)="newKeywordValue.set($any($event.target).value)"
-                     (keydown.escape)="stopAddKeyword(); $event.stopPropagation()" />
-              <datalist id="keyword-suggestions">
-                @for (kw of keywordSuggestions(); track kw) { <option [value]="kw"></option> }
-              </datalist>
-              <button type="submit" class="btn btn-primary btn-sm" [disabled]="!newKeywordValue().trim()">Add</button>
+            <div class="add-row">
+              <app-keyword-picker class="grow" [exclude]="file.keywords ?? []"
+                                   (picked)="addKeyword($event)" (escape)="stopAddKeyword()" />
               <button type="button" class="btn btn-ghost btn-sm" (click)="stopAddKeyword()">Done</button>
-            </form>
+            </div>
           }
         </section>
 
