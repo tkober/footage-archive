@@ -3,25 +3,21 @@ name: Build backend Docker image
 on:
   push:
     branches: ["main"]
-    paths:
-      - "api/**"
-      - "db/**"
-      - "alembic/**"
-      - "scanner/**"
-      - "ffmpeg/**"
-      - "photos/**"
-      - "davinci/**"
-      - "shot_classifier/**"
-      - "tasks/**"
-      - "env/**"
-      - "app.py"
-      - "alembic.ini"
-      - "pyproject.toml"
-      - "uv.lock"
-      - "Dockerfile"
-      - ".dockerignore"
-      - ".github/workflows/publish-backend.yml"
+    # The Dockerfile copies the whole repo (COPY ./ ./), so only skip what
+    # never lands in the image or doesn't affect it — a whitelist missed
+    # fileops/, exports/ and mlflow/ (#154 never got built).
+    paths-ignore:
+      - "frontend/**"
+      - "tests/**"
+      - "footage/**"
+      - "dbeaver/**"
+      - ".idea/**"
+      - ".vscode/**"
+      - "**.md"
+      - "*.sh"
+      - ".github/workflows/publish-frontend.yml"
     tags: ["v*.*.*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
