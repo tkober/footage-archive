@@ -107,3 +107,17 @@ button { cursor: pointer; }
 @media (max-width: 760px) {
   .content > :not(router-outlet):not(.page-flush) { padding: var(--space-3); }
 }
+
+/* ── Comparison overlay layering (#146) ──────────────────────────────
+   The comparison view (frontend/src/app/comparison/) sits at z-index 1100,
+   above the app's normal menu/popover/modal/toast layers (60/61, 55/56,
+   1000, 70) so a photo grid's own menu can't peek through it. While it's
+   open, it adds `cmp-open` to <body> — anything opened *from* it (its own
+   context menu, keyword/list popover, the trash confirm dialog, toasts)
+   needs those shared layers bumped back above the overlay in turn. */
+body.cmp-open .menu-backdrop { z-index: 1160; }
+body.cmp-open .menu { z-index: 1161; }
+body.cmp-open .popover-backdrop { z-index: 1155; }
+body.cmp-open .pop { z-index: 1156; }
+body.cmp-open .modal-backdrop { z-index: 1170; }
+body.cmp-open .toast-stack { z-index: 1180; }

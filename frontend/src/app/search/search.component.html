@@ -160,11 +160,11 @@
   </aside>
 
   <!-- ── Results + detail (sliding overlay like browser) ── -->
-  <div class="view-container" [class.detail-open]="selectedFile() || loadingDetails()">
+  <div class="view-container" [class.detail-open]="showDetail()">
 
-  <div class="list-view">
+  <div class="list-view" (contextmenu)="$event.preventDefault()">
 
-    <!-- Result header: count + every active filter as a removable chip -->
+    <!-- Result header: count + every active filter as a removable chip + Select toggle -->
     <div class="results-head">
       <button type="button" class="btn filters-toggle" (click)="filtersOpen.set(!filtersOpen())"
               [attr.aria-expanded]="filtersOpen()">
@@ -186,6 +186,12 @@
           }
           <button type="button" class="btn btn-ghost btn-sm" (click)="clearAllFilters()">Clear all</button>
         </div>
+      }
+      @if (results().length) {
+        <button type="button" class="btn select-toggle" [class.btn-on]="bulkMode()"
+                (click)="bulkMode() ? exitBulkMode() : enterBulkMode()">
+          {{ bulkMode() ? 'Done' : 'Select' }}
+        </button>
       }
     </div>
 
@@ -215,15 +221,21 @@
           @for (result of videoResults(); track result.md5_hash) {
             <app-media-card
                 kind="video"
+                [attr.data-md5]="result.md5_hash"
                 [name]="result.file_name"
                 [extension]="cardExtension(result)"
-                [previewUrl]="result.md5_hash && (!result.preview_status || result.preview_status === 'ok') ? api.clipPreviewUrl(result.md5_hash) : null"
+                [previewUrl]="entryPreviewUrl(result)"
                 [previewStatus]="result.preview_status ?? null"
                 [tracked]="true"
                 [code]="result.item_code ?? null"
                 [date]="result.recorded_at ? result.recorded_at.slice(0, 10) : null"
-                [selected]="selectedFile()?.md5_hash === result.md5_hash"
-                (open)="selectResult(result)" />
+                [selected]="!bulkMode() && selectedFile()?.md5_hash === result.md5_hash"
+                [bulkSelected]="bulkMode() && isBulkSelected(result)"
+                [selecting]="bulkMode()"
+                (open)="onCardOpen(result, $event)"
+                (toggleSelect)="onCardToggle(result, $event)"
+                (contextMenu)="onEntryContextMenu($event, result)"
+                (more)="onCardMore(result, $event)" />
           }
           @if (skeletonTarget() === 'video') {
             @for (i of skeletons(); track i) {
@@ -242,15 +254,21 @@
           @for (result of photoResults(); track result.md5_hash) {
             <app-media-card
                 kind="photo"
+                [attr.data-md5]="result.md5_hash"
                 [name]="result.file_name"
                 [extension]="cardExtension(result)"
-                [previewUrl]="result.md5_hash && (!result.preview_status || result.preview_status === 'ok') ? api.clipPreviewUrl(result.md5_hash) : null"
+                [previewUrl]="entryPreviewUrl(result)"
                 [previewStatus]="result.preview_status ?? null"
                 [tracked]="true"
                 [code]="result.item_code ?? null"
                 [date]="result.recorded_at ? result.recorded_at.slice(0, 10) : null"
-                [selected]="selectedFile()?.md5_hash === result.md5_hash"
-                (open)="selectResult(result)" />
+                [selected]="!bulkMode() && selectedFile()?.md5_hash === result.md5_hash"
+                [bulkSelected]="bulkMode() && isBulkSelected(result)"
+                [selecting]="bulkMode()"
+                (open)="onCardOpen(result, $event)"
+                (toggleSelect)="onCardToggle(result, $event)"
+                (contextMenu)="onEntryContextMenu($event, result)"
+                (more)="onCardMore(result, $event)" />
           }
           @if (skeletonTarget() === 'photo') {
             @for (i of skeletons(); track i) {
@@ -295,3 +313,155 @@
   </div><!-- /view-container -->
 
 </div>
+
+@if (bulkMode()) {
+  <div class="bulk" role="toolbar" aria-label="Selection">
+    <span class="bulk-count"><span class="n">{{ bulkCount() }}</span> selected</span>
+    <div class="bulk-acts">
+      <button #kwBtn type="button" class="btn" [disabled]="bulkApplying() || !bulkCount()"
+              (click)="openBulkPop('keyword', kwBtn)" title="Add a keyword to the selected files">
+        <app-icon name="tag" [size]="16" /><span class="lbl">Keyword</span>
+      </button>
+      <button #locBtn type="button" class="btn" [disabled]="bulkApplying() || !bulkCount()"
+              (click)="openBulkPop('location', locBtn)" title="Set the location of the selected files">
+        <app-icon name="pin" [size]="16" /><span class="lbl">Location</span>
+      </button>
+      <button #listBtn type="button" class="btn" [disabled]="bulkApplying() || !bulkCount()"
+              (click)="openBulkPop('list', listBtn)" title="Add the selected files to a list">
+        <app-icon name="list" [size]="16" /><span class="lbl">Add to list</span>
+      </button>
+      <button type="button" class="btn" [disabled]="bulkApplying() || !bulkCount()"
+              (click)="bulkRescan()" title="Rescan the selected files (re-probe metadata and regenerate the preview)">
+        <app-icon name="scan" [size]="16" /><span class="lbl">Rescan</span>
+      </button>
+      <button type="button" class="btn" [disabled]="bulkApplying() || !bulkCount()"
+              (click)="bulkMoveTo()" title="Move the selected files to another folder">
+        <app-icon name="move" [size]="16" /><span class="lbl">Move</span>
+      </button>
+      <button type="button" class="btn" [disabled]="comparablePhotos().length < 2"
+              (click)="openComparison()" title="Compare the selected photos side by side">
+        <app-icon name="compare" [size]="16" /><span class="lbl">Compare</span>
+      </button>
+      <button type="button" class="btn btn-danger" [disabled]="bulkApplying() || !bulkCount()"
+              (click)="bulkDelete()" title="Move the selected files to trash">
+        <app-icon name="trash" [size]="16" /><span class="lbl">Delete</span>
+      </button>
+    </div>
+    <span class="bulk-sep"></span>
+    @if (bulkCount() < orderedResults().length) {
+      <button type="button" class="btn btn-ghost" (click)="selectAllBulk()">All</button>
+    } @else {
+      <button type="button" class="btn btn-ghost" (click)="clearBulkSelection()">None</button>
+    }
+    <button type="button" class="icon-btn" (click)="exitBulkMode()" title="Exit selection (Esc)">
+      <app-icon name="x" [size]="16" />
+    </button>
+  </div>
+}
+
+@if (bulkPop(); as bp) {
+  <app-popover [anchor]="bp.anchor" [width]="bp.kind === 'location' ? 300 : 380" align="start" (closed)="closeBulkPop()">
+    @switch (bp.kind) {
+      @case ('keyword') {
+        <div class="quick-form">
+          <span class="quick-label">Add keyword to <b>{{ bulkCount() }} {{ bulkCount() === 1 ? 'file' : 'files' }}</b></span>
+          <app-keyword-picker [inline]="true" [autofocus]="true" (picked)="bulkAddKeyword($event)" />
+        </div>
+      }
+      @case ('location') {
+        <div class="quick-form">
+          <label class="quick-label" for="bulk-location">Set location for <b>{{ bulkCount() }} {{ bulkCount() === 1 ? 'file' : 'files' }}</b></label>
+          <input id="bulk-location" class="input" autocomplete="off" placeholder="Filter locations…"
+                 [value]="locationFilter()"
+                 (input)="locationFilter.set($any($event.target).value)"
+                 (keydown.enter)="filteredLocations()[0] && bulkAssignLocation(filteredLocations()[0].id)" />
+          <div class="loc-list" role="listbox">
+            @for (loc of filteredLocations(); track loc.id) {
+              <button type="button" class="loc-opt" role="option" (click)="bulkAssignLocation(loc.id)">
+                <app-icon name="pin" [size]="14" />
+                <span><b>{{ loc.name || loc.city || loc.region || loc.country }}</b><small>{{ locationGeo(loc) }}</small></span>
+              </button>
+            } @empty {
+              <span class="loc-empty">{{ allLocations().length ? 'No location matches.' : 'No locations yet. Create one in a file\'s detail view.' }}</span>
+            }
+          </div>
+        </div>
+      }
+      @case ('list') {
+        <div class="quick-form">
+          <span class="quick-label">Add <b>{{ bulkCount() }} {{ bulkCount() === 1 ? 'file' : 'files' }}</b> to a list</span>
+          <app-list-picker placeholder="Find or create a list…" [inline]="true" [autofocus]="true" (picked)="bulkAddToList($event)" />
+        </div>
+      }
+    }
+  </app-popover>
+}
+
+@if (menuEntry(); as m) {
+  <app-menu
+    [items]="menuItems()"
+    [position]="menuPoint()"
+    [anchor]="menuAnchor()"
+    (select)="onMenuSelect($event)"
+    (closed)="closeMenu()">
+    <div menuHeader class="ctx-head">
+      @if (entryPreviewUrl(m); as url) {
+        <span class="ctx-thumb" [class.video]="cardKind(m) === 'video'" [style.background-image]="'url(' + url + ')'"></span>
+      } @else {
+        <span class="ctx-thumb ctx-icon"><app-icon name="image" [size]="16" /></span>
+      }
+      <span class="ctx-text">
+        <b>{{ m.file_name }}</b>
+        <small>{{ menuHeaderMeta() }}</small>
+      </span>
+    </div>
+  </app-menu>
+}
+
+@if (quickPop(); as qp) {
+  <app-popover [anchor]="qp.anchor" [width]="380" align="start" (closed)="closeQuickPop()">
+    @if (qp.kind === 'keyword') {
+      <div class="quick-form">
+        <span class="quick-label">Add keyword to <b>{{ qp.entry.file_name }}</b></span>
+        <app-keyword-picker [inline]="true" [autofocus]="true" (picked)="submitQuickKeyword($event)" />
+      </div>
+    } @else {
+      <div class="quick-form">
+        <span class="quick-label">Add <b>{{ qp.entry.file_name }}</b> to a list</span>
+        <app-list-picker placeholder="Find or create a list…" [inline]="true" [autofocus]="true" (picked)="quickAddToList($event)" />
+      </div>
+    }
+  </app-popover>
+}
+
+@if (showComparison()) {
+  <app-comparison-view [items]="comparablePhotos()" (closed)="closeComparison()" (deleted)="onComparisonDeleted($event)" />
+}
+
+@if (movePickerPaths(); as paths) {
+  <app-folder-picker
+    [rootDir]="rootDir() ?? ''"
+    [sourcePaths]="paths"
+    (picked)="onFolderPicked($event)"
+    (cancelled)="closeMovePicker()" />
+}
+
+@if (pendingMove(); as pm) {
+  <app-confirm-dialog
+    title="Confirm move"
+    [message]="movePreviewMessage()"
+    confirmLabel="Move"
+    (confirmed)="confirmPendingMove()"
+    (cancelled)="cancelPendingMove()" />
+}
+
+@if (pendingDelete()) {
+  <app-confirm-dialog
+    title="Move to trash"
+    [message]="deletePreviewMessage().message"
+    [warning]="deletePreviewMessage().warning"
+    confirmLabel="Move to trash"
+    [danger]="true"
+    (confirmed)="confirmPendingDelete()"
+    (cancelled)="cancelPendingDelete()" />
+}

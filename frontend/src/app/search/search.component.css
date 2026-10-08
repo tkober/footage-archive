@@ -96,6 +96,8 @@
 .results-count { font-size: var(--fs-md); color: var(--muted); white-space: nowrap; }
 .results-count b { color: var(--text); font-family: var(--mono); font-weight: 500; }
 .active-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+/* Select/Done toggle (#144, same look as the browser's) — pushed to the far right. */
+.select-toggle { margin-left: auto; }
 .filters-toggle { display: none; }
 .filters-toggle .count {
   min-width: 18px;
@@ -160,3 +162,94 @@
   .grid { grid-template-columns: repeat(2, 1fr); gap: 10px 8px; }
   .grid.videos { grid-template-columns: 1fr; }
 }
+
+/* ── Context menu header + quick popovers (#144, ported from the browser's #41) ── */
+.ctx-head { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.ctx-thumb {
+  flex: none;
+  width: 40px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  background: var(--skeleton) center / cover no-repeat;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+/* video previews are 5-frame strips: show the first frame */
+.ctx-thumb.video { background-size: 500% 100%; background-position: 0 0; }
+.ctx-icon { color: var(--accent); background: var(--accent-soft); }
+.ctx-text { display: grid; min-width: 0; }
+.ctx-text b {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ctx-text small { font: 400 var(--fs-xs) var(--mono); color: var(--faint); }
+
+.quick-form { display: grid; gap: var(--space-2); padding: var(--space-3); }
+.quick-label { font-size: var(--fs-sm); color: var(--muted); overflow-wrap: anywhere; }
+.quick-label b { color: var(--text); font-weight: 500; }
+
+/* ── Floating selection bar (#144, ported from the browser's #42) ── */
+.bulk {
+  position: fixed;
+  left: calc(50% + 36px); /* centred in the content area, right of the 72px rail */
+  bottom: var(--space-5);
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: calc(100% - 72px - 2 * var(--space-4));
+  padding: 6px 6px 6px var(--space-4);
+  border-radius: 14px;
+  background: var(--raised);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-2);
+  animation: bulk-rise var(--dur-base) ease-out;
+}
+@keyframes bulk-rise { from { opacity: 0; transform: translate(-50%, 8px); } }
+.bulk-count { font-weight: 600; margin-right: var(--space-2); white-space: nowrap; }
+.bulk-count .n { font-family: var(--mono); color: var(--accent); }
+.bulk-acts { display: flex; gap: 2px; overflow-x: auto; min-width: 0; }
+.bulk .btn { border-color: transparent; background: none; }
+.bulk .btn:hover:not(:disabled) { background: var(--hover); }
+.bulk .btn:disabled { opacity: .45; cursor: default; }
+.bulk-sep { width: 1px; height: 20px; background: var(--line-strong); margin: 0 var(--space-1); flex: none; }
+
+.loc-list { display: grid; gap: 2px; max-height: 240px; overflow-y: auto; margin: 0 calc(-1 * var(--space-1)); }
+.loc-opt {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-2);
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  text-align: left;
+}
+.loc-opt:hover, .loc-opt:focus-visible { background: var(--hover); color: var(--text); }
+.loc-opt span { display: grid; min-width: 0; }
+.loc-opt b { color: var(--text); font-weight: 500; font-size: var(--fs-md); }
+.loc-opt small { font-size: var(--fs-xs); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.loc-empty { font-size: var(--fs-sm); color: var(--faint); padding: var(--space-2); }
+
+@media (max-width: 760px) {
+  .bulk {
+    left: var(--space-2);
+    right: var(--space-2);
+    bottom: calc(68px + env(safe-area-inset-bottom, 0px));
+    transform: none;
+    max-width: none;
+    animation: none;
+    padding-left: var(--space-3);
+  }
+  .bulk .btn .lbl { display: none; }
+  .bulk .btn { padding: 0 var(--space-2); }
+}
+@media (prefers-reduced-motion: reduce) { .bulk { animation: none; } }
