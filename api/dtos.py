@@ -4,6 +4,8 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field, StrictStr
 
+from tasks.activity import Activity
+
 
 class ScanningQuery(BaseModel):
     generate_clip_preview: bool = True
@@ -538,3 +540,67 @@ class SystemSettings(BaseModel):
 class SystemDiagnosticsResponse(BaseModel):
     settings: SystemSettings
     runtime: SystemDiagnostics
+
+
+class ScanJobOptions(BaseModel):
+    """`ScanJobs.options` — applied to every unit's scan (#137)."""
+    generate_clip_preview: bool = True
+    force_rehash: bool = False
+
+
+class ScanUnitResult(BaseModel):
+    """`ScanUnits.result` once a unit is terminal — the same counts as
+    api/tracking.py's ScanSummary (minus `cancelled`, which is the unit's
+    own `status` here)."""
+    indexed: int = 0
+    relinked: int = 0
+    conflicts: int = 0
+    failed: int = 0
+    skipped: int = 0
+
+
+class ScanUnitDto(BaseModel):
+    id: int
+    directory: StrictStr
+    position: int
+    status: StrictStr
+    media_file_count: Optional[int] = None
+    tracked_file_count: Optional[int] = None
+    progress: Optional[str] = None
+    error: Optional[str] = None
+    result: Optional[ScanUnitResult] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    # Live, like TaskDescription.activity — only set for a RUNNING unit this
+    # process actually claimed (tasks/scanqueue.py).
+    activity: Optional[Activity] = None
+
+
+class ScanJobDto(BaseModel):
+    id: StrictStr
+    root_path: StrictStr
+    status: StrictStr
+    options: ScanJobOptions
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    summary: Optional[str] = None
+    units: List[ScanUnitDto] = []
+
+
+class ScanJobListEntry(BaseModel):
+    """GET /scan-jobs's shape — aggregated progress instead of the full unit
+    list (see Database.get_scan_jobs for the units_done/_total,
+    files_done/_total definitions)."""
+    id: StrictStr
+    root_path: StrictStr
+    status: StrictStr
+    options: ScanJobOptions
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    summary: Optional[str] = None
+    units_done: int
+    units_total: int
+    files_done: int
+    files_total: int

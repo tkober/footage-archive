@@ -1,12 +1,13 @@
 import logging
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
 import pandas as pd
 from sqlalchemy import and_, case, delete, func, select, tuple_, update
 from sqlalchemy.dialects import postgresql
-from sqlalchemy.dialects.postgresql import aggregate_order_by
+from sqlalchemy.dialects.postgresql import aggregate_order_by, insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
 from db.engine import get_engine, upsert, upsert_ignore
@@ -24,6 +25,8 @@ from db.models import (
     path_conflicts_table,
     photo_details_table,
     preview_status_table,
+    scan_jobs_table,
+    scan_units_table,
     video_details_table,
 )
 from ffmpeg.ffmpeg import ClipPreview
@@ -39,6 +42,35 @@ class DuplicateListNameError(Exception):
 class StaleConflictError(Exception):
     """Raised by resolve_path_conflict() when the tracked path changed
     since the caller read it, so the guarded repoint matched no row."""
+
+
+class ScanJobNotFoundError(Exception):
+    """Raised by the Scan queue (#137) methods for an unknown ScanJobs id."""
+
+
+class ScanUnitNotFoundError(Exception):
+    """Raised by the Scan queue (#137) methods for a unit id that doesn't
+    exist, or doesn't belong to the given job."""
+
+
+class InvalidScanTransitionError(Exception):
+    """Raised by the Scan queue (#137) methods for a state transition that
+    isn't valid from the job's/unit's current status. Carries a
+    human-readable `detail` the API surfaces as a 409 response."""
+
+    def __init__(self, detail: str):
+        self.detail = detail
+        super().__init__(detail)
+
+
+class DirectoryAlreadyQueuedError(Exception):
+    """Raised by retry_scan_unit() when requeuing a unit would violate the
+    partial unique index on ScanUnits.directory — the directory is already
+    QUEUED/RUNNING in another job. The API maps this to 409."""
+
+    def __init__(self, unit_id: int):
+        self.unit_id = unit_id
+        super().__init__(f'Directory already queued or running in another job (unit {unit_id})')
 
 
 class UndoRenameFailedError(Exception):
@@ -1435,3 +1467,482 @@ class Database:
                     # drop the conflict rows on a no-op; let the caller retry.
                     raise StaleConflictError(md5_hash)
             conn.execute(delete(path_conflicts_table).where(path_conflicts_table.c.md5_hash == md5_hash))
+
+    # ------------------------------------------------------------------
+    # Scan queue (#137) — ScanJobs/ScanUnits, consumed by tasks/scanqueue.py
+    # ------------------------------------------------------------------
+
+    _ACTIVE_UNIT_STATUSES = ('QUEUED', 'RUNNING')  # must match the partial unique index's predicate
+    _TERMINAL_UNIT_STATUSES = ('DONE', 'FAILED', 'CANCELLED')
+    _TERMINAL_JOB_STATUSES = ('DONE', 'FAILED', 'CANCELLED')
+
+    def create_scan_job(self, root_path: str, units: list[dict], options: dict,
+                        start: bool) -> tuple[dict, list[dict]]:
+        """Creates a ScanJob with its units in their given order (`position`
+        0, 1, 2, …) — used by tests directly today and by #138's tree
+        planner later. `units` is a list of
+        {'directory', 'media_file_count'?, 'tracked_file_count'?}.
+
+        `start=True` inserts the job QUEUED and every unit QUEUED straight
+        away; `start=False` (the default a planner would use) inserts the
+        job and every unit PLANNED, deselect-able via deselect_scan_unit()
+        before a later start_scan_job() call.
+
+        A QUEUED insert for a directory already QUEUED/RUNNING in another
+        job is rejected by the partial unique index — caught per unit (via
+        `ON CONFLICT ... DO NOTHING`, matching that index's predicate
+        exactly) and reported back as `skipped`, instead of failing the
+        whole job. A PLANNED insert never conflicts (the index only
+        constrains QUEUED/RUNNING rows), so this can't happen when
+        `start=False`."""
+        job_id = str(uuid.uuid4())
+        status = 'QUEUED' if start else 'PLANNED'
+        skipped: list[dict] = []
+        with get_engine().begin() as conn:
+            conn.execute(scan_jobs_table.insert().values(
+                id=job_id, root_path=root_path, status=status, options=options,
+            ))
+            for position, unit in enumerate(units):
+                stmt = pg_insert(scan_units_table).values(
+                    job_id=job_id, directory=unit['directory'], position=position, status=status,
+                    media_file_count=unit.get('media_file_count'),
+                    tracked_file_count=unit.get('tracked_file_count'),
+                )
+                if start:
+                    stmt = stmt.on_conflict_do_nothing(
+                        index_elements=['directory'],
+                        index_where=scan_units_table.c.status.in_(self._ACTIVE_UNIT_STATUSES),
+                    )
+                stmt = stmt.returning(scan_units_table.c.id)
+                if conn.execute(stmt).fetchone() is None:
+                    skipped.append({'directory': unit['directory'], 'reason': 'already queued'})
+        return self.get_scan_job(job_id), skipped
+
+    def get_scan_job(self, job_id: str) -> Optional[dict]:
+        """One job with every one of its units, ordered by `position`. No
+        aggregated progress here (see get_scan_jobs for that) — the detail
+        view always has the full unit list to compute from if it needs to."""
+        with get_engine().connect() as conn:
+            job_row = conn.execute(select(scan_jobs_table).where(scan_jobs_table.c.id == job_id)).fetchone()
+            if job_row is None:
+                return None
+            unit_rows = conn.execute(
+                select(scan_units_table)
+                .where(scan_units_table.c.job_id == job_id)
+                .order_by(scan_units_table.c.position)
+            ).fetchall()
+        job = job_row._asdict()
+        job['units'] = [r._asdict() for r in unit_rows]
+        return job
+
+    def get_scan_jobs(self, active: Optional[bool] = None) -> list[dict]:
+        """Every job, newest first, with aggregated progress: `units_done`/
+        `units_total` and `files_done`/`files_total`. "done" = a terminal
+        unit (DONE/FAILED/CANCELLED); the files counts sum `media_file_count`
+        over terminal units (`files_done`) vs. every non-DESELECTED unit
+        (`files_total`) — a DESELECTED unit was taken out of the plan, so it
+        counts toward neither; `units_total` uses the same non-DESELECTED
+        definition for consistency. `active=True` restricts to jobs whose
+        status isn't terminal; `active=False`/omitted returns every job."""
+        done_expr = scan_units_table.c.status.in_(self._TERMINAL_UNIT_STATUSES)
+        not_deselected_expr = scan_units_table.c.status != 'DESELECTED'
+        agg = (
+            select(
+                scan_units_table.c.job_id,
+                func.count().filter(done_expr).label('units_done'),
+                func.count().filter(not_deselected_expr).label('units_total'),
+                func.coalesce(
+                    func.sum(case((done_expr, scan_units_table.c.media_file_count), else_=0)), 0
+                ).label('files_done'),
+                func.coalesce(
+                    func.sum(case((not_deselected_expr, scan_units_table.c.media_file_count), else_=0)), 0
+                ).label('files_total'),
+            )
+            .group_by(scan_units_table.c.job_id)
+            .subquery()
+        )
+        stmt = (
+            select(
+                scan_jobs_table,
+                func.coalesce(agg.c.units_done, 0).label('units_done'),
+                func.coalesce(agg.c.units_total, 0).label('units_total'),
+                func.coalesce(agg.c.files_done, 0).label('files_done'),
+                func.coalesce(agg.c.files_total, 0).label('files_total'),
+            )
+            .select_from(scan_jobs_table.outerjoin(agg, scan_jobs_table.c.id == agg.c.job_id))
+            .order_by(scan_jobs_table.c.created_at.desc())
+        )
+        if active is True:
+            stmt = stmt.where(scan_jobs_table.c.status.notin_(self._TERMINAL_JOB_STATUSES))
+        with get_engine().connect() as conn:
+            rows = conn.execute(stmt).fetchall()
+        return [row._asdict() for row in rows]
+
+    def get_scan_job_status(self, job_id: str) -> Optional[str]:
+        with get_engine().connect() as conn:
+            row = conn.execute(select(scan_jobs_table.c.status).where(scan_jobs_table.c.id == job_id)).fetchone()
+        return row.status if row is not None else None
+
+    def claim_next_scan_unit(self) -> Optional[dict]:
+        """The consumer's claim step (#137), one transaction: lock the next
+        QUEUED unit of a QUEUED/RUNNING job (`FOR UPDATE OF ... SKIP LOCKED`
+        — two consumers never claim the same row), set it RUNNING, and bump
+        its job to RUNNING too (recording `started_at` the first time) —
+        all before the caller ever starts the actual scan. Returns None if
+        nothing is claimable right now."""
+        now = datetime.now(timezone.utc)
+        with get_engine().begin() as conn:
+            stmt = (
+                select(scan_units_table.c.id, scan_units_table.c.job_id, scan_units_table.c.directory,
+                       scan_jobs_table.c.options)
+                .select_from(scan_units_table.join(scan_jobs_table, scan_jobs_table.c.id == scan_units_table.c.job_id))
+                .where(scan_units_table.c.status == 'QUEUED',
+                       scan_jobs_table.c.status.in_(('QUEUED', 'RUNNING')))
+                .order_by(scan_jobs_table.c.created_at, scan_units_table.c.position, scan_units_table.c.id)
+                .limit(1)
+                .with_for_update(of=scan_units_table, skip_locked=True)
+            )
+            row = conn.execute(stmt).fetchone()
+            if row is None:
+                return None
+            conn.execute(
+                update(scan_units_table)
+                .where(scan_units_table.c.id == row.id)
+                .values(status='RUNNING', started_at=now, error=None, progress=None)
+            )
+            job_row = conn.execute(
+                select(scan_jobs_table.c.status, scan_jobs_table.c.started_at)
+                .where(scan_jobs_table.c.id == row.job_id)
+                .with_for_update()
+            ).fetchone()
+            if job_row.status == 'QUEUED':
+                values = {'status': 'RUNNING'}
+                if job_row.started_at is None:
+                    values['started_at'] = now
+                conn.execute(update(scan_jobs_table).where(scan_jobs_table.c.id == row.job_id).values(**values))
+            return {'unit_id': row.id, 'job_id': row.job_id, 'directory': row.directory,
+                    'options': row.options or {}}
+
+    def set_scan_unit_progress(self, unit_id: int, message: str) -> None:
+        with get_engine().begin() as conn:
+            conn.execute(update(scan_units_table).where(scan_units_table.c.id == unit_id).values(progress=message))
+
+    def finish_scan_unit(self, unit_id: int, status: str, *, result: Optional[dict],
+                         error: Optional[str], summarize: Callable[[list[dict]], str]) -> None:
+        """Marks `unit_id` terminal (DONE/FAILED/CANCELLED) and, in the same
+        transaction, recomputes its job's status from every one of its
+        units (see `_recompute_scan_job_status_on_conn`). `summarize(units)`
+        builds the job's final summary text once no unit is left
+        QUEUED/RUNNING — injected so this DB-layer method never has to
+        import api/tracking.py's ScanSummary/_format_scan_summary (the rest
+        of the app only calls into db/ for SQL, never the other way)."""
+        now = datetime.now(timezone.utc)
+        with get_engine().begin() as conn:
+            unit_row = conn.execute(
+                select(scan_units_table.c.job_id).where(scan_units_table.c.id == unit_id)
+            ).fetchone()
+            if unit_row is None:
+                return
+            conn.execute(
+                update(scan_units_table)
+                .where(scan_units_table.c.id == unit_id)
+                .values(status=status, finished_at=now, result=result, error=error)
+            )
+            self._recompute_scan_job_status_on_conn(conn, unit_row.job_id, summarize)
+
+    def _recompute_scan_job_status_on_conn(self, conn, job_id: str,
+                                           summarize: Callable[[list[dict]], str]) -> None:
+        """Job status follows from its units (#137): locks the job row
+        first (serialising concurrent consumers finishing two units of the
+        same job at once), then — only once no unit is left QUEUED/RUNNING
+        (DESELECTED/PLANNED don't count, same as get_scan_jobs) and the job
+        hasn't already been finalized (`finished_at` guards that, so this
+        is safe to call more than once for the same job) — sets
+        `finished_at` + `summary`: status becomes FAILED if any unit FAILED,
+        else DONE, UNLESS the job is already CANCELLED, which stays
+        CANCELLED (only finished_at/summary get filled in). A PAUSED job
+        with units still QUEUED is left untouched (the "no unit
+        QUEUED/RUNNING left" condition isn't met)."""
+        job_row = conn.execute(
+            select(scan_jobs_table.c.status, scan_jobs_table.c.finished_at)
+            .where(scan_jobs_table.c.id == job_id)
+            .with_for_update()
+        ).fetchone()
+        if job_row is None or job_row.finished_at is not None:
+            return
+        units = conn.execute(
+            select(scan_units_table.c.status, scan_units_table.c.result)
+            .where(scan_units_table.c.job_id == job_id)
+        ).fetchall()
+        if any(u.status in self._ACTIVE_UNIT_STATUSES for u in units):
+            return
+        now = datetime.now(timezone.utc)
+        summary = summarize([{'status': u.status, 'result': u.result} for u in units])
+        new_status = job_row.status
+        if job_row.status != 'CANCELLED':
+            new_status = 'FAILED' if any(u.status == 'FAILED' for u in units) else 'DONE'
+        conn.execute(
+            update(scan_jobs_table).where(scan_jobs_table.c.id == job_id)
+            .values(status=new_status, finished_at=now, summary=summary)
+        )
+
+    def pause_scan_job(self, job_id: str) -> dict:
+        with get_engine().begin() as conn:
+            row = conn.execute(
+                select(scan_jobs_table.c.status).where(scan_jobs_table.c.id == job_id).with_for_update()
+            ).fetchone()
+            if row is None:
+                raise ScanJobNotFoundError(job_id)
+            if row.status not in ('QUEUED', 'RUNNING'):
+                raise InvalidScanTransitionError(f'Cannot pause a job that is {row.status}')
+            conn.execute(update(scan_jobs_table).where(scan_jobs_table.c.id == job_id).values(status='PAUSED'))
+        return self.get_scan_job(job_id)
+
+    def resume_scan_job(self, job_id: str, summarize: Callable[[list[dict]], str]) -> dict:
+        """PAUSED -> QUEUED; if nothing is actually left to run anymore
+        (every unit already terminal), the subsequent recompute inside this
+        same transaction takes it straight to DONE/FAILED instead."""
+        with get_engine().begin() as conn:
+            row = conn.execute(
+                select(scan_jobs_table.c.status).where(scan_jobs_table.c.id == job_id).with_for_update()
+            ).fetchone()
+            if row is None:
+                raise ScanJobNotFoundError(job_id)
+            if row.status != 'PAUSED':
+                raise InvalidScanTransitionError(f'Cannot resume a job that is {row.status}')
+            conn.execute(update(scan_jobs_table).where(scan_jobs_table.c.id == job_id).values(status='QUEUED'))
+            self._recompute_scan_job_status_on_conn(conn, job_id, summarize)
+        return self.get_scan_job(job_id)
+
+    def cancel_scan_job(self, job_id: str, summarize: Callable[[list[dict]], str]) -> dict:
+        """All QUEUED/PLANNED units -> CANCELLED, job -> CANCELLED. A unit
+        already RUNNING is left as-is here — the caller (api/scanjobs.py)
+        flags it in tasks/scanqueue.py's in-memory cancel set right after
+        this returns, so its executor notices without a DB write; it'll
+        report itself CANCELLED (with its partial result) once it does,
+        which is what finally lets the job reach `finished_at`/`summary`
+        (set immediately below, in the same transaction, only if nothing is
+        RUNNING anymore)."""
+        now = datetime.now(timezone.utc)
+        with get_engine().begin() as conn:
+            # Lock order units -> job, the same order claim_next_scan_unit and
+            # finish_scan_unit use; locking the job first could deadlock with
+            # a consumer that holds a unit row and waits for the job row.
+            conn.execute(
+                select(scan_units_table.c.id)
+                .where(scan_units_table.c.job_id == job_id,
+                       scan_units_table.c.status.in_(('QUEUED', 'PLANNED')))
+                .order_by(scan_units_table.c.id)
+                .with_for_update()
+            ).fetchall()
+            row = conn.execute(
+                select(scan_jobs_table.c.status).where(scan_jobs_table.c.id == job_id).with_for_update()
+            ).fetchone()
+            if row is None:
+                raise ScanJobNotFoundError(job_id)
+            if row.status in self._TERMINAL_JOB_STATUSES:
+                raise InvalidScanTransitionError(f'Cannot cancel a job that is {row.status}')
+            conn.execute(
+                update(scan_units_table)
+                .where(scan_units_table.c.job_id == job_id,
+                       scan_units_table.c.status.in_(('QUEUED', 'PLANNED')))
+                .values(status='CANCELLED', finished_at=now)
+            )
+            conn.execute(update(scan_jobs_table).where(scan_jobs_table.c.id == job_id).values(status='CANCELLED'))
+            self._recompute_scan_job_status_on_conn(conn, job_id, summarize)
+        return self.get_scan_job(job_id)
+
+    def delete_scan_job(self, job_id: str) -> None:
+        """409 while any unit is RUNNING; otherwise the job (and its units,
+        ON DELETE CASCADE) are gone for good."""
+        with get_engine().begin() as conn:
+            row = conn.execute(select(scan_jobs_table.c.id).where(scan_jobs_table.c.id == job_id)).fetchone()
+            if row is None:
+                raise ScanJobNotFoundError(job_id)
+            running = conn.execute(
+                select(func.count()).select_from(scan_units_table)
+                .where(scan_units_table.c.job_id == job_id, scan_units_table.c.status == 'RUNNING')
+            ).scalar_one()
+            if running:
+                raise InvalidScanTransitionError('Cannot delete a job while one of its units is running')
+            conn.execute(delete(scan_jobs_table).where(scan_jobs_table.c.id == job_id))
+
+    def start_scan_job(self, job_id: str) -> dict:
+        """PLANNED -> QUEUED, same for its PLANNED units — except a unit
+        whose directory is already QUEUED/RUNNING in another job, which is
+        set CANCELLED with an explanatory error instead of failing the
+        whole start (same per-unit `ON CONFLICT` guard as create_scan_job);
+        a genuine race that still raises is let through to the caller as a
+        plain IntegrityError (mapped to 409 by the API)."""
+        with get_engine().begin() as conn:
+            job_row = conn.execute(
+                select(scan_jobs_table.c.status).where(scan_jobs_table.c.id == job_id).with_for_update()
+            ).fetchone()
+            if job_row is None:
+                raise ScanJobNotFoundError(job_id)
+            if job_row.status != 'PLANNED':
+                raise InvalidScanTransitionError(f'Cannot start a job that is {job_row.status}')
+            planned_units = conn.execute(
+                select(scan_units_table.c.id)
+                .where(scan_units_table.c.job_id == job_id, scan_units_table.c.status == 'PLANNED')
+            ).fetchall()
+            for unit in planned_units:
+                try:
+                    with conn.begin_nested():
+                        conn.execute(
+                            update(scan_units_table).where(scan_units_table.c.id == unit.id)
+                            .values(status='QUEUED')
+                        )
+                except IntegrityError:
+                    # Another job already has this directory QUEUED/RUNNING
+                    # (the partial unique index caught it) — don't fail the
+                    # whole start over one unit.
+                    conn.execute(
+                        update(scan_units_table).where(scan_units_table.c.id == unit.id)
+                        .values(status='CANCELLED', error='Already queued in another job',
+                                finished_at=datetime.now(timezone.utc))
+                    )
+            conn.execute(update(scan_jobs_table).where(scan_jobs_table.c.id == job_id).values(status='QUEUED'))
+        return self.get_scan_job(job_id)
+
+    def cancel_scan_unit(self, job_id: str, unit_id: int, summarize: Callable[[list[dict]], str]) -> bool:
+        """Cancels one unit of `job_id`. A QUEUED/PLANNED unit is flipped to
+        CANCELLED right away (job recomputed in the same transaction) and
+        this returns True. A RUNNING unit is left untouched here — this
+        returns False so the caller flags it in tasks/scanqueue.py's
+        in-memory cancel set instead, same reasoning as cancel_scan_job."""
+        now = datetime.now(timezone.utc)
+        with get_engine().begin() as conn:
+            row = conn.execute(
+                select(scan_units_table.c.status, scan_units_table.c.job_id)
+                .where(scan_units_table.c.id == unit_id)
+                .with_for_update()
+            ).fetchone()
+            if row is None or row.job_id != job_id:
+                raise ScanUnitNotFoundError(unit_id)
+            if row.status == 'RUNNING':
+                return False
+            if row.status not in ('QUEUED', 'PLANNED'):
+                raise InvalidScanTransitionError(f'Cannot cancel a unit that is {row.status}')
+            conn.execute(
+                update(scan_units_table).where(scan_units_table.c.id == unit_id)
+                .values(status='CANCELLED', finished_at=now)
+            )
+            self._recompute_scan_job_status_on_conn(conn, job_id, summarize)
+        return True
+
+    def retry_scan_unit(self, job_id: str, unit_id: int, summarize: Callable[[list[dict]], str]) -> dict:
+        """FAILED/CANCELLED -> QUEUED (clearing error/progress/result/
+        finished_at); if the job itself was terminal, it goes back to
+        QUEUED too (clearing its finished_at/summary). Raises
+        DirectoryAlreadyQueuedError (-> 409) if the unit's directory is
+        QUEUED/RUNNING in another job right now."""
+        with get_engine().begin() as conn:
+            row = conn.execute(
+                select(scan_units_table.c.status, scan_units_table.c.job_id)
+                .where(scan_units_table.c.id == unit_id)
+                .with_for_update()
+            ).fetchone()
+            if row is None or row.job_id != job_id:
+                raise ScanUnitNotFoundError(unit_id)
+            if row.status not in ('FAILED', 'CANCELLED'):
+                raise InvalidScanTransitionError(f'Cannot retry a unit that is {row.status}')
+            try:
+                with conn.begin_nested():
+                    conn.execute(
+                        update(scan_units_table)
+                        .where(scan_units_table.c.id == unit_id)
+                        .values(status='QUEUED', error=None, progress=None, result=None, finished_at=None)
+                    )
+            except IntegrityError:
+                raise DirectoryAlreadyQueuedError(unit_id)
+            job_row = conn.execute(
+                select(scan_jobs_table.c.status).where(scan_jobs_table.c.id == job_id).with_for_update()
+            ).fetchone()
+            if job_row.status in self._TERMINAL_JOB_STATUSES:
+                conn.execute(
+                    update(scan_jobs_table).where(scan_jobs_table.c.id == job_id)
+                    .values(status='QUEUED', finished_at=None, summary=None)
+                )
+        return self.get_scan_job(job_id)
+
+    def move_scan_unit_to_top(self, job_id: str, unit_id: int) -> dict:
+        """position = (min position of the job's waiting — PLANNED/QUEUED —
+        units) - 1, so it's claimed/started before all of them."""
+        with get_engine().begin() as conn:
+            row = conn.execute(
+                select(scan_units_table.c.status, scan_units_table.c.job_id)
+                .where(scan_units_table.c.id == unit_id)
+            ).fetchone()
+            if row is None or row.job_id != job_id:
+                raise ScanUnitNotFoundError(unit_id)
+            if row.status not in ('PLANNED', 'QUEUED'):
+                raise InvalidScanTransitionError(f'Cannot reorder a unit that is {row.status}')
+            min_position = conn.execute(
+                select(func.min(scan_units_table.c.position))
+                .where(scan_units_table.c.job_id == job_id,
+                       scan_units_table.c.status.in_(('PLANNED', 'QUEUED')))
+            ).scalar_one()
+            conn.execute(
+                update(scan_units_table).where(scan_units_table.c.id == unit_id)
+                .values(position=min_position - 1)
+            )
+        return self.get_scan_job(job_id)
+
+    def _transition_scan_unit(self, job_id: str, unit_id: int, from_status: str, to_status: str) -> dict:
+        with get_engine().begin() as conn:
+            row = conn.execute(
+                select(scan_units_table.c.status, scan_units_table.c.job_id)
+                .where(scan_units_table.c.id == unit_id)
+                .with_for_update()
+            ).fetchone()
+            if row is None or row.job_id != job_id:
+                raise ScanUnitNotFoundError(unit_id)
+            if row.status != from_status:
+                raise InvalidScanTransitionError(f'Cannot move a unit from {row.status} to {to_status}')
+            conn.execute(update(scan_units_table).where(scan_units_table.c.id == unit_id).values(status=to_status))
+        return self.get_scan_job(job_id)
+
+    def deselect_scan_unit(self, job_id: str, unit_id: int) -> dict:
+        """PLANNED -> DESELECTED (planning only, used by #138)."""
+        return self._transition_scan_unit(job_id, unit_id, 'PLANNED', 'DESELECTED')
+
+    def reselect_scan_unit(self, job_id: str, unit_id: int) -> dict:
+        """DESELECTED -> PLANNED (planning only, used by #138)."""
+        return self._transition_scan_unit(job_id, unit_id, 'DESELECTED', 'PLANNED')
+
+    def recover_scan_queue(self, summarize: Callable[[list[dict]], str]) -> None:
+        """Run once at startup, before consumers start (#137): a unit left
+        RUNNING by a crash goes back to QUEUED — the executor is idempotent
+        (reconciliation is upsert-based, and #136's skip rule makes a
+        same-directory rerun cheap) — which in turn means every job left
+        RUNNING no longer has a running unit, so it goes back to QUEUED too.
+
+        Also reconciles a CANCELLED job's stray QUEUED/PLANNED units: these
+        only exist if the process restarted between a job-level cancel and
+        a still-RUNNING unit noticing its in-memory cancel flag (reset to
+        QUEUED by the step above, same as any other crashed RUNNING unit) —
+        without this, such a unit would never be claimed again (a consumer
+        only claims units of a QUEUED/RUNNING job) and its job would never
+        reach `finished_at`."""
+        now = datetime.now(timezone.utc)
+        with get_engine().begin() as conn:
+            conn.execute(
+                update(scan_units_table).where(scan_units_table.c.status == 'RUNNING')
+                .values(status='QUEUED', started_at=None, error=None, progress=None)
+            )
+            conn.execute(
+                update(scan_jobs_table).where(scan_jobs_table.c.status == 'RUNNING')
+                .values(status='QUEUED')
+            )
+            cancelled_job_ids = [r[0] for r in conn.execute(
+                select(scan_jobs_table.c.id).where(scan_jobs_table.c.status == 'CANCELLED')
+            ).fetchall()]
+            for job_id in cancelled_job_ids:
+                conn.execute(
+                    update(scan_units_table)
+                    .where(scan_units_table.c.job_id == job_id,
+                           scan_units_table.c.status.in_(('QUEUED', 'PLANNED')))
+                    .values(status='CANCELLED', finished_at=now)
+                )
+                self._recompute_scan_job_status_on_conn(conn, job_id, summarize)

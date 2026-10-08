@@ -131,6 +131,19 @@ class Environment:
         # round-trips for a large directory.
         return int(self.loadEnvironmentVariable("SCAN_BATCH_SIZE", "25"))
 
+    def get_scan_consumers(self) -> int:
+        # Daemon threads consuming the persistent scan queue (#137,
+        # tasks/scanqueue.py) — each claims one ScanUnit at a time (SKIP
+        # LOCKED) instead of directory scans running as FastAPI
+        # BackgroundTasks, which would share anyio's threadpool with the
+        # sync endpoints (rename/move/EXIF/stream).
+        return int(self.loadEnvironmentVariable("SCAN_CONSUMERS", "2"))
+
+    def get_scan_queue_poll_s(self) -> float:
+        # How long an idle consumer sleeps — on the stop event, so shutdown
+        # stays prompt — before polling for the next QUEUED unit again.
+        return float(self.loadEnvironmentVariable("SCAN_QUEUE_POLL_S", "2"))
+
     def get_media_type_map(self) -> dict[str, str]:
         # media_type here only decides a file's *extension-based* family
         # (video/photo, 360 or not); #79 refines it with real metadata once

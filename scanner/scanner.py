@@ -108,7 +108,8 @@ class Scanner:
 
     def hash_candidates(self, candidates: list[ScanCandidate],
                          progress: Optional[Callable[[Path, bool], None]] = None,
-                         isolate_errors: bool = False) -> list[ScanResult]:
+                         isolate_errors: bool = False,
+                         should_cancel: Optional[Callable[[], bool]] = None) -> list[ScanResult]:
         """Hash every candidate, fanned out across the shared worker pool
         (I/O bound — reading whole files, often large videos over the
         network); order of the *input* is preserved internally, but since a
@@ -130,11 +131,19 @@ class Scanner:
         right after its own hash attempt, success or failure. This lets a
         caller report a monotonic 'Hashed x / y' progress across more than
         just this one call (e.g. one shared counter spanning every batch of
-        a streaming scan)."""
+        a streaming scan).
+
+        `should_cancel`, if given, is checked once per candidate *before*
+        it's hashed (#137, the scan queue's cooperative cancellation) — a
+        candidate for which it returns True is simply left out of the
+        result, silently (no log, no `progress` call): it was never
+        processed, not a failure."""
         media_type_map = Environment().get_media_type_map()
         indexed_at = datetime.now()
 
         def do_hash(candidate: ScanCandidate) -> Optional[ScanResult]:
+            if should_cancel is not None and should_cancel():
+                return None
             f_path = candidate.path
             try:
                 md5_hash = self.md5_hash(str(f_path))
