@@ -46,7 +46,7 @@ async def get_scan_job(job_id: str) -> ScanJobDto:
 @ScanJobsApi.post('/{job_id}/start')
 async def start_scan_job(job_id: str) -> ScanJobDto:
     try:
-        job = Database().start_scan_job(job_id)
+        job = Database().start_scan_job(job_id, scanqueue.summarize_job)
     except ScanJobNotFoundError:
         raise HTTPException(status_code=404, detail='Scan job not found')
     except InvalidScanTransitionError as e:
