@@ -118,7 +118,7 @@
    ellipsis (min-width: 0 so it actually shrinks instead of pushing the dot
    out of the tile), the dot never shrinks. */
 .folder .name-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.folder .fn { font-weight: 500; min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder .fn { font-weight: 500; min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .folder .meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .folder .fm { font: 400 11px var(--mono); color: var(--faint); }
 

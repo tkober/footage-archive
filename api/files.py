@@ -187,6 +187,7 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
             own_untracked = max((row['media_files'] or 0) - (row['tracked_files'] or 0), 0)
             subtree_untracked = max((row['subtree_media_files'] or 0) - (row['subtree_tracked_files'] or 0), 0)
             e.subtree_untracked_count = subtree_untracked
+            e.subtree_media_count = row['subtree_media_files'] or 0
             e.below_untracked_count = max(subtree_untracked - own_untracked, 0)
             e.subtree_status = 'complete' if row['subtree_complete'] else 'partial'
             e.status_walked_at = row['walked_at']
@@ -195,6 +196,7 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
             # there's nothing below it to be unknown about.
             e.subtree_status = 'complete'
             e.below_untracked_count = 0
+            e.subtree_media_count = e.media_file_count
         else:
             # has_subdirs is True (real subdirectories exist, but this
             # folder has no DirectoryStats row yet) or None (unreadable) —

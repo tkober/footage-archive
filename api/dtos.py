@@ -117,6 +117,10 @@ class PathChild(BaseModel):
     # subtree_untracked_count = max(row.subtree_media_files - row.subtree_tracked_files, 0):
     # untracked anywhere at or below this folder.
     subtree_untracked_count: Optional[int] = None
+    # subtree_media_count = row.subtree_media_files: relevant files at or
+    # below this folder. Lets the browser mark a folder without files of its
+    # own (e.g. a trip/day folder that only has subfolders) as complete.
+    subtree_media_count: Optional[int] = None
     # below_untracked_count = subtree_untracked_count minus this folder's OWN
     # untracked (both from the row's own media_files/tracked_files, so they
     # share one snapshot) — what the "N below" badge shows. A folder with no

@@ -462,7 +462,7 @@ export class BrowserComponent implements OnInit {
     if (ownUntracked > 0 || (belowKnown && below > 0)) return 'warn';
     if (dir.subtree_status === 'unknown' || dir.subtree_status === 'partial') return 'neutral';
 
-    const hasMedia = (dir.media_file_count ?? 0) > 0 || (dir.subtree_untracked_count ?? 0) > 0;
+    const hasMedia = (dir.media_file_count ?? 0) > 0 || (dir.subtree_media_count ?? 0) > 0;
     const allKnownAndZero = dir.media_file_count != null && belowKnown && below === 0
       && dir.subtree_status === 'complete';
     return allKnownAndZero && hasMedia ? 'ok' : null;

@@ -476,6 +476,25 @@ def test_query_directory_reports_below_and_complete_once_rows_exist(db, root_dir
     below_entry = by_name['below_folder']
     assert below_entry['subtree_status'] == 'complete'  # census walked it all
     assert below_entry['below_untracked_count'] == 1
+    assert below_entry['subtree_media_count'] == 1
+
+
+def test_query_directory_folder_without_own_files_reports_subtree_media(db, root_dir):
+    """A folder with no files of its own whose subfolders are fully tracked
+    (the usual trip/day folder) must still expose its subtree media count,
+    so the browser can show the "complete" dot for it."""
+    trip = root_dir / 'trip'
+    _write(trip / 'day1' / 'a.jpg')
+    _insert_file_row(str(trip / 'day1'), 'a.jpg', 'h1')
+
+    directory_stats.run_census(str(root_dir), lambda m: None)
+
+    client = _make_client()
+    entry = {e['name']: e for e in client.post('/files/directory', json={'path': str(root_dir)}).json()['items']}['trip']
+    assert entry['media_file_count'] == 0
+    assert entry['subtree_media_count'] == 1
+    assert entry['subtree_untracked_count'] == 0
+    assert entry['subtree_status'] == 'complete'
 
 
 def test_query_directory_unknown_status_without_any_row(db, root_dir):
@@ -491,6 +510,7 @@ def test_query_directory_unknown_status_without_any_row(db, root_dir):
     assert by_name['leaf_no_subdirs']['subtree_status'] == 'complete'
     assert by_name['leaf_no_subdirs']['below_untracked_count'] == 0
     assert by_name['leaf_no_subdirs']['subtree_untracked_count'] is None
+    assert by_name['leaf_no_subdirs']['subtree_media_count'] == 0
 
     assert by_name['parent_with_subdir']['subtree_status'] == 'unknown'
     assert by_name['parent_with_subdir']['below_untracked_count'] is None

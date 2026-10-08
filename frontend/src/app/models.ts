@@ -77,6 +77,9 @@ export interface PathChild {
       row) — except a folder with no subdirectories is always 'complete'.
       `status_walked_at` is the row's timestamp, for the badge tooltip. */
   subtree_untracked_count?: number | null;
+  /** Relevant files at or below this folder (#139) — lets a folder with no
+      files of its own but tracked subfolders get the "complete" dot. */
+  subtree_media_count?: number | null;
   below_untracked_count?: number | null;
   subtree_status?: 'complete' | 'partial' | 'unknown' | null;
   status_walked_at?: string | null;
