@@ -192,6 +192,12 @@ def apply(classification: ClassificationResult, scan_results: list[ScanResult], 
             to_track.append(sc)
             for other in found_paths[1:]:
                 conflict_rows.append({'md5_hash': md5_hash, 'candidate_path': other})
+            # Count it like any other conflict (#135): the losing copies are
+            # PathConflicts rows too, and a batched scan sees the same
+            # duplicate as a rule-3 conflict once the copies land in
+            # different batches, so the summary must not depend on that.
+            if len(found_paths) > 1:
+                result.conflicts += 1
 
         if track_new_files is not None:
             track_new_files(to_track)

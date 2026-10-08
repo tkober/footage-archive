@@ -15,6 +15,11 @@ export class ApiService {
       resolve, a completed Rediscover task) — the sidebar badge and the
       maintenance page's "Path conflicts" section both listen. */
   readonly conflictsChanged$ = new Subject<void>();
+  /** Fired when a scan-type task ('Scan directory', 'Track file',
+      'Rediscover') transitions to COMPLETED (#134) — the browser listens to
+      reload the current directory listing, since a scan can change which
+      files are tracked and the untracked-badge counts it needs to reflect. */
+  readonly taskCompleted$ = new Subject<Task>();
   private config$?: Observable<Config>;
 
   constructor(private http: HttpClient, private previewCache: PreviewCacheService) {}

@@ -77,6 +77,17 @@ class PathChild(BaseModel):
     # Directory entries only: number of direct, non-hidden files in that
     # subdirectory (not recursive). None if the subdirectory couldn't be read.
     file_count: Optional[int] = None
+    # Directory entries only (#134), for the browser's untracked badge — all
+    # three None for a file entry, and all three None (not 0) if the
+    # subdirectory couldn't be read, same as `file_count`. `media_file_count`
+    # is the direct, non-hidden, non-trash file count whose extension is one
+    # of `Environment.get_scanning_file_extensions()` (sidecars like `.xmp`
+    # and unrelated files like `.txt` don't count); `tracked_file_count` is
+    # how many of those are already tracked (`Files.directory`, exact-string
+    # match); `untracked_file_count` is `max(media - tracked, 0)`.
+    media_file_count: Optional[int] = None
+    tracked_file_count: Optional[int] = None
+    untracked_file_count: Optional[int] = None
     # Tracked video files only: VideoDetails.duration_tc (e.g. "00:12:34:10").
     duration_tc: Optional[StrictStr] = None
     # Derived preview status (#77) — None for untracked/non-media files; see

@@ -107,11 +107,14 @@ export class TasksWidgetComponent implements OnInit, OnDestroy {
   private applyTasks(tasks: Task[]) {
     // A rediscover or scan task that just transitioned into COMPLETED may have left
     // open path conflicts behind — nudge the sidebar badge + the maintenance
-    // page's conflicts section to reload.
+    // page's conflicts section to reload. The same transition also means the
+    // browser's untracked-badge counts (#134) may be stale, so it gets its
+    // own notification to reload the directory it's showing.
     for (const task of tasks) {
       const previous = this.knownTaskStatus.get(task.id);
       if (task.status === 'COMPLETED' && previous !== 'COMPLETED' && CONFLICT_TASKS.has(task.name)) {
         this.api.conflictsChanged$.next();
+        this.api.taskCompleted$.next(task);
       }
       this.knownTaskStatus.set(task.id, task.status);
     }

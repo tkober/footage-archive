@@ -320,6 +320,12 @@ export class BrowserComponent implements OnInit {
       next: path => { this.extFilter.set(null); this.loadDirectory(path); },
       error: () => this.error.set('Failed to load configuration')
     });
+
+    // A scan/track/rediscover task completing elsewhere (e.g. the tasks
+    // widget) can change which files are tracked — reload so the untracked
+    // badge (#134) stays accurate. Same reload as any other refresh here:
+    // page resets to 1, selection closes.
+    this.api.taskCompleted$.subscribe(() => this.reloadCurrentDirectory());
   }
 
   navigateTo(path: string) {
@@ -431,6 +437,16 @@ export class BrowserComponent implements OnInit {
 
   formatDuration(tc: string | null | undefined): string | null {
     return formatDurationTc(tc);
+  }
+
+  /** Untracked badge (#134) for a folder tile — direct level only, not
+      recursive (a later ticket handles that). 'warn' when the folder has
+      untracked relevant files, 'ok' once every relevant file is tracked,
+      null when the folder has no relevant files at all (incl. unreadable,
+      where every count is null). */
+  untrackedBadge(dir: PathChild): 'warn' | 'ok' | null {
+    if (!dir.media_file_count) return null;
+    return (dir.untracked_file_count ?? 0) > 0 ? 'warn' : 'ok';
   }
 
   onCardMore(entry: PathChild, anchor: HTMLElement) {
