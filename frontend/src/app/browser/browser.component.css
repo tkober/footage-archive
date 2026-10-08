@@ -114,35 +114,34 @@
 .folder:hover { border-color: var(--line-strong); background: var(--hover); }
 .folder app-icon { color: var(--accent); flex-shrink: 0; }
 .folder .folder-info { flex: 1; min-width: 0; }
-.folder .fn { font-weight: 500; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* .meta wraps fm/badge inside folder-info's own (already constrained)
-   width, instead of letting the badge sit in the outer flex row where it
-   could overflow the tile on narrow (mobile, 2-column) layouts (#134). */
+/* Name + status dot share a row (#139) — the name still truncates with an
+   ellipsis (min-width: 0 so it actually shrinks instead of pushing the dot
+   out of the tile), the dot never shrinks. */
+.folder .name-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.folder .fn { font-weight: 500; min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .folder .meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .folder .fm { font: 400 11px var(--mono); color: var(--faint); }
 
-/* Untracked badge (#134) — direct-level only; "N untracked" (warning) when
-   the folder has untracked relevant files, "complete" (success/ok) once
-   every relevant file is tracked, absent when the folder has none. Compact
-   so the tile height barely changes; wraps under the file count rather than
-   overflowing the tile when both don't fit on one line. */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+/* Recursive directory status (#139) — one small dot next to the folder
+   name instead of the heavier badge pills #134 originally added: filled
+   `--warning` (untracked here or below), hollow `--faint` ring (below not
+   known yet — a ring rather than a different fill colour so the state
+   still reads for colour-blind users), filled `--ok` (everything known and
+   tracked). Absent entirely when there's no media and nothing unknown
+   below. Details live in the `title`/`aria-label` tooltip (see
+   `statusDotLabel`) — tooltips don't reach touch, so the same short text
+   is folded into the context-menu header's subtitle instead
+   (`entryTypeLabel`/`statusMenuSuffix`). */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
   flex-shrink: 0;
-  padding: 2px 8px 2px 6px;
-  border-radius: 10px;
-  font-size: var(--fs-xs);
-  font-weight: 500;
-  white-space: nowrap;
+  box-sizing: border-box;
 }
-.badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
-.badge-warn { color: var(--warning); background: color-mix(in srgb, var(--warning) 15%, transparent); }
-.badge-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
-/* "below: unknown" (#139) — neither a warning nor a success, just "we don't
-   know yet" (no DirectoryStats row below this folder). */
-.badge-neutral { color: var(--muted); background: color-mix(in srgb, var(--faint) 15%, transparent); }
+.status-dot--warn { background: var(--warning); }
+.status-dot--ok { background: var(--ok); }
+.status-dot--neutral { background: transparent; border: 1.5px solid var(--faint); }
 
 .folder.renaming {
   display: inline-flex;

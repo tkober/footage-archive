@@ -439,59 +439,93 @@ export class BrowserComponent implements OnInit {
     return formatDurationTc(tc);
   }
 
-  /** Untracked badge (#134) for a folder tile — direct level only, not
-      recursive (see statusBadges below for that). 'warn' when the folder
-      has untracked relevant files, 'ok' once every relevant file is
-      tracked, null when the folder has no relevant files at all (incl.
-      unreadable, where every count is null). */
-  untrackedBadge(dir: PathChild): 'warn' | 'ok' | null {
-    if (!dir.media_file_count) return null;
-    return (dir.untracked_file_count ?? 0) > 0 ? 'warn' : 'ok';
-  }
-
-  /** Every "below this folder" status badge for a folder tile's `.meta` row
-      (#139), on top of #134's own-level untrackedBadge above — in display
-      order, never more than one "everything's fine" badge (`complete`, or
-      `tracked` paired with `below: unknown`):
-      - `below_untracked_count > 0` → "N below" (warning).
-      - Own + below both known and zero, subtree_status 'complete', and the
-        subtree actually has media → "complete" (success).
-      - subtree_status 'unknown'/'partial' and no "N below" badge → "below:
-        unknown" (neutral), preceded by "N tracked" (success) when this
-        folder's own files are all tracked (the concept mock's Kokura card:
-        "3 tracked" + "below: unknown").
-      - No media at all, nothing below known → no badge. */
-  statusBadges(dir: PathChild): { cls: 'badge-warn' | 'badge-ok' | 'badge-neutral'; text: string }[] {
-    const badges: { cls: 'badge-warn' | 'badge-ok' | 'badge-neutral'; text: string }[] = [];
+/** One small status dot next to the folder name (#139 — replaces the #134
+      badge pills, too heavy for a tile per the design revision): a folder's
+      direct untracked count AND everything below it, folded into a single
+      colour, priority order —
+      1. warning (filled `--warning`): untracked here, or below (known and > 0).
+      2. neutral (hollow ring, `--faint` — colour-blind-safe, reads as
+         "unknown" without relying on hue): below this folder isn't known
+         yet (`subtree_status` 'unknown'/'partial') and nothing untracked
+         is known either.
+      3. success (filled `--ok`): everything known and zero, and the
+         subtree actually has media.
+      4. no dot: no media at all, nothing unknown below.
+      `statusDotLabel` below builds the tooltip/aria-label's text for
+      whichever of these this resolves to; `null` here means "no dot", so
+      callers never render one. */
+  folderStatusDot(dir: PathChild): 'warn' | 'neutral' | 'ok' | null {
     const ownUntracked = dir.untracked_file_count ?? 0;
     const belowKnown = dir.below_untracked_count != null;
     const below = dir.below_untracked_count ?? 0;
 
-    if (belowKnown && below > 0) {
-      badges.push({ cls: 'badge-warn', text: `${below} below` });
-    }
+    if (ownUntracked > 0 || (belowKnown && below > 0)) return 'warn';
+    if (dir.subtree_status === 'unknown' || dir.subtree_status === 'partial') return 'neutral';
 
     const hasMedia = (dir.media_file_count ?? 0) > 0 || (dir.subtree_untracked_count ?? 0) > 0;
-    const allKnownAndZero = dir.media_file_count != null && ownUntracked === 0
-      && belowKnown && below === 0 && dir.subtree_status === 'complete';
-
-    if (allKnownAndZero && hasMedia) {
-      badges.push({ cls: 'badge-ok', text: 'complete' });
-    } else if ((dir.subtree_status === 'unknown' || dir.subtree_status === 'partial') && !(belowKnown && below > 0)) {
-      if (dir.media_file_count != null && dir.media_file_count > 0 && ownUntracked === 0) {
-        badges.push({ cls: 'badge-ok', text: `${dir.media_file_count} tracked` });
-      }
-      badges.push({ cls: 'badge-neutral', text: 'below: unknown' });
-    }
-    return badges;
+    const allKnownAndZero = dir.media_file_count != null && belowKnown && below === 0
+      && dir.subtree_status === 'complete';
+    return allKnownAndZero && hasMedia ? 'ok' : null;
   }
 
-  /** Badge-row tooltip (#139): "Status as of <date> <time>" once this
-      folder's own DirectoryStats row is known, null otherwise. */
-  statusTooltip(dir: PathChild): string | null {
+  /** Full sentence for the dot's `title`/`aria-label` (hover tooltip — and,
+      since tooltips don't work on touch, folded into the context menu
+      header's subtitle too, see `entryTypeLabel`/`statusMenuSuffix`
+      below). E.g. "1 untracked here · 68 below · as of 8 Oct, 09:12",
+      "All media files tracked · as of …", "Below this folder: not checked
+      yet · 3 tracked here". `null` when `folderStatusDot` is `null` (no
+      dot — nothing to say). */
+  statusDotLabel(dir: PathChild): string | null {
+    const dot = this.folderStatusDot(dir);
+    if (!dot) return null;
+    const ownUntracked = dir.untracked_file_count ?? 0;
+    const below = dir.below_untracked_count ?? 0;
+    const belowKnown = dir.below_untracked_count != null;
+
+    const parts: string[] = [];
+    if (dot === 'warn') {
+      if (ownUntracked > 0) parts.push(`${ownUntracked} untracked here`);
+      if (belowKnown && below > 0) parts.push(`${below} below`);
+    } else if (dot === 'neutral') {
+      parts.push('Below this folder: not checked yet');
+      if (dir.media_file_count != null && dir.media_file_count > 0 && ownUntracked === 0) {
+        parts.push(`${dir.media_file_count} tracked here`);
+      }
+    } else {
+      parts.push('All media files tracked');
+    }
+    const walked = this.statusWalkedSuffix(dir);
+    if (walked) parts.push(walked);
+    return parts.join(' · ');
+  }
+
+  /** "as of 8 Oct, 09:12" once this folder's own DirectoryStats row is
+      known (`status_walked_at`), null otherwise. */
+  private statusWalkedSuffix(dir: PathChild): string | null {
     if (!dir.status_walked_at) return null;
     const d = new Date(dir.status_walked_at);
-    return `Status as of ${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
+    const date = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    return `as of ${date}, ${time}`;
+  }
+
+  /** Short status fragment appended to the folder context-menu header's
+      subtitle (#139) — tooltips don't work on touch, so this is the mobile
+      equivalent of the dot's title/aria-label, just compact: "" (no dot),
+      " · 1 untracked · 68 below" (warn), " · below: unknown" (neutral),
+      " · complete" (ok). Used by `entryTypeLabel`. */
+  private statusMenuSuffix(dir: PathChild): string {
+    const dot = this.folderStatusDot(dir);
+    if (!dot) return '';
+    if (dot === 'ok') return ' · complete';
+    if (dot === 'neutral') return ' · below: unknown';
+    const ownUntracked = dir.untracked_file_count ?? 0;
+    const below = dir.below_untracked_count ?? 0;
+    const belowKnown = dir.below_untracked_count != null;
+    const parts: string[] = [];
+    if (ownUntracked > 0) parts.push(`${ownUntracked} untracked`);
+    if (belowKnown && below > 0) parts.push(`${below} below`);
+    return parts.length ? ' · ' + parts.join(' · ') : '';
   }
 
   onCardMore(entry: PathChild, anchor: HTMLElement) {
@@ -634,7 +668,8 @@ export class BrowserComponent implements OnInit {
   /** "Still · JPG", "Video · MOV · 00:12", "Not tracked yet", "Folder · 18 files". */
   entryTypeLabel(entry: PathChild): string {
     if (entry.type === 'directory') {
-      return entry.file_count != null ? `Folder · ${entry.file_count} file${entry.file_count === 1 ? '' : 's'}` : 'Folder';
+      const base = entry.file_count != null ? `Folder · ${entry.file_count} file${entry.file_count === 1 ? '' : 's'}` : 'Folder';
+      return base + this.statusMenuSuffix(entry);
     }
     if (entry.tracked !== true) return 'Not tracked yet';
     const ext = (entry.file_extension ?? '').replace(/^\./, '').toUpperCase();
