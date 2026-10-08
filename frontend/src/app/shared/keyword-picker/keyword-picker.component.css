@@ -1,0 +1,76 @@
+:host {
+  display: block;
+}
+
+.keyword-picker-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.keyword-picker-input {
+  height: 26px;
+  padding: 3px 8px;
+  font-size: var(--fs-sm);
+}
+
+.keyword-picker-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-2);
+  z-index: 30;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.keyword-picker-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--fs-sm);
+  padding: 6px 10px;
+  cursor: pointer;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.keyword-picker-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Inline mode (#68): always-visible list, used inside popovers ── */
+.inline .keyword-picker-input {
+  height: 32px;
+  font-size: var(--fs-md);
+}
+
+.keyword-picker-list {
+  margin-top: var(--space-2);
+  max-height: min(296px, 45vh);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+.keyword-picker-list .keyword-picker-item {
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+}
+
+.keyword-picker-empty {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  padding: 10px;
+}
+
+.keyword-picker-item.highlighted,
+.keyword-picker-item:hover {
+  background: var(--accent-soft);
+}

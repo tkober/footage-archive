@@ -1,0 +1,39 @@
+<div class="keyword-picker-wrap" [class.inline]="inline()">
+  <input
+    class="input keyword-picker-input"
+    [placeholder]="placeholder()"
+    [disabled]="disabled()"
+    [value]="value()"
+    (input)="onInputChange($any($event.target).value)"
+    (focus)="onFocus()"
+    (blur)="onBlur()"
+    (keydown)="onKeydown($event)" />
+  @if (inline()) {
+    <div class="keyword-picker-list" role="listbox">
+      <ng-container *ngTemplateOutlet="items" />
+      @if (entries().length === 0) {
+        <div class="keyword-picker-empty">{{ allKeywords().length ? 'No keyword matches.' : 'No keywords yet. Type one to add it.' }}</div>
+      }
+    </div>
+  } @else if (dropdownOpen() && entries().length > 0) {
+    <div class="keyword-picker-dropdown">
+      <ng-container *ngTemplateOutlet="items" />
+    </div>
+  }
+</div>
+
+<ng-template #items>
+  @for (entry of entries(); track (entry.type === 'existing' ? 'k' + entry.keyword : 'c' + entry.name); let i = $index) {
+    <div class="keyword-picker-item"
+         role="option"
+         [attr.aria-selected]="i === highlightIndex()"
+         [class.highlighted]="i === highlightIndex()"
+         (mousedown)="$event.preventDefault(); pickEntry(entry)">
+      @if (entry.type === 'existing') {
+        <span class="keyword-picker-name">{{ entry.keyword }}</span>
+      } @else {
+        <span class="keyword-picker-name">+ Add keyword "{{ entry.name }}"</span>
+      }
+    </div>
+  }
+</ng-template>

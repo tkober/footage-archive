@@ -27,6 +27,22 @@
         }
       </div>
 
+      <!-- Actions for the focused photo (#146) -->
+      <div class="photo-actions">
+        <button type="button" class="cmp-icon-btn" #kwBtn
+                (click)="openKeywordPopover(focusIdx(), kwBtn)" title="Add keyword (K)">
+          <app-icon name="tag" [size]="15" />
+        </button>
+        <button type="button" class="cmp-icon-btn" #listBtn
+                (click)="openListPopover(focusIdx(), listBtn)" title="Add to list (L)">
+          <app-icon name="list" [size]="15" />
+        </button>
+        <button type="button" class="cmp-icon-btn danger"
+                (click)="requestDelete(focusIdx())" title="Move to trash (Delete)">
+          <app-icon name="trash" [size]="15" />
+        </button>
+      </div>
+
       <span class="cmp-title">{{ count() }} photos</span>
       <button class="cmp-close" (click)="closed.emit()" title="Close (Esc)">✕</button>
     </header>
@@ -99,32 +115,86 @@
     <!-- Filmstrip -->
     <aside class="cmp-strip">
       @for (it of entries(); track it.path; let i = $index) {
-        <button class="strip-item"
-                [class.focused]="i === focusIdx()"
-                [class.is-a]="needsTwo() && i === aIdx()"
-                [class.is-b]="needsTwo() && i === bIdx()"
-                (click)="focusIdx.set(i)"
-                (contextmenu)="openCtx($event, i)">
+        <div class="strip-item"
+             tabindex="0"
+             [attr.data-idx]="i"
+             [class.focused]="i === focusIdx()"
+             [class.is-a]="needsTwo() && i === aIdx()"
+             [class.is-b]="needsTwo() && i === bIdx()"
+             (click)="focusIdx.set(i)"
+             (keydown.enter)="focusIdx.set(i)"
+             (contextmenu)="openCtx($event, i)">
           <div class="strip-thumb">
             @if (thumbUrl(it); as u) { <img [src]="u" alt="" /> }
+            <button type="button" class="strip-more" aria-label="More actions"
+                    (click)="onStripMore($event, i)">
+              <app-icon name="dots" [size]="12" />
+            </button>
           </div>
           <span class="strip-name">{{ it.name }}</span>
           @if (hasHq(it)) { <span class="badge-hq">HQ</span> }
           @if (needsTwo() && i === aIdx()) { <span class="badge a">A</span> }
           @if (needsTwo() && i === bIdx()) { <span class="badge b">B</span> }
-        </button>
+        </div>
       }
     </aside>
 
   </div>
 </div>
 
-<!-- Right-click context menu (fixed to viewport) -->
-@if (ctxMenu(); as m) {
-  <div class="ctx-backdrop" (click)="ctxMenu.set(null)"></div>
-  <ul class="ctx-menu" [style.left.px]="m.x" [style.top.px]="m.y">
-    <li class="ctx-item" (click)="assignA(m.idx); ctxMenu.set(null)">Set as A</li>
-    <li class="ctx-item" (click)="assignB(m.idx); ctxMenu.set(null)">Set as B</li>
-    <li class="ctx-item danger" (click)="removeAt(m.idx); ctxMenu.set(null)">Remove from comparison</li>
-  </ul>
+<!-- Context menu (#146): app-menu replaces the old hand-rolled <ul>, opened at
+     the pointer (right-click on a filmstrip item) or anchored to its "⋯" button. -->
+@if (menuIdx() !== null) {
+  <app-menu
+    [items]="menuItems()"
+    [position]="menuPoint()"
+    [anchor]="menuAnchor()"
+    (select)="onMenuSelect($event)"
+    (closed)="closeMenu()">
+    <div menuHeader class="ctx-head">
+      @if (menuHeaderEntry(); as m) {
+        @if (thumbUrl(m); as url) {
+          <span class="ctx-thumb" [style.background-image]="'url(' + url + ')'"></span>
+        } @else {
+          <span class="ctx-thumb ctx-icon"><app-icon name="image" [size]="16" /></span>
+        }
+        <span class="ctx-text">
+          <b>{{ m.name }}</b>
+          <small>{{ entryTypeLabel(m) }}</small>
+        </span>
+      }
+    </div>
+  </app-menu>
+}
+
+<!-- Add keyword… / Add to list… popover (#146): same inline pickers as the
+     browser's quick popover, anchored at the header button or the filmstrip
+     item depending on where it was triggered from. -->
+@if (popover(); as p) {
+  <app-popover [anchor]="p.anchor" [width]="380" align="start" (closed)="closePopover()">
+    @if (p.kind === 'keyword') {
+      <div class="quick-form">
+        <span class="quick-label">Add keyword to <b>{{ entries()[p.idx]?.name }}</b></span>
+        <app-keyword-picker [inline]="true" [autofocus]="true" (picked)="submitPopoverKeyword($event)" />
+      </div>
+    } @else {
+      <div class="quick-form">
+        <span class="quick-label">Add <b>{{ entries()[p.idx]?.name }}</b> to a list</span>
+        <app-list-picker placeholder="Find or create a list…" [inline]="true" [autofocus]="true" (picked)="popoverAddToList($event)" />
+      </div>
+    }
+  </app-popover>
+}
+
+<!-- Move to trash (#146): preview → confirm (rendered above the overlay via
+     body.cmp-open, see src/styles.css) → delete. -->
+@if (pendingDelete()) {
+  <app-confirm-dialog
+    title="Move to trash"
+    [message]="deletePreviewMessage().message"
+    [warning]="deletePreviewMessage().warning"
+    confirmLabel="Move to trash"
+    [danger]="true"
+    (confirmed)="confirmPendingDelete()"
+    (cancelled)="cancelPendingDelete()" />
 }

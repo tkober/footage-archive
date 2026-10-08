@@ -308,6 +308,12 @@ footage-archive/
         │                           #   context menu (#144) are ported from the browser (keyed by `md5_hash`, `data-md5` on cards): same
         │                           #   bulk actions (Keyword/Location/Add to list/Rescan/Move/Compare/Delete) and menu minus Rename/Track,
         │                           #   plus "Show in folder" (→ `/browser?path=<directory>`); move/delete patch `results` in place
+        ├── comparison/             # Compare view (`app-comparison-view`, full-screen overlay at z-index 1100, opened from the bulk bar):
+        │                           #   step/side-by-side/overlay, HQ + zoom. #146: `app-menu` context menu (right-click / "⋯" on a filmstrip
+        │                           #   item) + header buttons + K/L/Delete for the focused photo — Set as A/B, Add keyword…, Add to list…
+        │                           #   (inline pickers in an `app-popover`), Remove, Move to trash (preview → confirm → delete, emits
+        │                           #   `deleted(paths)` for the host to reconcile). Sets `body.cmp-open` while mounted so menus, popovers,
+        │                           #   modals and toasts opened from it are raised above it (`src/styles.css`)
         ├── map/                    # Map page: Google Maps clustering, flyouts, "open in search"
         ├── lists/                  # Lists feature: overview (create/rename/delete) + list detail (item grid, code jump, remove)
         │   ├── lists.component.*        # GET/POST/PATCH/DELETE /lists — grid of lists with inline rename + confirm-dialog delete
@@ -399,6 +405,7 @@ footage-archive/
         │   │                           #   message. Selected list remembered in `localStorage`. Under 760px the field collapses to an
         │   │                           #   icon button that expands it as a fixed-position overlay with a backdrop + close button
         │   ├── list-picker/             # Reusable "add to list" input (text field + keyboard-navigable dropdown + ad hoc create); used by the detail panel and the browser's bulk action bar
+        │   ├── keyword-picker/          # Reusable "add keyword" input (#145), same look/keyboard handling as list-picker: existing keywords (minus `exclude`) + trailing "+ Add keyword …"; emits `picked(keyword)` (callers do the API call) and `escape`; `inline` inside popovers. Used by the detail panel and the browser's quick/bulk keyword popovers
         │   ├── folder-picker/           # Directory navigator on top of ModalComponent: breadcrumbs from ROOT_DIR, directories-only listing via POST /files/directory, inline "New folder" (POST /files/mkdir). Reused by two flows via inputs: `title`/`confirmLabel` (default "Move to…"/"Move here"); `sourcePaths` (optional — when given, disables the source itself/its descendants/its current parent as a target; omitted entirely for a plain "pick any folder" flow where nothing is blocked, used by Rediscover's "Rediscover here")
         │   └── rediscover-dialog/       # Starts POST /tracking/rediscover (#25): `path` omitted → folder-picker step ("Rediscover…"/"Rediscover here") then a checkbox confirm step; `path` given (browser context-menu "Rediscover" on a directory) → checkbox confirm step only. Checkbox: "Also track new files" (default off). On start, fires `ApiService.taskRefresh$` and reports "Rediscover started — see tasks."
         ├── modal/                  # Base modal shell (backdrop, teleport-to-body, Esc-to-close)

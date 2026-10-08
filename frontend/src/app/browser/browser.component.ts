@@ -7,6 +7,7 @@ import { MenuComponent, MenuItem, MenuPoint } from '../shared/menu/menu.componen
 import { PopoverComponent } from '../shared/popover/popover.component';
 import { DetailNavItem, FileDetailPanelComponent } from '../shared/file-detail-panel/file-detail-panel.component';
 import { ListPickerComponent } from '../shared/list-picker/list-picker.component';
+import { KeywordPickerComponent } from '../shared/keyword-picker/keyword-picker.component';
 import { FolderPickerComponent } from '../shared/folder-picker/folder-picker.component';
 import { ConfirmDialogComponent } from '../shared/confirm-dialog/confirm-dialog.component';
 import { RediscoverDialogComponent } from '../shared/rediscover-dialog/rediscover-dialog.component';
@@ -63,7 +64,7 @@ interface PendingDelete {
 @Component({
   selector: 'app-browser',
   standalone: true,
-  imports: [MenuComponent, PopoverComponent, FileDetailPanelComponent, ListPickerComponent, FolderPickerComponent, ConfirmDialogComponent, RediscoverDialogComponent, ComparisonComponent, IconComponent, MediaCardComponent, LoadMoreFooterComponent, InfiniteScrollDirective],
+  imports: [MenuComponent, PopoverComponent, FileDetailPanelComponent, ListPickerComponent, KeywordPickerComponent, FolderPickerComponent, ConfirmDialogComponent, RediscoverDialogComponent, ComparisonComponent, IconComponent, MediaCardComponent, LoadMoreFooterComponent, InfiniteScrollDirective],
   templateUrl: './browser.component.html',
   styleUrl: './browser.component.css',
   host: { class: 'page-flush' }
@@ -117,16 +118,13 @@ export class BrowserComponent implements OnInit {
 
   // "Add keyword…" / "Add to list…" popover anchored at the card (#41)
   quickPop     = signal<{ kind: 'keyword' | 'list'; entry: PathChild; anchor: HTMLElement } | null>(null);
-  quickKeyword = signal('');
   private page = 1;
 
   // Bulk mode
   bulkMode       = signal(false);
   bulkSelected   = signal<Set<string>>(new Set());
-  bulkKeyword    = signal('');
   bulkLocationId = signal('');
   bulkApplying   = signal(false);
-  allKeywords    = signal<string[]>([]);
   allLocations   = signal<Location[]>([]);
   /** Last tile clicked in selection mode; Shift-click selects up to here. */
   private selectionAnchor: string | null = null;
@@ -695,10 +693,6 @@ export class BrowserComponent implements OnInit {
     // app-media-card's host has no box of its own; anchor to the visible tile.
     const anchor = host?.querySelector<HTMLElement>('.card') ?? host;
     if (!anchor) return;
-    if (kind === 'keyword' && !this.allKeywords().length) {
-      this.api.getAllKeywords().subscribe({ next: kws => this.allKeywords.set(kws) });
-    }
-    this.quickKeyword.set('');
     this.quickPop.set({ kind, entry, anchor });
     setTimeout(() => document.querySelector<HTMLInputElement>('.quick-form input')?.focus());
   }
@@ -709,15 +703,12 @@ export class BrowserComponent implements OnInit {
     if (pop) this.focusSource(pop.anchor);
   }
 
-  submitQuickKeyword() {
+  submitQuickKeyword(keyword: string) {
     const pop = this.quickPop();
-    const kw = this.quickKeyword().trim();
+    const kw = keyword.trim();
     if (!pop || !kw || !pop.entry.md5_hash) return;
     this.api.addKeyword(pop.entry.md5_hash, kw).subscribe({
-      next: () => {
-        this.toast.show(`Added “${kw}” to ${pop.entry.name}`);
-        if (!this.allKeywords().includes(kw)) this.allKeywords.update(list => [...list, kw]);
-      },
+      next: () => this.toast.show(`Added “${kw}” to ${pop.entry.name}`),
       error: () => this.toast.show(`Couldn't add “${kw}” to ${pop.entry.name}`),
     });
     this.closeQuickPop();
@@ -1112,6 +1103,13 @@ export class BrowserComponent implements OnInit {
     this.applyDeleteResults([{ path, ok: true }], false);
   }
 
+  /** The comparison view's own "Move to trash" per filmstrip photo (preview →
+      confirm → delete runs inside it, which also shows the toast; this just
+      reconciles the grid + bulk selection, #146, same pattern as `onFileDeleted`). */
+  onComparisonDeleted(paths: string[]) {
+    this.applyDeleteResults(paths.map(path => ({ path, ok: true })), false);
+  }
+
   private parentOf(path: string): string {
     const idx = path.lastIndexOf('/');
     return idx > 0 ? path.slice(0, idx) : '/';
@@ -1128,14 +1126,11 @@ export class BrowserComponent implements OnInit {
     this.bulkMode.set(true);
     if (!this.allLocations().length)
       this.api.getLocations().subscribe({ next: locs => this.allLocations.set(locs) });
-    if (!this.allKeywords().length)
-      this.api.getAllKeywords().subscribe({ next: kws => this.allKeywords.set(kws) });
   }
 
   exitBulkMode() {
     this.bulkMode.set(false);
     this.bulkSelected.set(new Set());
-    this.bulkKeyword.set('');
     this.bulkLocationId.set('');
     this.bulkPop.set(null);
     this.selectionAnchor = null;
@@ -1231,18 +1226,16 @@ export class BrowserComponent implements OnInit {
     this.showComparison.set(false);
   }
 
-  bulkAddKeyword() {
-    const kw = this.bulkKeyword().trim();
+  bulkAddKeyword(keyword: string) {
+    const kw = keyword.trim();
     const targets = this.bulkTrackedEntries();
     if (!kw || !targets.length) return;
     const skipped = this.bulkSelected().size - targets.length;
     this.bulkApplying.set(true);
-    this.bulkKeyword.set('');
     this.closeBulkPop();
     forkJoin(targets.map(e => this.api.addKeyword(e.md5_hash!, kw))).subscribe({
       next: () => {
         this.bulkApplying.set(false);
-        if (!this.allKeywords().includes(kw)) this.allKeywords.update(list => [...list, kw]);
         this.toast.show(this.withSkipped(`Added “${kw}” to ${this.plural(targets.length, 'file')}`, skipped));
       },
       error: () => {

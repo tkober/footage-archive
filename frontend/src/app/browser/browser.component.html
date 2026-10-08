@@ -305,22 +305,13 @@
 }
 
 @if (bulkPop(); as bp) {
-  <app-popover [anchor]="bp.anchor" [width]="bp.kind === 'list' ? 380 : 300" align="start" (closed)="closeBulkPop()">
+  <app-popover [anchor]="bp.anchor" [width]="bp.kind === 'location' ? 300 : 380" align="start" (closed)="closeBulkPop()">
     @switch (bp.kind) {
       @case ('keyword') {
-        <form class="quick-form" (submit)="$event.preventDefault(); bulkAddKeyword()">
-          <label class="quick-label" for="bulk-keyword">Add keyword to <b>{{ bulkTrackedCount() }} {{ bulkTrackedCount() === 1 ? 'file' : 'files' }}</b></label>
-          <div class="quick-row">
-            <input id="bulk-keyword" class="input" list="bulk-keyword-suggestions" autocomplete="off"
-                   placeholder="e.g. beach"
-                   [value]="bulkKeyword()"
-                   (input)="bulkKeyword.set($any($event.target).value)" />
-            <button type="submit" class="btn btn-primary" [disabled]="!bulkKeyword().trim()">Add</button>
-          </div>
-          <datalist id="bulk-keyword-suggestions">
-            @for (kw of allKeywords(); track kw) { <option [value]="kw"></option> }
-          </datalist>
-        </form>
+        <div class="quick-form">
+          <span class="quick-label">Add keyword to <b>{{ bulkTrackedCount() }} {{ bulkTrackedCount() === 1 ? 'file' : 'files' }}</b></span>
+          <app-keyword-picker [inline]="true" [autofocus]="true" (picked)="bulkAddKeyword($event)" />
+        </div>
       }
       @case ('location') {
         <div class="quick-form">
@@ -380,21 +371,12 @@
 }
 
 @if (quickPop(); as qp) {
-  <app-popover [anchor]="qp.anchor" [width]="qp.kind === 'list' ? 380 : 300" align="start" (closed)="closeQuickPop()">
+  <app-popover [anchor]="qp.anchor" [width]="380" align="start" (closed)="closeQuickPop()">
     @if (qp.kind === 'keyword') {
-      <form class="quick-form" (submit)="$event.preventDefault(); submitQuickKeyword()">
-        <label class="quick-label" for="quick-keyword">Add keyword to <b>{{ qp.entry.name }}</b></label>
-        <div class="quick-row">
-          <input id="quick-keyword" class="input" list="quick-keyword-suggestions" autocomplete="off"
-                 placeholder="e.g. beach"
-                 [value]="quickKeyword()"
-                 (input)="quickKeyword.set($any($event.target).value)" />
-          <button type="submit" class="btn btn-primary" [disabled]="!quickKeyword().trim()">Add</button>
-        </div>
-        <datalist id="quick-keyword-suggestions">
-          @for (kw of allKeywords(); track kw) { <option [value]="kw"></option> }
-        </datalist>
-      </form>
+      <div class="quick-form">
+        <span class="quick-label">Add keyword to <b>{{ qp.entry.name }}</b></span>
+        <app-keyword-picker [inline]="true" [autofocus]="true" (picked)="submitQuickKeyword($event)" />
+      </div>
     } @else {
       <div class="quick-form">
         <span class="quick-label">Add <b>{{ qp.entry.name }}</b> to a list</span>
@@ -405,7 +387,7 @@
 }
 
 @if (showComparison()) {
-  <app-comparison-view [items]="comparablePhotos()" (closed)="closeComparison()" />
+  <app-comparison-view [items]="comparablePhotos()" (closed)="closeComparison()" (deleted)="onComparisonDeleted($event)" />
 }
 
 @if (pendingRename(); as pr) {

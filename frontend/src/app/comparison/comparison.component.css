@@ -413,6 +413,7 @@
 }
 
 .strip-thumb {
+  position: relative;
   flex-shrink: 0;
   width: 64px;
   height: 48px;
@@ -426,6 +427,35 @@
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+/* "⋯" menu trigger (#146), same show-on-hover/focus convention as
+   shared/media-card/'s own "more" button. */
+.strip-more {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: rgba(8, 9, 11, .65);
+  color: #fff;
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+.strip-item:hover .strip-more,
+.strip-item:focus-within .strip-more,
+.strip-item.focused .strip-more {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .strip-more { opacity: 1; }
 }
 
 .strip-name {
@@ -470,42 +500,67 @@
 .badge.a { background: var(--accent); }
 .badge.b { background: var(--accent); }
 
-/* ---- Context menu (light, copied from browser context-menu) ---- */
-.ctx-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1200;
+/* ---- Context menu header (#146, same look as the browser's ctx-head; the
+   menu body itself is now shared/menu/'s app-menu, not local markup) ---- */
+.ctx-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+
+.ctx-thumb {
+  flex-shrink: 0;
+  width: 36px;
+  height: 27px;
+  border-radius: 4px;
+  background: var(--stage) center / cover no-repeat;
 }
 
-.ctx-menu {
-  position: fixed;
-  z-index: 1210;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-  list-style: none;
-  margin: 0;
-  padding: 4px 0;
-  min-width: 180px;
+.ctx-thumb.ctx-icon {
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
-.ctx-item {
-  padding: 8px 14px;
-  font-size: 0.875rem;
+.ctx-text { display: grid; min-width: 0; }
+.ctx-text b {
+  font-size: 0.82rem;
   color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ctx-text small { font-size: 0.7rem; color: var(--faint); }
+
+/* ---- Header actions for the focused photo (#146, same visual family as
+   .hq-btn/.cmp-close above) ---- */
+.photo-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.cmp-icon-btn {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  background: none;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  color: var(--muted);
   cursor: pointer;
-  user-select: none;
+  transition: background 120ms ease, color 120ms ease;
 }
 
-.ctx-item:hover {
-  background: var(--hover);
+.cmp-icon-btn:hover {
+  background: var(--raised);
+  color: var(--text);
 }
 
-.ctx-item.danger {
+.cmp-icon-btn.danger:hover {
   color: var(--danger);
-}
-
-.ctx-item.danger:hover {
   background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
+
+/* ---- "Add keyword…" / "Add to list…" popover form (#146, same as the
+   browser's quick popover, frontend/src/app/browser/browser.component.css) ---- */
+.quick-form { display: grid; gap: 8px; padding: 10px; }
+.quick-label { font-size: 0.8rem; color: var(--muted); overflow-wrap: anywhere; }
+.quick-label b { color: var(--text); font-weight: 500; }
