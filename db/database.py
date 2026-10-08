@@ -14,6 +14,7 @@ from db.engine import get_engine, upsert, upsert_ignore
 from db.list_codes import generate_item_code, normalize_item_code
 from db.models import (
     clip_previews_table,
+    directory_stats_table,
     file_details_table,
     file_keywords_table,
     file_operations_table,
@@ -1538,15 +1539,27 @@ class Database:
         with get_engine().connect() as conn:
             return {row[0] for row in conn.execute(stmt).fetchall()}
 
-    def recompute_scan_job_status(self, job_id: str, summarize: Callable[[list[dict]], str]) -> None:
+    def recompute_scan_job_status(self, job_id: str, summarize: Callable[[list[dict]], str]) -> bool:
         """Public, own-transaction wrapper around
         `_recompute_scan_job_status_on_conn` — used by `POST
         /tracking/scan-directory`'s 0-unit case (#138): a plan started
         immediately with no units to run would otherwise sit QUEUED
         forever, since nothing would ever call `finish_scan_unit` to
-        trigger this recompute."""
+        trigger this recompute. Returns whether this call actually
+        finalized the job (#139 — `tasks/scanqueue.py`'s auto-census
+        trigger uses this same return value from `finish_scan_unit` below;
+        this wrapper exposes it for the 0-unit path too)."""
         with get_engine().begin() as conn:
-            self._recompute_scan_job_status_on_conn(conn, job_id, summarize)
+            return self._recompute_scan_job_status_on_conn(conn, job_id, summarize)
+
+    def get_scan_job_root_path(self, job_id: str) -> Optional[str]:
+        """Just the `root_path` column (#139's auto-census trigger needs it
+        once a job finalizes, without fetching the full job + unit list)."""
+        with get_engine().connect() as conn:
+            row = conn.execute(
+                select(scan_jobs_table.c.root_path).where(scan_jobs_table.c.id == job_id)
+            ).fetchone()
+        return row.root_path if row is not None else None
 
     def delete_stale_planned_jobs(self, max_age: timedelta = timedelta(hours=24)) -> int:
         """Startup cleanup (#138, called from `tasks/scanqueue.py`'s
@@ -1673,30 +1686,35 @@ class Database:
             conn.execute(update(scan_units_table).where(scan_units_table.c.id == unit_id).values(progress=message))
 
     def finish_scan_unit(self, unit_id: int, status: str, *, result: Optional[dict],
-                         error: Optional[str], summarize: Callable[[list[dict]], str]) -> None:
+                         error: Optional[str], summarize: Callable[[list[dict]], str]) -> bool:
         """Marks `unit_id` terminal (DONE/FAILED/CANCELLED) and, in the same
         transaction, recomputes its job's status from every one of its
         units (see `_recompute_scan_job_status_on_conn`). `summarize(units)`
         builds the job's final summary text once no unit is left
         QUEUED/RUNNING — injected so this DB-layer method never has to
         import api/tracking.py's ScanSummary/_format_scan_summary (the rest
-        of the app only calls into db/ for SQL, never the other way)."""
+        of the app only calls into db/ for SQL, never the other way).
+        Returns whether this call actually finalized the job (#139 —
+        `tasks/scanqueue.py`'s auto-census trigger fires only when this is
+        True, which `_recompute_scan_job_status_on_conn`'s own
+        `finished_at` guard already makes happen at most once per job, even
+        with several units of the same job finishing concurrently)."""
         now = datetime.now(timezone.utc)
         with get_engine().begin() as conn:
             unit_row = conn.execute(
                 select(scan_units_table.c.job_id).where(scan_units_table.c.id == unit_id)
             ).fetchone()
             if unit_row is None:
-                return
+                return False
             conn.execute(
                 update(scan_units_table)
                 .where(scan_units_table.c.id == unit_id)
                 .values(status=status, finished_at=now, result=result, error=error)
             )
-            self._recompute_scan_job_status_on_conn(conn, unit_row.job_id, summarize)
+            return self._recompute_scan_job_status_on_conn(conn, unit_row.job_id, summarize)
 
     def _recompute_scan_job_status_on_conn(self, conn, job_id: str,
-                                           summarize: Callable[[list[dict]], str]) -> None:
+                                           summarize: Callable[[list[dict]], str]) -> bool:
         """Job status follows from its units (#137): locks the job row
         first (serialising concurrent consumers finishing two units of the
         same job at once), then — only once no unit is left QUEUED/RUNNING
@@ -1707,20 +1725,27 @@ class Database:
         else DONE, UNLESS the job is already CANCELLED, which stays
         CANCELLED (only finished_at/summary get filled in). A PAUSED job
         with units still QUEUED is left untouched (the "no unit
-        QUEUED/RUNNING left" condition isn't met)."""
+        QUEUED/RUNNING left" condition isn't met).
+
+        Returns whether THIS call just finalized the job (i.e. set
+        `finished_at` for the first time) — False for every early return
+        (already finalized, or units still active). Combined with the row
+        lock above, at most one concurrent caller for the same job ever
+        sees True, which is what lets #139's auto-census trigger fire
+        exactly once per job."""
         job_row = conn.execute(
             select(scan_jobs_table.c.status, scan_jobs_table.c.finished_at)
             .where(scan_jobs_table.c.id == job_id)
             .with_for_update()
         ).fetchone()
         if job_row is None or job_row.finished_at is not None:
-            return
+            return False
         units = conn.execute(
             select(scan_units_table.c.status, scan_units_table.c.result)
             .where(scan_units_table.c.job_id == job_id)
         ).fetchall()
         if any(u.status in self._ACTIVE_UNIT_STATUSES for u in units):
-            return
+            return False
         now = datetime.now(timezone.utc)
         summary = summarize([{'status': u.status, 'result': u.result} for u in units])
         new_status = job_row.status
@@ -1730,6 +1755,7 @@ class Database:
             update(scan_jobs_table).where(scan_jobs_table.c.id == job_id)
             .values(status=new_status, finished_at=now, summary=summary)
         )
+        return True
 
     def pause_scan_job(self, job_id: str) -> dict:
         with get_engine().begin() as conn:
@@ -2002,3 +2028,139 @@ class Database:
                     .values(status='CANCELLED', finished_at=now)
                 )
                 self._recompute_scan_job_status_on_conn(conn, job_id, summarize)
+
+    # ------------------------------------------------------------------
+    # Directory stats (#139) — DirectoryStats, see tasks/directory_stats.py
+    # for the recompute primitives (refresh_directory/refresh_chain/
+    # run_census) that write through the methods below. All of them are
+    # plain SQL; the process-wide lock serialising concurrent writes lives
+    # in tasks/directory_stats.py, not here.
+    # ------------------------------------------------------------------
+
+    def get_directory_stats(self, directory: str) -> Optional[dict]:
+        stmt = select(directory_stats_table).where(directory_stats_table.c.directory == directory)
+        with get_engine().connect() as conn:
+            row = conn.execute(stmt).fetchone()
+        return row._asdict() if row is not None else None
+
+    def get_directory_stats_batch(self, directories: list[str]) -> dict[str, dict]:
+        """Every row for `directories` in one query — used by
+        `query_directory` (api/files.py) so a directory listing's badges
+        cost exactly one extra statement, the same convention as #134's
+        `count_tracked_files_by_directory`."""
+        if not directories:
+            return {}
+        stmt = select(directory_stats_table).where(directory_stats_table.c.directory.in_(directories))
+        with get_engine().connect() as conn:
+            rows = conn.execute(stmt).fetchall()
+        return {row.directory: row._asdict() for row in rows}
+
+    def get_directory_stats_children(self, parent: str) -> list[dict]:
+        """Every row whose `parent` is exactly `directory` (#139's indexed
+        child lookup, never a LIKE scan) — `refresh_directory`'s one query
+        for its subdirectories' already-computed subtree_* totals."""
+        stmt = select(directory_stats_table).where(directory_stats_table.c.parent == parent)
+        with get_engine().connect() as conn:
+            rows = conn.execute(stmt).fetchall()
+        return [row._asdict() for row in rows]
+
+    def get_directory_stats_directories_under(self, root: str) -> set[str]:
+        """Every directory with a row at `root` or anywhere below it (same
+        escaped LIKE-prefix convention as `count_tracked_files_under`) —
+        the census's "did this directory disappear since the last census"
+        check, compared in memory against the directories just walked."""
+        like_pattern = self._escape_like(root) + '/%'
+        stmt = (
+            select(directory_stats_table.c.directory)
+            .where(
+                (directory_stats_table.c.directory == root)
+                | directory_stats_table.c.directory.like(like_pattern, escape='\\')
+            )
+        )
+        with get_engine().connect() as conn:
+            return {row[0] for row in conn.execute(stmt).fetchall()}
+
+    def upsert_directory_stats(self, rows: list[dict]) -> None:
+        """Upsert any number of DirectoryStats rows (`refresh_directory`
+        calls this with one; the census with every directory it walked),
+        chunked at 500 rows per statement so a large tree's census doesn't
+        build one enormous INSERT."""
+        if not rows:
+            return
+        with get_engine().begin() as conn:
+            for i in range(0, len(rows), 500):
+                conn.execute(upsert(directory_stats_table, rows[i:i + 500], ['directory']))
+
+    def delete_directory_stats(self, directories: list[str]) -> int:
+        """Delete these exact DirectoryStats rows (not a prefix — callers
+        that need "this directory and everything below it" use
+        `delete_directory_stats_subtree`), chunked at 1000 directories per
+        statement."""
+        if not directories:
+            return 0
+        total = 0
+        with get_engine().begin() as conn:
+            for i in range(0, len(directories), 1000):
+                result = conn.execute(
+                    delete(directory_stats_table).where(directory_stats_table.c.directory.in_(directories[i:i + 1000]))
+                )
+                total += result.rowcount
+        return total
+
+    def delete_directory_stats_subtree(self, directory: str) -> int:
+        """Delete `directory`'s own row plus every row below it (escaped
+        LIKE prefix, same anchoring as `count_tracked_files_under`) — used
+        when a directory no longer exists on disk (`refresh_directory`) and
+        by the fileops trash hook (a trashed directory's old path is gone
+        for good, never reconciled like a rename/move)."""
+        like_pattern = self._escape_like(directory) + '/%'
+        with get_engine().begin() as conn:
+            result = conn.execute(
+                delete(directory_stats_table).where(
+                    (directory_stats_table.c.directory == directory)
+                    | directory_stats_table.c.directory.like(like_pattern, escape='\\')
+                )
+            )
+        return result.rowcount
+
+    def reprefix_directory_stats(self, old_directory: str, new_directory: str) -> None:
+        """After a directory rename/move (fileops/service.py, best-effort,
+        called once the physical rename has already committed — DirectoryStats
+        is a derived cache, not a source of truth like Files, so this never
+        needs to share a transaction with the rename itself): re-point every
+        row at `old_directory` or below it to `new_directory`, prefix-
+        rewriting BOTH the `directory` and `parent` columns (mirrors
+        `update_directory_prefix_on_conn`'s LIKE-prefix approach for
+        Files.directory). The one row this prefix rule can't reach is
+        `old_directory` itself — its OWN `parent` pointed *above*
+        `old_directory`, not below it, so a third statement fixes it
+        directly to `new_directory`'s new parent. Without that third step,
+        a directory *moved* (not just renamed in place) would keep pointing
+        at its old parent forever, since nothing else ever writes that
+        row's `parent` again (refresh_directory only ever touches the
+        parent passed in, never a child's own parent column)."""
+        like_pattern = self._escape_like(old_directory) + '/%'
+        start_pos = len(old_directory) + 1  # 1-indexed SQL substr position
+        new_parent = str(Path(new_directory).parent)
+        with get_engine().begin() as conn:
+            conn.execute(
+                update(directory_stats_table)
+                .where(
+                    (directory_stats_table.c.directory == old_directory)
+                    | directory_stats_table.c.directory.like(like_pattern, escape='\\')
+                )
+                .values(directory=new_directory + func.substr(directory_stats_table.c.directory, start_pos))
+            )
+            conn.execute(
+                update(directory_stats_table)
+                .where(
+                    (directory_stats_table.c.parent == old_directory)
+                    | directory_stats_table.c.parent.like(like_pattern, escape='\\')
+                )
+                .values(parent=new_directory + func.substr(directory_stats_table.c.parent, start_pos))
+            )
+            conn.execute(
+                update(directory_stats_table)
+                .where(directory_stats_table.c.directory == new_directory)
+                .values(parent=new_parent)
+            )

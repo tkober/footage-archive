@@ -71,29 +71,39 @@ def _normalize_extension(extension: str | None) -> str | None:
 
 def _count_direct_files(
     dir_path: Path, hidden_extensions: set[str], hidden_names: set[str], scanning_extensions: set[str],
-) -> tuple[int | None, int | None]:
-    """Direct, non-hidden file count for a subdirectory (not recursive), plus
-    how many of those are "relevant" media files (#134): lowercase extension
-    in `scanning_extensions` (`Environment.get_scanning_file_extensions()`),
-    not hidden — the pool the browser's untracked badge is counted against.
-    No per-file trash check: the caller already skips `dir_path` itself when
-    it is (inside) the trash, so none of its direct files can be. Both numbers come from the same `os.scandir` pass, so
-    this stays one scandir per child folder regardless of how many counts it
-    returns. Cheap by design: no hashing, no DB access. Both None if the
+) -> tuple[int | None, int | None, bool | None]:
+    """Direct, non-hidden file count for a subdirectory (not recursive), how
+    many of those are "relevant" media files (#134: lowercase extension in
+    `scanning_extensions`, not hidden — the pool the browser's untracked
+    badge is counted against), and whether the subdirectory has any real
+    (non-hidden) subdirectory of its own (#139 — a folder with none is
+    always "complete" for the "N below" badge, even with no DirectoryStats
+    row at all, since there's nothing below it to be unknown about). No
+    per-file trash check: the caller already skips `dir_path` itself when
+    it is (inside) the trash, so none of its direct entries can be. All
+    three numbers come from the same `os.scandir` pass, so this stays one
+    scandir per child folder regardless of how many of them it returns.
+    Cheap by design: no hashing, no DB access. All three None if the
     subdirectory can't be read (permissions, race with a delete, ...)."""
     try:
         count = 0
         relevant = 0
+        has_subdirs = False
         with os.scandir(dir_path) as it:
             for entry in it:
-                if not entry.is_file() or is_hidden_system_file(entry.name, hidden_extensions, hidden_names):
+                if is_hidden_system_file(entry.name, hidden_extensions, hidden_names):
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    has_subdirs = True
+                    continue
+                if not entry.is_file():
                     continue
                 count += 1
                 if os.path.splitext(entry.name)[1].lower() in scanning_extensions:
                     relevant += 1
-        return count, relevant
+        return count, relevant, has_subdirs
     except OSError:
-        return None, None
+        return None, None, None
 
 
 @FilesApi.post('/directory')
@@ -115,6 +125,7 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
     tracked = db.get_tracked_files_in_directory(str(path))
 
     entries = []
+    has_subdirs_by_path: dict[str, bool | None] = {}
     for e in path.iterdir():
         if e.name.startswith('._'):
             continue
@@ -122,10 +133,12 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
             continue
         if is_in_trash(e):
             continue
-        # One scandir per child folder (#134): file_count/media_file_count
-        # both come out of the same _count_direct_files call.
-        file_count, media_file_count = _count_direct_files(e, hidden, hidden_names, scanning_extensions) \
-            if e.is_dir() else (None, None)
+        # One scandir per child folder (#134/#139): file_count/media_file_count
+        # and whether it has any subdirectory of its own all come out of the
+        # same _count_direct_files call.
+        file_count, media_file_count, has_subdirs = _count_direct_files(e, hidden, hidden_names, scanning_extensions) \
+            if e.is_dir() else (None, None, None)
+        has_subdirs_by_path[str(e)] = has_subdirs
         entries.append(PathChild(
             name=e.name,
             path=str(e),
@@ -155,13 +168,38 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
     # Tracked-file count per child folder (#134), one query for every
     # directory entry in this listing — never per child (see
     # Database.count_tracked_files_by_directory).
-    tracked_counts = db.count_tracked_files_by_directory(
-        [e.path for e in entries if e.type == PathType.DIRECTORY]
-    )
+    directory_paths = [e.path for e in entries if e.type == PathType.DIRECTORY]
+    tracked_counts = db.count_tracked_files_by_directory(directory_paths)
     for e in entries:
         if e.type == PathType.DIRECTORY and e.media_file_count is not None:
             e.tracked_file_count = tracked_counts.get(e.path, 0)
             e.untracked_file_count = max(e.media_file_count - e.tracked_file_count, 0)
+
+    # DirectoryStats rows (#139) for every child folder, ONE more query —
+    # same convention as count_tracked_files_by_directory just above.
+    stats_rows = db.get_directory_stats_batch(directory_paths)
+    for e in entries:
+        if e.type != PathType.DIRECTORY:
+            continue
+        row = stats_rows.get(e.path)
+        has_subdirs = has_subdirs_by_path.get(e.path)
+        if row is not None:
+            own_untracked = max((row['media_files'] or 0) - (row['tracked_files'] or 0), 0)
+            subtree_untracked = max((row['subtree_media_files'] or 0) - (row['subtree_tracked_files'] or 0), 0)
+            e.subtree_untracked_count = subtree_untracked
+            e.below_untracked_count = max(subtree_untracked - own_untracked, 0)
+            e.subtree_status = 'complete' if row['subtree_complete'] else 'partial'
+            e.status_walked_at = row['walked_at']
+        elif has_subdirs is False:
+            # Never walked, but it has no real subdirectory of its own — so
+            # there's nothing below it to be unknown about.
+            e.subtree_status = 'complete'
+            e.below_untracked_count = 0
+        else:
+            # has_subdirs is True (real subdirectories exist, but this
+            # folder has no DirectoryStats row yet) or None (unreadable) —
+            # genuinely unknown; below_untracked_count stays None too.
+            e.subtree_status = 'unknown'
 
     # Counts for the whole directory — independent of pagination AND of any
     # `kind` filter below, so the frontend's filter-segment labels stay

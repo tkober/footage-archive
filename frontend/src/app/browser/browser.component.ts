@@ -440,13 +440,58 @@ export class BrowserComponent implements OnInit {
   }
 
   /** Untracked badge (#134) for a folder tile — direct level only, not
-      recursive (a later ticket handles that). 'warn' when the folder has
-      untracked relevant files, 'ok' once every relevant file is tracked,
-      null when the folder has no relevant files at all (incl. unreadable,
-      where every count is null). */
+      recursive (see statusBadges below for that). 'warn' when the folder
+      has untracked relevant files, 'ok' once every relevant file is
+      tracked, null when the folder has no relevant files at all (incl.
+      unreadable, where every count is null). */
   untrackedBadge(dir: PathChild): 'warn' | 'ok' | null {
     if (!dir.media_file_count) return null;
     return (dir.untracked_file_count ?? 0) > 0 ? 'warn' : 'ok';
+  }
+
+  /** Every "below this folder" status badge for a folder tile's `.meta` row
+      (#139), on top of #134's own-level untrackedBadge above — in display
+      order, never more than one "everything's fine" badge (`complete`, or
+      `tracked` paired with `below: unknown`):
+      - `below_untracked_count > 0` → "N below" (warning).
+      - Own + below both known and zero, subtree_status 'complete', and the
+        subtree actually has media → "complete" (success).
+      - subtree_status 'unknown'/'partial' and no "N below" badge → "below:
+        unknown" (neutral), preceded by "N tracked" (success) when this
+        folder's own files are all tracked (the concept mock's Kokura card:
+        "3 tracked" + "below: unknown").
+      - No media at all, nothing below known → no badge. */
+  statusBadges(dir: PathChild): { cls: 'badge-warn' | 'badge-ok' | 'badge-neutral'; text: string }[] {
+    const badges: { cls: 'badge-warn' | 'badge-ok' | 'badge-neutral'; text: string }[] = [];
+    const ownUntracked = dir.untracked_file_count ?? 0;
+    const belowKnown = dir.below_untracked_count != null;
+    const below = dir.below_untracked_count ?? 0;
+
+    if (belowKnown && below > 0) {
+      badges.push({ cls: 'badge-warn', text: `${below} below` });
+    }
+
+    const hasMedia = (dir.media_file_count ?? 0) > 0 || (dir.subtree_untracked_count ?? 0) > 0;
+    const allKnownAndZero = dir.media_file_count != null && ownUntracked === 0
+      && belowKnown && below === 0 && dir.subtree_status === 'complete';
+
+    if (allKnownAndZero && hasMedia) {
+      badges.push({ cls: 'badge-ok', text: 'complete' });
+    } else if ((dir.subtree_status === 'unknown' || dir.subtree_status === 'partial') && !(belowKnown && below > 0)) {
+      if (dir.media_file_count != null && dir.media_file_count > 0 && ownUntracked === 0) {
+        badges.push({ cls: 'badge-ok', text: `${dir.media_file_count} tracked` });
+      }
+      badges.push({ cls: 'badge-neutral', text: 'below: unknown' });
+    }
+    return badges;
+  }
+
+  /** Badge-row tooltip (#139): "Status as of <date> <time>" once this
+      folder's own DirectoryStats row is known, null otherwise. */
+  statusTooltip(dir: PathChild): string | null {
+    if (!dir.status_walked_at) return null;
+    const d = new Date(dir.status_walked_at);
+    return `Status as of ${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
   }
 
   onCardMore(entry: PathChild, anchor: HTMLElement) {
@@ -559,6 +604,8 @@ export class BrowserComponent implements OnInit {
         ...(isCurrent ? [] : [{ id: 'open', label: 'Open', icon: 'folder', shortcut: 'Enter' }]),
         { id: 'scan', label: 'Scan folder', icon: 'scan', separatorBefore: !isCurrent },
         { id: 'scan-force', label: 'Scan folder (force rehash)', icon: 'scan' },
+        { id: 'scan-untracked', label: 'Scan untracked only', icon: 'scan' },
+        { id: 'refresh-status', label: 'Refresh status', icon: 'scan' },
         { id: 'rediscover', label: 'Rediscover…', icon: 'rediscover' },
         { id: 'rename', label: 'Rename', icon: 'edit', shortcut: 'F2', separatorBefore: true },
         { id: 'move', label: 'Move to…', icon: 'move', shortcut: 'M' },
@@ -611,6 +658,16 @@ export class BrowserComponent implements OnInit {
       case 'scan-force':
         this.api.scanDirectory(entry.path, { forceRehash: true }).subscribe({
           next: () => { this.api.taskRefresh$.next(); this.toast.show(`Force-rehash scan started for ${entry.name}`); },
+        });
+        break;
+      case 'scan-untracked':
+        this.api.scanDirectory(entry.path, { onlyUntracked: true }).subscribe({
+          next: () => { this.api.taskRefresh$.next(); this.toast.show(`Scanning untracked files in ${entry.name}`); },
+        });
+        break;
+      case 'refresh-status':
+        this.api.census(entry.path).subscribe({
+          next: () => { this.api.taskRefresh$.next(); this.toast.show('Updating folder status — see tasks.'); },
         });
         break;
       case 'track':

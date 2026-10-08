@@ -578,6 +578,53 @@ def test_count_tracked_files_by_directory_empty_list_issues_no_query(db):
     assert _count_sql_statements(_call) == 0
 
 
+def test_get_directory_stats_batch_called_once_per_request(db, root_dir, monkeypatch):
+    """#139's reader extension: one extra query for every child folder's
+    DirectoryStats row, same "once per request, never once per child"
+    convention as count_tracked_files_by_directory above."""
+    client = _make_client()
+    from db.database import Database
+
+    for i in range(4):
+        (root_dir / f'sub{i}').mkdir()
+
+    calls = []
+    original = Database.get_directory_stats_batch
+
+    def _spy(self, directories):
+        calls.append(list(directories))
+        return original(self, directories)
+
+    monkeypatch.setattr(Database, 'get_directory_stats_batch', _spy)
+
+    _list_dir(client, root_dir)
+
+    assert len(calls) == 1
+    assert len(calls[0]) == 4
+
+
+def test_directory_request_issues_one_more_statement_for_directory_stats(db, root_dir):
+    """#134's "constant query count" proof (a folder with one child issues
+    the same number of statements as one with several) still holds with
+    #139's extra DirectoryStats query added — it's one more query per
+    request, not one per child, so it doesn't break that invariant."""
+    client = _make_client()
+
+    few = root_dir / 'few'
+    few.mkdir()
+    (few / 'only_child').mkdir()
+
+    many = root_dir / 'many'
+    many.mkdir()
+    for i in range(6):
+        (many / f'sub{i}').mkdir()
+
+    few_count = _count_sql_statements(lambda: _list_dir(client, few))
+    many_count = _count_sql_statements(lambda: _list_dir(client, many))
+
+    assert few_count == many_count
+
+
 def test_count_tracked_files_by_directory_missing_dirs_absent(db):
     _insert_file_row('/root/a', 'x.jpg', 'h1')
     _insert_file_row('/root/a', 'y.jpg', 'h2')

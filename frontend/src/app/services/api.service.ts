@@ -51,11 +51,22 @@ export class ApiService {
 
   /** `options.forceRehash` (#136) hashes+probes every file in the folder
       instead of skipping ones already tracked with an unchanged size+mtime
-      signature — the context menu's "Scan folder (force rehash)". */
-  scanDirectory(path: string, options: { forceRehash?: boolean } = {}): Observable<string> {
+      signature — the context menu's "Scan folder (force rehash)".
+      `options.onlyUntracked` (#139) plans a unit only for a directory where
+      the walk found more relevant files than tracked ones — "Scan untracked
+      only". */
+  scanDirectory(path: string, options: { forceRehash?: boolean; onlyUntracked?: boolean } = {}): Observable<string> {
     return this.http.post<string>(`${this.base}/tracking/scan-directory`, {
       path, generate_clip_preview: true, force_rehash: options.forceRehash ?? false,
+      only_untracked: options.onlyUntracked ?? false,
     });
+  }
+
+  /** POST /tracking/census (#139) — "Refresh status": re-walks `path` and
+      rewrites every DirectoryStats row under it. Returns the started
+      Census task's id. */
+  census(path: string): Observable<string> {
+    return this.http.post<string>(`${this.base}/tracking/census`, { path });
   }
 
   trackFile(path: string): Observable<string> {

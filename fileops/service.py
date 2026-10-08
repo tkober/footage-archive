@@ -29,8 +29,38 @@ from env.environment import Environment
 from env.hidden_files import is_hidden_system_file, is_system_junk_name
 from fileops.pathlocks import PathLockedError, try_exclusive
 from fileops.trash import ensure_trash_dir, is_in_trash
+from tasks import directory_stats
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# DirectoryStats hooks (#139) — every physical move/rename/trash/mkdir below
+# calls one of these once its own DB transaction has already committed.
+# DirectoryStats is a derived cache, not a source of truth like Files, so
+# these never need to share that transaction, and never fail the operation
+# itself — any exception here is logged and swallowed.
+# ---------------------------------------------------------------------------
+
+def _refresh_directory_stats_chain(directory: str) -> None:
+    try:
+        directory_stats.refresh_chain(directory, 'fileops')
+    except Exception:
+        logger.exception('Failed to refresh directory status for %s after a file operation', directory)
+
+
+def _reprefix_directory_stats(old_directory: str, new_directory: str) -> None:
+    try:
+        Database().reprefix_directory_stats(old_directory, new_directory)
+    except Exception:
+        logger.exception('Failed to re-prefix directory status rows from %s to %s', old_directory, new_directory)
+
+
+def _delete_directory_stats_subtree(directory: str) -> None:
+    try:
+        Database().delete_directory_stats_subtree(directory)
+    except Exception:
+        logger.exception('Failed to delete directory status rows under %s', directory)
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +337,10 @@ def mkdir(parent: str, name: str) -> str:
     _require_not_trash(new_path)
     _require_absent(new_path)
     new_path.mkdir(parents=False, exist_ok=False)
+    # #139: an empty, complete row for the new directory — otherwise its
+    # parent would read as incomplete (an unknown subdirectory) until
+    # something else happens to refresh it.
+    _refresh_directory_stats_chain(str(new_path))
     return str(new_path)
 
 
@@ -325,10 +359,20 @@ def rename_path(path: str, new_name: str) -> str:
         # physical os.rename, since even the lock doesn't block a target
         # created by something outside this service.
         _require_absent(dst)
-        if src.is_dir():
+        is_dir = src.is_dir()
+        if is_dir:
             _rename_or_move_directory(db, src, dst)
         else:
             _rename_single_file_with_sidecars(db, src, dst)
+    # #139: a directory rename re-prefixes its subtree's rows (both
+    # directory and parent columns) before refreshing both parent chains;
+    # a file rename only ever needs the chain(s) refreshed — renaming a
+    # file never moves a DirectoryStats row.
+    if is_dir:
+        _reprefix_directory_stats(str(src), str(dst))
+    _refresh_directory_stats_chain(str(src.parent))
+    if dst.parent != src.parent:
+        _refresh_directory_stats_chain(str(dst.parent))
     return str(dst)
 
 
@@ -409,6 +453,9 @@ def _move_one_directory(src: Path, target_dir: Path) -> MoveResult:
             # physical rename too.
             _require_absent(dst)
             _rename_or_move_directory(db, src, dst)
+        _reprefix_directory_stats(str(src), str(dst))  # #139
+        _refresh_directory_stats_chain(str(src.parent))
+        _refresh_directory_stats_chain(str(dst.parent))
         return MoveResult(path=str(src), ok=True, new_path=str(dst))
     except (FileOpError, PathLockedError) as e:
         return MoveResult(path=str(src), ok=False, error=str(e))
@@ -433,6 +480,8 @@ def _move_one_file(raw_path: str, target_dir: Path) -> MoveResult:
             # physical rename too.
             _require_absent(dst)
             _rename_single_file_with_sidecars(db, src, dst)
+        _refresh_directory_stats_chain(str(src.parent))  # #139
+        _refresh_directory_stats_chain(str(dst.parent))
         return MoveResult(path=str(src), ok=True, new_path=str(dst))
     except FileOpError as e:
         return MoveResult(path=raw_path, ok=False, error=str(e))
@@ -631,10 +680,13 @@ def _delete_one(raw_path: str, batch_dir: Path) -> DeleteResult:
                 total = _count_files_recursive(src)
                 tracked = db.count_tracked_files_under(str(src))
                 _trash_one_directory(db, src, dst)
+                _delete_directory_stats_subtree(str(src))  # #139 — gone for good, never reconciled
+                _refresh_directory_stats_chain(str(src.parent))
                 return DeleteResult(path=raw_path, ok=True, trash_path=str(dst),
                                     untracked_count=total - tracked)
             else:
                 _trash_single_file_with_sidecars(db, src, dst)
+                _refresh_directory_stats_chain(str(src.parent))  # #139
                 return DeleteResult(path=raw_path, ok=True, trash_path=str(dst))
     except FileOpError as e:
         return DeleteResult(path=raw_path, ok=False, error=str(e))

@@ -140,6 +140,9 @@
 .badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
 .badge-warn { color: var(--warning); background: color-mix(in srgb, var(--warning) 15%, transparent); }
 .badge-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+/* "below: unknown" (#139) — neither a warning nor a success, just "we don't
+   know yet" (no DirectoryStats row below this folder). */
+.badge-neutral { color: var(--muted); background: color-mix(in srgb, var(--faint) 15%, transparent); }
 
 .folder.renaming {
   display: inline-flex;

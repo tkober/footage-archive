@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    BigInteger, Column, DateTime, Float, ForeignKey, Index, Integer, LargeBinary,
+    BigInteger, Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, LargeBinary,
     MetaData, String, Table, Text, UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -206,6 +206,49 @@ Index(
     'uq__ScanUnits__directory_active', scan_units_table.c.directory,
     unique=True, postgresql_where=scan_units_table.c.status.in_(('QUEUED', 'RUNNING')),
 )
+
+directory_stats_table = Table(
+    'DirectoryStats', metadata,
+    # Recursive directory status (#139, epic #133): one row per directory
+    # ever walked by a scan unit, a census, or a fileops operation — never
+    # computed on the fly by a browser request (query_directory just reads
+    # the row). `directory` is the same str(Path) form as Files.directory/
+    # ScanUnits.directory.
+    Column('directory', Text, primary_key=True),
+    # The directory's parent (str(Path(directory).parent)) — child lookups
+    # (refresh_directory loading a directory's children, the census's
+    # bottom-up pass) are always `WHERE parent = :dir`, never a LIKE scan,
+    # so this is indexed (idx__DirectoryStats__parent below), not derived
+    # on read.
+    Column('parent', Text, nullable=False),
+    # Direct level, own directory only (same "relevant file" rule as #134/
+    # #138): media_files = relevant files on disk; tracked_files = Files
+    # rows at exactly this directory (raw count, NOT clamped to
+    # media_files — a stale "missing" Files row can make this exceed
+    # media_files, which is exactly what subtree_tracked_files's min()
+    # below guards against).
+    Column('media_files', Integer),
+    Column('tracked_files', Integer),
+    # This directory plus everything below it. subtree_tracked_files sums
+    # min(tracked_files, media_files) per directory (this one included), so
+    # subtree_media_files - subtree_tracked_files is never negative and a
+    # stale "missing" row in one folder can't hide untracked files in a
+    # sibling.
+    Column('subtree_media_files', Integer),
+    Column('subtree_tracked_files', Integer),
+    # True only if every subdirectory that exists on disk has a row of its
+    # own AND that row is itself subtree_complete — an incomplete row is a
+    # lower bound, never shown as "complete" in the browser.
+    Column('subtree_complete', Boolean, nullable=False),
+    Column('walked_at', DateTime(timezone=True)),
+    # Which writer last touched this row: 'scan' (a finished ScanUnit or
+    # Track file/Rediscover), 'census' (POST /tracking/census), or
+    # 'fileops' (rename/move/trash/mkdir) — informational only, nothing
+    # branches on it today.
+    Column('source', Text),
+)
+
+Index('idx__DirectoryStats__parent', directory_stats_table.c.parent)
 
 Index('idx__Locations__country', locations_table.c.country)
 Index('idx__Locations__city', locations_table.c.city)

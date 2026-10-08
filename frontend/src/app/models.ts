@@ -64,6 +64,22 @@ export interface PathChild {
   media_file_count?: number | null;
   tracked_file_count?: number | null;
   untracked_file_count?: number | null;
+  /** Directory entries only (#139), from this folder's persisted
+      DirectoryStats row — null whenever there's no row (never walked by a
+      scan/census/fileops operation yet), not 0. `subtree_untracked_count`
+      is untracked anywhere at or below this folder; `below_untracked_count`
+      is that minus the folder's OWN untracked (both from the row's own
+      snapshot, so they're internally consistent even if it's briefly out of
+      step with the live `untracked_file_count` above) — what the "N below"
+      badge shows. A folder with no real subdirectories is always 0 here,
+      even with no row at all. `subtree_status` is 'complete' (row exists,
+      fully known), 'partial' (row exists, not fully known) or 'unknown' (no
+      row) — except a folder with no subdirectories is always 'complete'.
+      `status_walked_at` is the row's timestamp, for the badge tooltip. */
+  subtree_untracked_count?: number | null;
+  below_untracked_count?: number | null;
+  subtree_status?: 'complete' | 'partial' | 'unknown' | null;
+  status_walked_at?: string | null;
   /** Tracked video files only (#39): `HH:MM:SS:FF` from `VideoDetails.duration_tc`,
       loaded in the same directory-listing query. Null for photos/untracked/directories. */
   duration_tc?: string | null;

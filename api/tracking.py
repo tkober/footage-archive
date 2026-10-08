@@ -11,6 +11,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Response
 
 from api.dtos import (
+    CensusQuery,
     ConflictCandidate,
     ConflictCountResponse,
     ConflictEntry,
@@ -21,6 +22,7 @@ from api.dtos import (
     ResolveBatchResponse,
     ResolveBatchStrategy,
     ResolveConflictRequest,
+    ScanPlanQuery,
     ScanPlanResponse,
 )
 from davinci.davinciresolve import Metadata, DerivedMetadataColumns
@@ -34,7 +36,7 @@ from photos.exif import probe_photo, generate_photo_thumbnail
 from scanner.media_type import classify_media_type
 from scanner.scanner import Scanner, ScanCandidate, ScanResult
 from scanner.walker import walk_directories
-from tasks import scanqueue
+from tasks import directory_stats, scanqueue
 from tasks.preview_registry import discard as discard_pending_preview, pending_previews
 from tasks.taskmanager import TaskManager, TaskRequest
 from tasks.workerpool import parallel_map
@@ -63,7 +65,7 @@ def _validate_scan_root(path: Path) -> Path:
     return resolved
 
 
-def _walk_and_plan(path: Path, db: Database) -> tuple[list[dict], list[dict]]:
+def _walk_and_plan(path: Path, db: Database, only_untracked: bool = False) -> tuple[list[dict], list[dict]]:
     """Shared by `/tracking/scan-plan` and `/scan-directory` (#138): walks
     `path` (`scanner/walker.py::walk_directories`, stat-only, no hashing)
     into one candidate unit per directory with at least one relevant direct
@@ -75,13 +77,28 @@ def _walk_and_plan(path: Path, db: Database) -> tuple[list[dict], list[dict]]:
     units and reported back as `skipped` instead — a PLANNED insert never
     conflicts with the partial unique index (see `create_scan_job`'s
     docstring), so this has to be the planner's own job, not something
-    `create_scan_job` catches for it."""
+    `create_scan_job` catches for it.
+
+    `only_untracked` (#139, "Scan untracked only"): keeps just the
+    candidates whose media_file_count exceeds the tracked count the walk
+    already fetched above — a directory where every relevant file is
+    already tracked gets no unit at all. Deliberately NOT based on a stored
+    DirectoryStats row ("row says untracked, or no row" would have been the
+    other option): the walk and the tracked-count query both run anyway, so
+    this is strictly fresher than any row could be, and needs no row to
+    exist in the first place. Known limit (also in CLAUDE.md): a folder
+    where one tracked file was deleted and a different one was added at the
+    same time keeps the same media/tracked counts, so it's never planned
+    here — a normal (incremental, cheap) scan still covers it."""
     candidates = sorted(
         (c for c in walk_directories(path) if c.media_file_count > 0),
         key=lambda c: c.directory,
     )
     directories = [c.directory for c in candidates]
     tracked_counts = db.count_tracked_files_by_directory(directories)
+    if only_untracked:
+        candidates = [c for c in candidates if c.media_file_count - tracked_counts.get(c.directory, 0) > 0]
+        directories = [c.directory for c in candidates]
     active = db.get_directories_with_active_scan_units(directories)
 
     skipped = [{'directory': d, 'reason': 'already queued'} for d in directories if d in active]
@@ -94,7 +111,7 @@ def _walk_and_plan(path: Path, db: Database) -> tuple[list[dict], list[dict]]:
 
 
 @TrackingApi.post('/scan-plan')
-def scan_plan(query: FileQuery) -> ScanPlanResponse:
+def scan_plan(query: ScanPlanQuery) -> ScanPlanResponse:
     """Splits a directory tree into one ScanUnit per directory, planned
     stat-only and BEFORE any hashing (#138): the whole breakdown is visible
     up front, nothing is touched until `POST /scan-jobs/{id}/start`. A
@@ -108,13 +125,13 @@ def scan_plan(query: FileQuery) -> ScanPlanResponse:
     path = _validate_scan_root(Path(query.path))
     db = Database()
     options = {'generate_clip_preview': query.generate_clip_preview, 'force_rehash': query.force_rehash}
-    units, skipped = _walk_and_plan(path, db)
+    units, skipped = _walk_and_plan(path, db, only_untracked=query.only_untracked)
     job, create_skipped = db.create_scan_job(str(path), units, options, start=False)
     return ScanPlanResponse(**job, skipped=skipped + create_skipped)
 
 
 @TrackingApi.post('/scan-directory')
-def scan_directory(query: FileQuery) -> str:
+def scan_directory(query: ScanPlanQuery) -> str:
     """Compatibility endpoint (#138): plans a tree exactly like `POST
     /tracking/scan-plan` and starts it immediately
     (`create_scan_job(..., start=True)`), returning the job id. The
@@ -135,11 +152,45 @@ def scan_directory(query: FileQuery) -> str:
     path = _validate_scan_root(Path(query.path))
     db = Database()
     options = {'generate_clip_preview': query.generate_clip_preview, 'force_rehash': query.force_rehash}
-    units, _skipped = _walk_and_plan(path, db)
+    units, _skipped = _walk_and_plan(path, db, only_untracked=query.only_untracked)
     job, _create_skipped = db.create_scan_job(str(path), units, options, start=True)
     if not units:
-        db.recompute_scan_job_status(job['id'], scanqueue.summarize_job)
+        # A 0-unit job never reaches finish_scan_unit, so #139's auto-census
+        # trigger there never fires for it either — do it here instead,
+        # same "only once per job" guarantee from recompute_scan_job_status's
+        # own `finalized` return.
+        finalized = db.recompute_scan_job_status(job['id'], scanqueue.summarize_job)
+        if finalized:
+            scanqueue._trigger_job_census(job['id'])
     return job['id']
+
+
+@TrackingApi.post('/census')
+async def census(query: CensusQuery, background_tasks: BackgroundTasks):
+    """"Refresh status" (#139) — re-walks `path` and rewrites every
+    DirectoryStats row under it (`tasks/directory_stats.py::run_census`),
+    for a folder whose status is missing or stale. Validated like
+    `/tracking/scan-plan` (under ROOT_DIR, exists, not trash). 409 if a
+    Census for this exact path is already QUEUED/RUNNING — same in-memory
+    dedupe `tasks/directory_stats.py::try_start_census` shares with the
+    automatic post-scan-job trigger (`tasks/scanqueue.py`), so the two
+    never race each other either."""
+    path = _validate_scan_root(Path(query.path))
+    if not directory_stats.try_start_census(str(path)):
+        raise HTTPException(status_code=409, detail='A status update is already running for this folder')
+
+    def run(report):
+        try:
+            directory_stats.run_census(str(path), report)
+        finally:
+            directory_stats.finish_census(str(path))
+
+    task_manager = TaskManager()
+    task = task_manager.request_task(
+        TaskRequest(name='Census', description=f'Updating folder status for "{query.path}".', method=run),
+        background_tasks,
+    )
+    return task.id
 
 
 @TrackingApi.post('/rediscover')
@@ -744,6 +795,15 @@ def rediscover_directory(query: RediscoverQuery, report: Callable[[str], None]):
         )
 
         report(_rediscover_summary(result, query.track_new))
+    # #139: best-effort, same reasoning as index_single_file above — cheap
+    # even for a big tree, since refresh_chain never recurses into a
+    # directory's own children, just rolls up whatever rows they already
+    # have (a rediscover doesn't change *which* subfolders exist, so those
+    # rows stay valid as-is).
+    try:
+        directory_stats.refresh_chain(str(directory), 'scan')
+    except Exception:
+        logging.exception('Failed to refresh directory status for %s after a rediscover', directory)
 
 
 def _rediscover_summary(result, track_new: bool) -> str:
@@ -878,6 +938,12 @@ def index_single_file(query: FileQuery, report: Callable[[str], None]):
                                        generate_clip_preview=query.generate_clip_preview,
                                        scanned_directory=str(path.parent))
         report(_format_scan_summary(summary))
+    # #139: best-effort, same as the scan queue's on_unit_done hook — a
+    # Track file never fails because of this.
+    try:
+        directory_stats.refresh_chain(str(path.parent), 'scan')
+    except Exception:
+        logging.exception('Failed to refresh directory status for %s after tracking a file', path.parent)
 
 
 def refresh_tracked_files(query: RefreshQuery, report: Callable[[str], None]):
