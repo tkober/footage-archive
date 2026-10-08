@@ -1,6 +1,6 @@
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -1518,6 +1518,51 @@ class Database:
                     skipped.append({'directory': unit['directory'], 'reason': 'already queued'})
         return self.get_scan_job(job_id), skipped
 
+    def get_directories_with_active_scan_units(self, directories: list[str]) -> set[str]:
+        """Which of `directories` already have a QUEUED/RUNNING ScanUnit in
+        ANY job, right now (#138's tree planner, `scanner/walker.py` +
+        `api/tracking.py`): a PLANNED insert never conflicts with the
+        partial unique index (only a QUEUED one does, see create_scan_job's
+        docstring), so a planner creating a PLANNED job must exclude these
+        directories itself — it can't rely on create_scan_job's own
+        ON-CONFLICT dedupe to catch them. One query for the whole candidate
+        set, not one per directory."""
+        if not directories:
+            return set()
+        stmt = (
+            select(scan_units_table.c.directory)
+            .where(scan_units_table.c.directory.in_(directories),
+                   scan_units_table.c.status.in_(self._ACTIVE_UNIT_STATUSES))
+            .distinct()
+        )
+        with get_engine().connect() as conn:
+            return {row[0] for row in conn.execute(stmt).fetchall()}
+
+    def recompute_scan_job_status(self, job_id: str, summarize: Callable[[list[dict]], str]) -> None:
+        """Public, own-transaction wrapper around
+        `_recompute_scan_job_status_on_conn` — used by `POST
+        /tracking/scan-directory`'s 0-unit case (#138): a plan started
+        immediately with no units to run would otherwise sit QUEUED
+        forever, since nothing would ever call `finish_scan_unit` to
+        trigger this recompute."""
+        with get_engine().begin() as conn:
+            self._recompute_scan_job_status_on_conn(conn, job_id, summarize)
+
+    def delete_stale_planned_jobs(self, max_age: timedelta = timedelta(hours=24)) -> int:
+        """Startup cleanup (#138, called from `tasks/scanqueue.py`'s
+        `recover_on_startup`, before consumers start, alongside #137's
+        `recover_scan_queue`): a PLANNED job the user never started (or
+        forgot to discard) would otherwise pile up forever — delete any
+        PLANNED job whose `created_at` is older than `max_age`. Units
+        cascade (`ON DELETE CASCADE`). Returns how many jobs were deleted."""
+        cutoff = datetime.now(timezone.utc) - max_age
+        with get_engine().begin() as conn:
+            result = conn.execute(
+                delete(scan_jobs_table)
+                .where(scan_jobs_table.c.status == 'PLANNED', scan_jobs_table.c.created_at < cutoff)
+            )
+        return result.rowcount
+
     def get_scan_job(self, job_id: str) -> Optional[dict]:
         """One job with every one of its units, ordered by `position`. No
         aggregated progress here (see get_scan_jobs for that) — the detail
@@ -1767,13 +1812,22 @@ class Database:
                 raise InvalidScanTransitionError('Cannot delete a job while one of its units is running')
             conn.execute(delete(scan_jobs_table).where(scan_jobs_table.c.id == job_id))
 
-    def start_scan_job(self, job_id: str) -> dict:
+    def start_scan_job(self, job_id: str,
+                       summarize: Optional[Callable[[list[dict]], str]] = None) -> dict:
         """PLANNED -> QUEUED, same for its PLANNED units — except a unit
         whose directory is already QUEUED/RUNNING in another job, which is
         set CANCELLED with an explanatory error instead of failing the
         whole start (same per-unit `ON CONFLICT` guard as create_scan_job);
         a genuine race that still raises is let through to the caller as a
-        plain IntegrityError (mapped to 409 by the API)."""
+        plain IntegrityError (mapped to 409 by the API).
+
+        `summarize`, if given (the API always passes `scanqueue.summarize_job`;
+        tests that don't care about the 0-unit edge case may omit it), also
+        recomputes the job's status in the same transaction right after —
+        a no-op for the normal case (some unit is now QUEUED), but the only
+        thing that finalizes a #138 plan with zero (non-DESELECTED) units:
+        otherwise it would sit QUEUED forever, since no unit ever finishes
+        to trigger that recompute."""
         with get_engine().begin() as conn:
             job_row = conn.execute(
                 select(scan_jobs_table.c.status).where(scan_jobs_table.c.id == job_id).with_for_update()
@@ -1803,6 +1857,8 @@ class Database:
                                 finished_at=datetime.now(timezone.utc))
                     )
             conn.execute(update(scan_jobs_table).where(scan_jobs_table.c.id == job_id).values(status='QUEUED'))
+            if summarize is not None:
+                self._recompute_scan_job_status_on_conn(conn, job_id, summarize)
         return self.get_scan_job(job_id)
 
     def cancel_scan_unit(self, job_id: str, unit_id: int, summarize: Callable[[list[dict]], str]) -> bool:

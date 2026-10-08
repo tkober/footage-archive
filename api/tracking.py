@@ -21,6 +21,7 @@ from api.dtos import (
     ResolveBatchResponse,
     ResolveBatchStrategy,
     ResolveConflictRequest,
+    ScanPlanResponse,
 )
 from davinci.davinciresolve import Metadata, DerivedMetadataColumns
 from db.database import Database, StaleConflictError
@@ -32,6 +33,8 @@ from ffmpeg.ffmpeg import FFmpegInput, FFmpeg, FFprobe, VideoProbeResult
 from photos.exif import probe_photo, generate_photo_thumbnail
 from scanner.media_type import classify_media_type
 from scanner.scanner import Scanner, ScanCandidate, ScanResult
+from scanner.walker import walk_directories
+from tasks import scanqueue
 from tasks.preview_registry import discard as discard_pending_preview, pending_previews
 from tasks.taskmanager import TaskManager, TaskRequest
 from tasks.workerpool import parallel_map
@@ -42,25 +45,101 @@ VIDEO_TYPES = {'video', '360_video'}
 PHOTO_TYPES = {'photo', '360_photo'}
 
 
-@TrackingApi.post('/scan-directory')
-async def scan_directory(query: FileQuery, background_tasks: BackgroundTasks):
-    path = Path(query.path)
-    if not path.is_dir():
+def _validate_scan_root(path: Path) -> Path:
+    """Shared validation for `/tracking/scan-plan`/`scan-directory` (#138):
+    under ROOT_DIR, exists and is a directory, not inside the trash. Same
+    checks `/tracking/rediscover` already applies; the old `scan-directory`
+    only had the latter two — rolling both endpoints onto one tree walk
+    means both now also reject a path outside ROOT_DIR (403), closing that
+    gap instead of leaving scan-directory looser than rediscover."""
+    root = Path(Environment().get_root_dir())
+    resolved = path.resolve()
+    if not resolved.is_relative_to(root):
+        raise HTTPException(status_code=403, detail='Access outside root directory is not allowed')
+    if not resolved.is_dir():
         raise HTTPException(status_code=400, detail='Provided path is not a directory')
-    if is_in_trash(path):
+    if is_in_trash(resolved):
         raise HTTPException(status_code=400, detail='Path is inside the trash and cannot be scanned')
+    return resolved
 
-    task_manager = TaskManager()
-    task = task_manager.request_task(
-        TaskRequest(
-            name='Scan directory',
-            description=f'Scanning directory "{query.path}".',
-            method=lambda report: index_files_in_directory(query, report)
-        ),
-        background_tasks
+
+def _walk_and_plan(path: Path, db: Database) -> tuple[list[dict], list[dict]]:
+    """Shared by `/tracking/scan-plan` and `/scan-directory` (#138): walks
+    `path` (`scanner/walker.py::walk_directories`, stat-only, no hashing)
+    into one candidate unit per directory with at least one relevant direct
+    file, in alphabetical order of the directory path — the same "first
+    sorted path wins" convention the rest of a scan already uses for
+    position ties. Every candidate directory's already-tracked count comes
+    from one query (`Database.count_tracked_files_by_directory`); any
+    directory already QUEUED/RUNNING in another job is excluded from the
+    units and reported back as `skipped` instead — a PLANNED insert never
+    conflicts with the partial unique index (see `create_scan_job`'s
+    docstring), so this has to be the planner's own job, not something
+    `create_scan_job` catches for it."""
+    candidates = sorted(
+        (c for c in walk_directories(path) if c.media_file_count > 0),
+        key=lambda c: c.directory,
     )
+    directories = [c.directory for c in candidates]
+    tracked_counts = db.count_tracked_files_by_directory(directories)
+    active = db.get_directories_with_active_scan_units(directories)
 
-    return task.id
+    skipped = [{'directory': d, 'reason': 'already queued'} for d in directories if d in active]
+    units = [
+        {'directory': c.directory, 'media_file_count': c.media_file_count,
+         'tracked_file_count': tracked_counts.get(c.directory, 0)}
+        for c in candidates if c.directory not in active
+    ]
+    return units, skipped
+
+
+@TrackingApi.post('/scan-plan')
+def scan_plan(query: FileQuery) -> ScanPlanResponse:
+    """Splits a directory tree into one ScanUnit per directory, planned
+    stat-only and BEFORE any hashing (#138): the whole breakdown is visible
+    up front, nothing is touched until `POST /scan-jobs/{id}/start`. A
+    plain `def` — FastAPI runs it in the threadpool, not on the event loop,
+    since walking a tree of up to ~100k files must finish in seconds but
+    must never block the async endpoints (rename/move/EXIF/stream) sharing
+    that loop. A tree with zero qualifying directories still returns a
+    valid PLANNED job with no units (see `create_scan_job`'s own handling
+    of an empty `units` list) — the frontend's plan dialog (#140) decides
+    what to show for that, not this endpoint."""
+    path = _validate_scan_root(Path(query.path))
+    db = Database()
+    options = {'generate_clip_preview': query.generate_clip_preview, 'force_rehash': query.force_rehash}
+    units, skipped = _walk_and_plan(path, db)
+    job, create_skipped = db.create_scan_job(str(path), units, options, start=False)
+    return ScanPlanResponse(**job, skipped=skipped + create_skipped)
+
+
+@TrackingApi.post('/scan-directory')
+def scan_directory(query: FileQuery) -> str:
+    """Compatibility endpoint (#138): plans a tree exactly like `POST
+    /tracking/scan-plan` and starts it immediately
+    (`create_scan_job(..., start=True)`), returning the job id. The
+    frontend only ever treats this as an opaque task id
+    (`ApiService.scanDirectory`), and `GET /tasks/{id}` already resolves a
+    scan-job id the same way it resolves a TaskManager one (#137), so
+    neither the toast-then-poll flow nor the tasks widget needs a change.
+    The directory's own recursive TaskManager scan this used to run
+    (`index_files_in_directory`) is gone — any number of nested folders is
+    now one ScanJobs row with one ScanUnits row per directory, instead of
+    one in-memory task walking the whole tree itself.
+
+    A plan with zero units (e.g. an empty tree) is created and immediately
+    finalized DONE here (chosen over "create no job at all" so the caller
+    always gets a real, pollable job id back, consistent with every other
+    case) — otherwise it would sit QUEUED forever, since no unit would ever
+    finish to trigger that recompute (see `Database.recompute_scan_job_status`)."""
+    path = _validate_scan_root(Path(query.path))
+    db = Database()
+    options = {'generate_clip_preview': query.generate_clip_preview, 'force_rehash': query.force_rehash}
+    units, _skipped = _walk_and_plan(path, db)
+    job, _create_skipped = db.create_scan_job(str(path), units, options, start=True)
+    if not units:
+        db.recompute_scan_job_status(job['id'], scanqueue.summarize_job)
+    return job['id']
 
 
 @TrackingApi.post('/rediscover')
@@ -570,32 +649,19 @@ def _index_candidates(candidates: list[ScanCandidate], db: Database, report: Cal
     return summary
 
 
-def index_files_in_directory(query: FileQuery, report: Callable[[str], None]):
-    directory = Path(query.path)
-    with shared(str(directory)):
-        report('Scanning files…')
-        candidates = Scanner().collect_candidates(directory.rglob('*'))
-        report(f'Found {len(candidates)} files, hashing…')
-        db = Database()
-        summary = _index_candidates(candidates, db, report,
-                                     generate_clip_preview=query.generate_clip_preview,
-                                     scanned_directory=str(directory),
-                                     force_rehash=query.force_rehash)
-        report(_format_scan_summary(summary))
-
-
 def run_scan_unit(directory: str, options: dict, report: Callable[[str], None],
                   should_cancel: Callable[[], bool]) -> ScanSummary:
     """Executor of one ScanUnit (#137's persistent scan queue — see
-    `tasks/scanqueue.py`): the direct, non-recursive counterpart of
-    `index_files_in_directory` for a single directory. `options` is the
+    `tasks/scanqueue.py`): hashes+reconciles a single directory's DIRECT
+    files only, no recursion — a tree is split into one unit per directory
+    at planning time instead (#138, `scanner/walker.py` +
+    `api/tracking.py`'s `scan_plan`/`scan_directory`). `options` is the
     job's `ScanJobs.options` dict (`generate_clip_preview`/`force_rehash`,
     same meaning as on `FileQuery`); `should_cancel` is threaded straight
     into `_index_candidates`.
 
-    Candidates are DIRECT files only (`os.scandir`, no recursion — a unit
-    never walks into a subdirectory, unlike `index_files_in_directory`'s
-    `rglob('*')`), filtered the same way by `Scanner.collect_candidates`."""
+    Candidates are collected via `os.scandir` (not `rglob('*')` — again, no
+    recursion), filtered the same way by `Scanner.collect_candidates`."""
     path = Path(directory)
     with shared(str(path)):
         try:

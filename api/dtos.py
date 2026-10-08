@@ -16,9 +16,10 @@ class FileQuery(ScanningQuery):
     # Incremental scan (#136): skip a candidate already tracked at exactly
     # this path whose size+mtime are unchanged, without hashing it. True
     # forces every candidate to be hashed+probed regardless. Only honored by
-    # POST /tracking/scan-directory (index_files_in_directory) — scan-file
-    # always hashes the one file the user explicitly asked for, and
-    # RediscoverQuery (which extends this) always hashes too, since
+    # POST /tracking/scan-plan and /scan-directory (#138, carried onto every
+    # planned unit's ScanJobs.options and applied by run_scan_unit) —
+    # scan-file always hashes the one file the user explicitly asked for,
+    # and RediscoverQuery (which extends this) always hashes too, since
     # rediscovering by hash is the whole point — so the field is simply
     # unused on those two paths.
     force_rehash: bool = False
@@ -586,6 +587,20 @@ class ScanJobDto(BaseModel):
     finished_at: Optional[datetime] = None
     summary: Optional[str] = None
     units: List[ScanUnitDto] = []
+
+
+class ScanPlanSkip(BaseModel):
+    """One directory `POST /tracking/scan-plan` (#138) left out of the plan
+    because it's already QUEUED/RUNNING in another job right now."""
+    directory: StrictStr
+    reason: StrictStr
+
+
+class ScanPlanResponse(ScanJobDto):
+    """`POST /tracking/scan-plan`'s response (#138): the PLANNED job exactly
+    like `ScanJobDto`, plus the directories the walk found but didn't turn
+    into a unit because another job already has them QUEUED/RUNNING."""
+    skipped: List[ScanPlanSkip] = []
 
 
 class ScanJobListEntry(BaseModel):

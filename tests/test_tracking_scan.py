@@ -1,12 +1,16 @@
-"""Tests for the normal scan's reconciliation path (#26): `index_files_in_directory`
-(POST /tracking/scan-directory) and `index_single_file` (POST /tracking/scan-file)
-must reuse fileops/rediscover.py's classify()/apply() instead of silently moving a
-known hash's path via the `Files` upsert. `_probe_and_save` is monkeypatched so
-these tests never shell out to ffprobe/exiftool; it also records which ScanResults
-were actually probed, so "not probed" assertions have teeth.
+"""Tests for the normal scan's reconciliation path (#26): the directory-scan
+path (`_index_candidates`/`run_scan_unit`, reached here via the `_scan_directory`/
+`_scan_tree` helpers below — the recursive `index_files_in_directory` they used
+to call was removed by #138, which splits a tree into one ScanUnit per
+directory instead of one whole-tree task) and `index_single_file`
+(POST /tracking/scan-file) must reuse fileops/rediscover.py's classify()/apply()
+instead of silently moving a known hash's path via the `Files` upsert.
+`_probe_and_save` is monkeypatched so these tests never shell out to
+ffprobe/exiftool; it also records which ScanResults were actually probed, so
+"not probed" assertions have teeth.
 
 The tests from `test_scan_directory_batching_matches_single_batch_size` onward
-cover the streaming scan (#135): `index_files_in_directory` now hashes +
+cover the streaming scan (#135): a directory scan now hashes +
 reconciles its candidates in batches of `SCAN_BATCH_SIZE` instead of over the
 whole tree at once.
 
@@ -95,6 +99,35 @@ def _count_hash_calls(monkeypatch) -> list[str]:
     return calls
 
 
+def _scan_directory(path: Path, report, *, force_rehash: bool = False):
+    """Replaces the old (#138-removed) `index_files_in_directory` for every
+    test below whose fixture files sit directly in the scanned `path`, not
+    a nested subdirectory: `run_scan_unit` is the real, non-recursive
+    counterpart a #138 plan's unit actually runs for exactly that shape,
+    so these tests now exercise the real executor instead of a scan-only
+    helper. `should_cancel` is a plain `lambda: False` — none of these
+    tests cancel anything."""
+    return tracking.run_scan_unit(str(path), {'force_rehash': force_rehash}, report, lambda: False)
+
+
+def _scan_tree(path: Path, report, *, force_rehash: bool = False):
+    """Recursive variant for the handful of tests below whose fixture files
+    live in nested subdirectories under `path` — `run_scan_unit` is
+    deliberately non-recursive (#138 splits a tree into one unit per
+    directory instead), so these feed `_index_candidates` (the shared
+    hash+reconcile core both `run_scan_unit` and a #138 plan's many units
+    ultimately call) a recursive `rglob('*')` collection directly, the same
+    one the old `index_files_in_directory` used, to keep pinning
+    single-pass-over-a-whole-tree semantics."""
+    candidates = __import__('scanner.scanner', fromlist=['Scanner']).Scanner().collect_candidates(path.rglob('*'))
+    summary = tracking._index_candidates(
+        candidates, tracking.Database(), report, generate_clip_preview=True,
+        scanned_directory=str(path), force_rehash=force_rehash,
+    )
+    report(tracking._format_scan_summary(summary))
+    return summary
+
+
 def test_scan_directory_copy_of_tracked_file_is_conflict_not_moved(db, root_dir, monkeypatch):
     recorder = _patch_probe(monkeypatch)
 
@@ -108,7 +141,7 @@ def test_scan_directory_copy_of_tracked_file_is_conflict_not_moved(db, root_dir,
     db.insert_scan_results(scan_results)
 
     report = _Report()
-    tracking.index_files_in_directory(FileQuery(path=str(root_dir / 'other')), report)
+    _scan_directory(root_dir / 'other', report)
 
     row = _get_file_row(md5_hash)
     assert row['directory'] == str(original.parent)  # unchanged — not stolen by the copy
@@ -146,7 +179,7 @@ def test_scan_directory_moved_tracked_file_relinks_and_probes_new_path(db, root_
     old_dir.rmdir()
 
     report = _Report()
-    tracking.index_files_in_directory(FileQuery(path=str(new_dir)), report)
+    _scan_directory(new_dir, report)
 
     row = _get_file_row(md5_hash)
     assert row['directory'] == str(new_dir)
@@ -176,7 +209,7 @@ def test_scan_directory_duplicate_unknown_file_tracks_one_conflicts_other(db, ro
     md5_hash = scanner_module.Scanner().scan_files([a])[0].md5_hash
 
     report = _Report()
-    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), report)
+    _scan_tree(root_dir, report)
 
     row = _get_file_row(md5_hash)
     assert row is not None
@@ -206,7 +239,7 @@ def test_scan_directory_unchanged_file_is_reprobed_new_file_inserted_and_probed(
     _write(new_file, b'brand-new')
 
     report = _Report()
-    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), report)
+    _scan_directory(root_dir, report)
 
     assert str(tracked_file) in recorder.probed  # unchanged file re-probed
 
@@ -284,7 +317,7 @@ def test_scan_directory_batching_matches_single_batch_size(db, root_dir, monkeyp
     dup_hash = scanner_module.Scanner().scan_files([paths['b.jpg']])[0].md5_hash
 
     report = _Report()
-    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), report)
+    _scan_directory(root_dir, report)
 
     row = _get_file_row(dup_hash)
     assert row is not None
@@ -333,7 +366,7 @@ def test_scan_directory_relink_then_conflict_split_across_batches_is_pinned(db, 
     old_dir.rmdir()
 
     report = _Report()
-    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), report)
+    _scan_directory(root_dir, report)
 
     row = _get_file_row(md5_hash)
     assert f"{row['directory']}/{row['file_name']}" == str(copy_a)  # first batch's copy wins the relink
@@ -361,7 +394,7 @@ def test_scan_directory_progress_messages_monotonic_and_reach_total(db, root_dir
         _write(root_dir / name, bytes([i]))
 
     report = _Report()
-    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), report)
+    _scan_directory(root_dir, report)
 
     hashed = _progress_values(report.messages, 'Hashed')
     probed = _progress_values(report.messages, 'Probed')
@@ -400,7 +433,7 @@ def test_scan_directory_batch_hash_failure_does_not_abort_later_batches(db, root
     monkeypatch.setattr(scanner_module.Scanner, 'md5_hash', flaky_md5_hash)
 
     report = _Report()
-    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), report)
+    _scan_directory(root_dir, report)
 
     assert str(good_a) in recorder.probed
     assert str(good_c) in recorder.probed
@@ -430,7 +463,7 @@ def test_scan_directory_second_scan_skips_unchanged_files(db, root_dir, monkeypa
     _write(root_dir / 'b.jpg', b'b')
 
     first = _Report()
-    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), first)
+    _scan_directory(root_dir, first)
     assert len(hash_calls) == 2
     assert 'Indexed 2 files · 0 relinked · 0 conflicts' in first.last
 
@@ -438,7 +471,7 @@ def test_scan_directory_second_scan_skips_unchanged_files(db, root_dir, monkeypa
     recorder.probed.clear()
 
     second = _Report()
-    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), second)
+    _scan_directory(root_dir, second)
 
     assert hash_calls == []
     assert recorder.probed == []
@@ -458,7 +491,7 @@ def test_scan_directory_changed_file_is_rehashed_others_skipped(db, root_dir, mo
     _write(a, b'a')
     _write(b, b'b')
 
-    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), _Report())
+    _scan_directory(root_dir, _Report())
     hash_calls.clear()
     recorder.probed.clear()
 
@@ -467,7 +500,7 @@ def test_scan_directory_changed_file_is_rehashed_others_skipped(db, root_dir, mo
     os.utime(b, ns=(current.st_atime_ns, current.st_mtime_ns + 1_000_000_000))
 
     report = _Report()
-    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), report)
+    _scan_directory(root_dir, report)
 
     assert hash_calls == [str(b)]
     assert recorder.probed == [str(b)]
@@ -486,7 +519,7 @@ def test_scan_directory_renamed_file_is_hashed_and_relinked(db, root_dir, monkey
     old_path = old_dir / 'f.jpg'
     _write(old_path)
 
-    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), _Report())
+    _scan_tree(root_dir, _Report())
     hash_calls.clear()
     recorder.probed.clear()
 
@@ -497,7 +530,7 @@ def test_scan_directory_renamed_file_is_hashed_and_relinked(db, root_dir, monkey
     old_dir.rmdir()
 
     report = _Report()
-    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), report)
+    _scan_tree(root_dir, report)
 
     assert hash_calls == [str(new_path)]
     assert recorder.probed == [str(new_path)]
@@ -512,12 +545,12 @@ def test_scan_directory_force_rehash_hashes_everything(db, root_dir, monkeypatch
 
     a = root_dir / 'a.jpg'
     _write(a, b'a')
-    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), _Report())
+    _scan_directory(root_dir, _Report())
     hash_calls.clear()
     recorder.probed.clear()
 
     report = _Report()
-    tracking.index_files_in_directory(FileQuery(path=str(root_dir), force_rehash=True), report)
+    _scan_directory(root_dir, report, force_rehash=True)
 
     assert hash_calls == [str(a)]
     assert recorder.probed == [str(a)]
@@ -535,7 +568,7 @@ def test_scan_directory_null_signature_is_rehashed_and_filled(db, root_dir, monk
 
     a = root_dir / 'a.jpg'
     _write(a, b'a')
-    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), _Report())
+    _scan_directory(root_dir, _Report())
 
     scanner_module = __import__('scanner.scanner', fromlist=['Scanner'])
     md5_hash = scanner_module.Scanner().scan_files([a])[0].md5_hash
@@ -553,7 +586,7 @@ def test_scan_directory_null_signature_is_rehashed_and_filled(db, root_dir, monk
     recorder.probed.clear()
 
     report = _Report()
-    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), report)
+    _scan_directory(root_dir, report)
 
     assert hash_calls == [str(a)]
     assert recorder.probed == [str(a)]

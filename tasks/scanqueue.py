@@ -25,6 +25,7 @@ from db.database import Database
 from env.environment import Environment
 from tasks import activity
 from tasks.activity import TaskActivity
+from tasks.scan_hooks import on_unit_done
 
 logger = logging.getLogger(__name__)
 
@@ -201,8 +202,15 @@ def _run_unit(claim: dict) -> None:
         flush_last()
         result = asdict(summary)
         cancelled = result.pop('cancelled', False)
-        db.finish_scan_unit(unit_id, 'CANCELLED' if cancelled else 'DONE',
-                            result=result, error=None, summarize=summarize_job)
+        status = 'CANCELLED' if cancelled else 'DONE'
+        db.finish_scan_unit(unit_id, status, result=result, error=None, summarize=summarize_job)
+        if status == 'DONE':
+            # #138's seam for #139 (directory-status rows) — best-effort,
+            # never lets a hook failure fail an otherwise-successful unit.
+            try:
+                on_unit_done(directory)
+            except Exception:
+                logger.exception('on_unit_done hook failed for unit %s (%s)', unit_id, directory)
     except Exception as e:
         flush_last()
         logger.exception('Scan unit %s (%s) failed', unit_id, directory)
@@ -278,5 +286,8 @@ def stop_consumers(timeout: float = 5.0) -> None:
 def recover_on_startup() -> None:
     """Run once at app startup, before consumers start (#137) — see
     `Database.recover_scan_queue`'s own docstring for exactly what this
-    reconciles and why."""
+    reconciles and why. Also deletes stale PLANNED plans (#138, see
+    `Database.delete_stale_planned_jobs`) — a #138 plan the user never
+    started/discarded would otherwise pile up forever."""
     Database().recover_scan_queue(summarize_job)
+    Database().delete_stale_planned_jobs()
