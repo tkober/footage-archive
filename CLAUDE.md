@@ -305,6 +305,12 @@ footage-archive/
         │                           #   the focused tile (Space, P, T, K, L, F2, M, R, Delete/Backspace, #61/#64/#126), via `data-path` on cards/folder tiles
         ├── search/                 # Faceted search page (#44): filter rail (toggle chips, facet inputs) + result header with
         │                           #   active-filter chips / Clear all + results grid + sliding detail panel
+        ├── comparison/             # Compare view (`app-comparison-view`, full-screen overlay at z-index 1100, opened from the bulk bar):
+        │                           #   step/side-by-side/overlay, HQ + zoom. #146: `app-menu` context menu (right-click / "⋯" on a filmstrip
+        │                           #   item) + header buttons + K/L/Delete for the focused photo — Set as A/B, Add keyword…, Add to list…
+        │                           #   (inline pickers in an `app-popover`), Remove, Move to trash (preview → confirm → delete, emits
+        │                           #   `deleted(paths)` for the host to reconcile). Sets `body.cmp-open` while mounted so menus, popovers,
+        │                           #   modals and toasts opened from it are raised above it (`src/styles.css`)
         ├── map/                    # Map page: Google Maps clustering, flyouts, "open in search"
         ├── lists/                  # Lists feature: overview (create/rename/delete) + list detail (item grid, code jump, remove)
         │   ├── lists.component.*        # GET/POST/PATCH/DELETE /lists — grid of lists with inline rename + confirm-dialog delete

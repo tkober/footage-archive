@@ -1103,6 +1103,13 @@ export class BrowserComponent implements OnInit {
     this.applyDeleteResults([{ path, ok: true }], false);
   }
 
+  /** The comparison view's own "Move to trash" per filmstrip photo (preview →
+      confirm → delete runs inside it, which also shows the toast; this just
+      reconciles the grid + bulk selection, #146, same pattern as `onFileDeleted`). */
+  onComparisonDeleted(paths: string[]) {
+    this.applyDeleteResults(paths.map(path => ({ path, ok: true })), false);
+  }
+
   private parentOf(path: string): string {
     const idx = path.lastIndexOf('/');
     return idx > 0 ? path.slice(0, idx) : '/';
