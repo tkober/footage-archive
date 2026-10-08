@@ -211,7 +211,7 @@ footage-archive/
 ├── db/                     # Decoupled DB layer (the only place that knows about SQLAlchemy)
 │   ├── engine.py           # Lazy singleton engine (pool_pre_ping) + dialect-aware upsert/upsert_ignore helpers
 │   ├── models.py           # SQLAlchemy Core Table definitions (metadata) + indexes — single source of truth for the schema; `PreviewStatus` (#77, PK md5_hash, no FK like ClipPreviews) records the outcome of the last preview-generation attempt
-│   └── database.py         # Database class: all queries/upserts via SQLAlchemy Core, pandas only for DataFrame I/O. `set_preview_status()`/`get_preview_status_row()`/`has_clip_preview()` (#77); `get_tracked_files_in_directory`, `search_files`, `get_list_items` and `get_files_without_clip_preview` all outer-join ClipPreviews + PreviewStatus so the derived `preview_status` (api/preview_status.py) is one query, no N+1; `delete_files_on_conn` drops the PreviewStatus row too
+│   └── database.py         # Database class: all queries/upserts via SQLAlchemy Core, pandas only for DataFrame I/O. `set_preview_status()`/`get_preview_status_row()`/`has_clip_preview()` (#77); `get_tracked_files_in_directory`, `search_files`, `get_list_items` and `get_files_without_clip_preview` all outer-join ClipPreviews + PreviewStatus so the derived `preview_status` (api/preview_status.py) is one query, no N+1; `count_tracked_files_by_directory` (#134) is one `GROUP BY Files.directory` query per `/files/directory` request for every child folder's tracked-file count, not one per child; `delete_files_on_conn` drops the PreviewStatus row too
 ├── alembic/                # Schema migrations (Alembic)
 │   ├── env.py              # Wires target_metadata = db.models.metadata, connects as DB_OWNER_USER
 │   └── versions/           # Migration scripts (0001_initial_schema.py = full baseline, 0007_preview_status.py adds PreviewStatus, #77)
@@ -283,9 +283,17 @@ footage-archive/
         │                           #   `.seg`/`.seg-btn` filter (All/Videos/Stills/Untracked, counts from `counts`, zero-count segments
         │                           #   hidden except All, selecting one reloads via `kind`), thumbnail-size slider (`--thumb`, 140–320px,
         │                           #   `localStorage` `fa-thumb`), "Scan folder" (`.btn-ghost`), "Select" (`.btn`/`.btn-on`). Folders render
-        │                           #   as `.folder` tiles (icon, name, `file_count`). Section headings use `counts`, not the loaded page
-        │                           #   length. Grid/video-grid cards are `shared/media-card/` (ext-badge shown only when the loaded photos
-        │                           #   mix formats); the inline rename `<input>`/save/cancel are projected into the card's slot
+        │                           #   as `.folder` tiles (icon, name, `file_count`), plus an untracked badge (#134, direct level only,
+        │                           #   not recursive) next to the file count: "N untracked" (`.badge-warn`, warning token) when
+        │                           #   `untracked_file_count > 0`, "complete" (`.badge-ok`, `--ok`) once `media_file_count > 0` and
+        │                           #   `untracked_file_count` is 0, no badge when `media_file_count` is 0 or null — wrapped in its own
+        │                           #   `.meta` row inside `.folder-info` so it drops under the file count instead of overflowing the tile
+        │                           #   on narrow/mobile widths. `ApiService.taskCompleted$` (fired by the tasks widget when a
+        │                           #   'Scan directory'/'Track file'/'Rediscover' task transitions to COMPLETED) reloads the current
+        │                           #   directory so the badges reflect the new tracking state without a manual refresh. Section headings
+        │                           #   use `counts`, not the loaded page length. Grid/video-grid cards are `shared/media-card/` (ext-badge
+        │                           #   shown only when the loaded photos mix formats); the inline rename `<input>`/save/cancel are
+        │                           #   projected into the card's slot
         │   └── (context menu)      # #41: no own component anymore — the browser builds `MenuItem[]` (`menuItemsFor`) for `shared/menu/`:
         │                           #   header (thumb, name, "Still · JPG" / "Video · MOV · 00:12" / "Folder · N files"), Open, Open in
         │                           #   Photoshop (#126, `open-in:<appId>`, still extensions only, only when `OpenInService.enabled()`),
@@ -529,7 +537,7 @@ bring their own button/menu/toast styles.
 - [x] `POST /tracking/rediscover` — MD5-based rediscover-scan: auto-relinks uniquely-moved files, persists duplicate-path conflicts to `PathConflicts`, optional `track_new`, with a background-task progress summary (also shown once the task reaches COMPLETED)
 - [x] Rediscover + path-conflict resolution from the UI (#25): `GET /tracking/conflicts` groups open `PathConflicts` rows per md5 (`Database.get_tracked_files_with_attachment_counts` extended with an optional `md5_hashes` filter, no N+1) into `{tracked_path, tracked_exists, candidates: [{path, exists, source, found_at}]}` plus the usual keyword/location/list/preview summary; `GET /tracking/conflicts/count` backs the sidebar badge; `POST /tracking/conflicts/resolve` validates `chosen_path` is the tracked path or a known candidate (400), inside ROOT_DIR (403) and exists on disk (409), then repoints `Files` (guarded on the old path) and clears every `PathConflicts` row for that hash in one transaction (`Database.resolve_path_conflict`), disk untouched; `POST /tracking/conflicts/resolve-batch` applies `keep_tracked` (skip if the tracked path is gone) or `use_candidate` (skip if 0 or >1 existing candidates) across a list of hashes, returning `{resolved, skipped: [{md5_hash, reason}]}`. Frontend: `maintenance/path-conflicts/` section above "Missing files" (per-md5 cards with a path radio list + "Apply", header "Keep all current"/"Use new location for all" batch actions behind `ConfirmDialogComponent`); `shared/rediscover-dialog/` starts a rediscover from the missing-files group header (folder picker via `app-folder-picker` + "Also track new files" checkbox) or from the browser's directory context menu ("Rediscover" — same checkbox step, folder already known); the tasks widget shows a "Review conflicts" → `/maintenance` link on a completed Rediscover task whose summary reports a non-zero conflict count, and fires `ApiService.conflictsChanged$` on that transition so the sidebar badge and an open conflicts section reload
 - [x] `GET /config` endpoint (root_dir, task_poll_interval_ms, google_maps_api_key, google_maps_map_id)
-- [x] `POST /files/directory` with sorting, pagination, ROOT_DIR hardening, hidden extension filtering; optional `kind` (`video`/`photo`/`untracked`, #46) filters the listing to files of that media-type class (same classification as the frontend's `VIDEO_TYPES`/`PHOTO_TYPES`), excludes directories, and pagination then refers to the filtered set — omitted = unchanged default behaviour; response carries `counts: {directories, video, photo, untracked}` for the *whole* directory (independent of pagination and of any `kind` filter, so filter-segment labels stay correct while paginated) and each directory entry (`PathChild`) carries `file_count` (direct, non-hidden files in that subfolder, not recursive, cheap `os.scandir`, `null` if unreadable); tracked video entries also carry `duration_tc` (`VideoDetails.duration_tc`, `HH:MM:SS:FF`, joined in the same query that already loads tracked-file status — no per-file queries), `null` for photos/untracked/directories, formatted by the frontend (`formatDurationTc` in `models.ts`) as `mm:ss` or `h:mm:ss` once ≥ 1h for the media card's `EXT · duration` caption (#39)
+- [x] `POST /files/directory` with sorting, pagination, ROOT_DIR hardening, hidden extension filtering; optional `kind` (`video`/`photo`/`untracked`, #46) filters the listing to files of that media-type class (same classification as the frontend's `VIDEO_TYPES`/`PHOTO_TYPES`), excludes directories, and pagination then refers to the filtered set — omitted = unchanged default behaviour; response carries `counts: {directories, video, photo, untracked}` for the *whole* directory (independent of pagination and of any `kind` filter, so filter-segment labels stay correct while paginated) and each directory entry (`PathChild`) carries `file_count` (direct, non-hidden files in that subfolder, not recursive, cheap `os.scandir`, `null` if unreadable) plus, for the untracked badge (#134), `media_file_count`/`tracked_file_count`/`untracked_file_count` (same `null`-if-unreadable rule, see "Untracked-folder badge" below); tracked video entries also carry `duration_tc` (`VideoDetails.duration_tc`, `HH:MM:SS:FF`, joined in the same query that already loads tracked-file status — no per-file queries), `null` for photos/untracked/directories, formatted by the frontend (`formatDurationTc` in `models.ts`) as `mm:ss` or `h:mm:ss` once ≥ 1h for the media card's `EXT · duration` caption (#39)
 - [x] `GET /files/details` — filesystem info + DB tracking status + VideoDetails/PhotoDetails per file
 - [x] `PATCH /files/rename` — rename a file *or directory* on disk + update `Files` record(s), via the safe move/rename service (journaled, path-locked)
 - [x] `POST /files/move` + `/files/move/preview`, `POST /files/mkdir` — bulk/single file move, directory move, dry-run counts (file/tracked/sidecars), new-folder creation; see "Safe move/rename with journal recovery + path locks" above
@@ -633,6 +641,25 @@ bring their own button/menu/toast styles.
   `60000/1001`), falling back to 30 when none is stored. The time readout is now `HH:MM:SS:FF`
   runtime-from-0 (`timecode.ts::frameToTimecode()`, intentionally not drop-frame SMPTE timecode) for the
   current frame and the clip's total. A `?`/info-button overlay lists every shortcut.
+- [x] Untracked-folder badge (#134, epic #133, direct level only — recursion is a later ticket):
+  `POST /files/directory` counts, per child folder, in the same `os.scandir` pass as `file_count`,
+  how many direct non-hidden non-trash files have an extension in `Environment.get_scanning_file_extensions()`
+  (`PathChild.media_file_count`); `Database.count_tracked_files_by_directory(directories)` then answers
+  how many of those child folders already have tracked files, in one `GROUP BY Files.directory` query for
+  every child folder in the listing — never one query per child (`idx__Files__directory` covers it; an
+  empty `directories` list short-circuits with no query; a directory absent from the result has 0 tracked
+  files). `PathChild.tracked_file_count` is that count, `untracked_file_count` is
+  `max(media_file_count - tracked_file_count, 0)`; all three are `None` for a file entry or an unreadable
+  subdirectory (same as `file_count`). Frontend: the folder tile gets a compact badge next to its
+  `file_count` — "N untracked" (`.badge-warn`, new `--warning` design token, deliberately not `--accent`)
+  when `untracked_file_count > 0`, "complete" (`.badge-ok`, `--ok`) once `media_file_count > 0` and
+  everything relevant is tracked, no badge when `media_file_count` is 0 or null; it lives in its own
+  `.meta` row inside `.folder-info` so it wraps under the file count instead of overflowing the tile on
+  narrow/mobile widths. `ApiService.taskCompleted$` (new `Subject<Task>`) is fired by the tasks widget's
+  existing previous-vs-new status comparison when a task named 'Scan directory'/'Track file'/'Rediscover'
+  (the same `CONFLICT_TASKS` set #25 already tracks) transitions to COMPLETED; the browser subscribes and
+  reloads the current directory listing so the badges reflect the new tracking state without a manual
+  refresh.
 
 ---
 

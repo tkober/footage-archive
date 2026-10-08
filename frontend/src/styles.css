@@ -34,6 +34,10 @@
   --accent-soft: rgba(233, 162, 59, .15);
   --ok: #4cbf83;
   --danger: #ec5f56;
+  /* Warning (#134, e.g. the browser's "N untracked" folder badge) —
+     amber/gold, deliberately a different hue from --accent so the two
+     never read as the same signal. */
+  --warning: #d6c22c;
   --skeleton: #1f2329;
   --skeleton-hi: #2a2f36;
   /* Failed-preview tile (#77) — softer than --danger so it reads against
@@ -61,7 +65,7 @@
   --bg: #eef0f2; --surface: #ffffff; --raised: #ffffff; --hover: #f1f2f4;
   --line: #e1e4e8; --line-strong: #cdd2d8; --text: #15181b; --muted: #59616b; --faint: #8a919a;
   --stage: #1a1c1f; --accent: #b46a00; --accent-ink: #ffffff; --accent-soft: rgba(180,106,0,.12);
-  --ok: #1f8f55; --danger: #c93a32; --skeleton: #e3e6ea; --skeleton-hi: #eef0f3;
+  --ok: #1f8f55; --danger: #c93a32; --warning: #8a7400; --skeleton: #e3e6ea; --skeleton-hi: #eef0f3;
   --preview-fail: #b4453d; --preview-fail-line: #e2b4b0;
   --shadow-1: 0 1px 2px rgba(20,24,30,.08); --shadow-2: 0 12px 32px rgba(20,24,30,.16), 0 2px 6px rgba(20,24,30,.08);
 }

@@ -71,11 +71,18 @@
                         (click)="navigateTo(dir.path)"
                         (contextmenu)="onEntryContextMenu($event, dir)">
                   <app-icon name="folder" [size]="20" />
-                  <span>
+                  <span class="folder-info">
                     <span class="fn">{{ dir.name }}</span>
-                    @if (dir.file_count != null) {
-                      <span class="fm">{{ dir.file_count }} {{ dir.file_count === 1 ? 'file' : 'files' }}</span>
-                    }
+                    <span class="meta">
+                      @if (dir.file_count != null) {
+                        <span class="fm">{{ dir.file_count }} {{ dir.file_count === 1 ? 'file' : 'files' }}</span>
+                      }
+                      @if (untrackedBadge(dir) === 'warn') {
+                        <span class="badge badge-warn">{{ dir.untracked_file_count }} untracked</span>
+                      } @else if (untrackedBadge(dir) === 'ok') {
+                        <span class="badge badge-ok">complete</span>
+                      }
+                    </span>
                   </span>
                 </button>
               }

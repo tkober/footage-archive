@@ -53,6 +53,17 @@ export interface PathChild {
   /** Directory entries only: number of direct, non-hidden files in that
       subdirectory (not recursive). Null if the subdirectory couldn't be read. */
   file_count?: number | null;
+  /** Directory entries only (#134), for the browser's untracked badge — all
+      three null for a file entry, and all three null (not 0) if the
+      subdirectory couldn't be read, same as `file_count`. `media_file_count`
+      is the direct, non-hidden, non-trash file count whose extension is one
+      the backend scans for (sidecars like `.xmp` and unrelated files like
+      `.txt` don't count); `tracked_file_count` is how many of those are
+      already tracked; `untracked_file_count` is `media - tracked`, floored
+      at 0. */
+  media_file_count?: number | null;
+  tracked_file_count?: number | null;
+  untracked_file_count?: number | null;
   /** Tracked video files only (#39): `HH:MM:SS:FF` from `VideoDetails.duration_tc`,
       loaded in the same directory-listing query. Null for photos/untracked/directories. */
   duration_tc?: string | null;

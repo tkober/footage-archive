@@ -204,6 +204,26 @@ class Database:
             for row in rows
         }
 
+    def count_tracked_files_by_directory(self, directories: list[str]) -> dict[str, int]:
+        """Tracked-file count per directory (#134), for the browser's
+        untracked-badge: one `GROUP BY` query over `Files.directory`
+        (`idx__Files__directory` covers the `IN (...)`/grouping), called once
+        per `/files/directory` request with every child folder instead of
+        once per child. A directory with no tracked files is simply absent
+        from the result — callers treat a missing key as 0. Comparison is
+        exact-string, matching the same `str(child_path)` used elsewhere for
+        `PathChild.path`/`get_tracked_files_in_directory`."""
+        if not directories:
+            return {}
+        stmt = (
+            select(files_table.c.directory, func.count().label('count'))
+            .where(files_table.c.directory.in_(directories))
+            .group_by(files_table.c.directory)
+        )
+        with get_engine().connect() as conn:
+            rows = conn.execute(stmt).fetchall()
+        return {row.directory: row.count for row in rows}
+
     def touch_last_indexed_at(self, md5_hash: str) -> None:
         """Bump Files.last_indexed_at to now for an already-tracked hash,
         without touching any other column. Used by the rescan task (#64),

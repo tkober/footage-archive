@@ -7,8 +7,10 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 
 from api.files import FilesApi
+from db.database import Database
 from db.engine import get_engine
 from db.models import files_table, video_details_table
 
@@ -34,6 +36,24 @@ def _list_dir(client: TestClient, path, **kwargs):
     resp = client.post('/files/directory', json=body)
     assert resp.status_code == 200, resp.text
     return resp.json()
+
+
+def _count_sql_statements(fn):
+    """Run `fn()` and return how many statements were sent to Postgres
+    (#134's "only one additional query per directory request" proof) via a
+    `before_cursor_execute` listener on the shared engine."""
+    engine = get_engine()
+    counter = {'n': 0}
+
+    def _listener(conn, cursor, statement, parameters, context, executemany):
+        counter['n'] += 1
+
+    event.listen(engine, 'before_cursor_execute', _listener)
+    try:
+        fn()
+    finally:
+        event.remove(engine, 'before_cursor_execute', _listener)
+    return counter['n']
 
 
 def test_default_listing_is_unchanged_and_carries_counts(db, root_dir):
@@ -421,3 +441,150 @@ def test_browser_hidden_names_env_override(db, root_dir, monkeypatch):
     body = _list_dir(client, root_dir)
     names = {e['name'] for e in body['items']}
     assert names == {'.DS_Store'}
+
+
+# ---------------------------------------------------------------------------
+# Untracked badge (#134): media_file_count / tracked_file_count /
+# untracked_file_count on directory PathChild entries — direct level only,
+# recursion is a later ticket.
+# ---------------------------------------------------------------------------
+
+def test_untracked_badge_counts_on_directory_entries(db, root_dir):
+    client = _make_client()
+
+    trip = root_dir / 'trip'
+    trip.mkdir()
+    (trip / 'a.jpg').write_bytes(b'x')
+    (trip / 'b.jpg').write_bytes(b'x')
+    (trip / 'c.jpg').write_bytes(b'x')  # relevant, left untracked
+    (trip / 'notes.xmp').write_bytes(b'x')  # sidecar — hidden, counts nowhere
+    (trip / 'readme.txt').write_bytes(b'x')  # counted in file_count, not media_file_count
+    _insert_file_row(str(trip), 'a.jpg', 'h1', media_type='photo')
+    _insert_file_row(str(trip), 'b.jpg', 'h2', media_type='photo')
+    # c.jpg deliberately left untracked
+
+    body = _list_dir(client, root_dir)
+    by_name = {e['name']: e for e in body['items']}
+    entry = by_name['trip']
+
+    assert entry['file_count'] == 4  # a/b/c.jpg + readme.txt (xmp hidden)
+    assert entry['media_file_count'] == 3
+    assert entry['tracked_file_count'] == 2
+    assert entry['untracked_file_count'] == 1
+
+
+def test_untracked_badge_counts_zero_without_relevant_files(db, root_dir):
+    client = _make_client()
+
+    docs = root_dir / 'docs'
+    docs.mkdir()
+    (docs / 'readme.txt').write_bytes(b'x')
+    (docs / 'notes.xmp').write_bytes(b'x')
+
+    body = _list_dir(client, root_dir)
+    by_name = {e['name']: e for e in body['items']}
+    entry = by_name['docs']
+
+    assert entry['media_file_count'] == 0
+    assert entry['tracked_file_count'] == 0
+    assert entry['untracked_file_count'] == 0
+
+
+def test_untracked_badge_counts_are_none_for_file_entries(db, root_dir):
+    client = _make_client()
+
+    (root_dir / 'photo.jpg').write_bytes(b'x')
+
+    body = _list_dir(client, root_dir)
+    by_name = {e['name']: e for e in body['items']}
+    entry = by_name['photo.jpg']
+
+    assert entry['media_file_count'] is None
+    assert entry['tracked_file_count'] is None
+    assert entry['untracked_file_count'] is None
+
+
+def test_untracked_badge_counts_are_none_when_subdirectory_cannot_be_read(db, root_dir):
+    client = _make_client()
+
+    locked = root_dir / 'locked'
+    locked.mkdir()
+    (locked / 'a.jpg').write_bytes(b'x')
+    locked.chmod(0o000)
+    try:
+        body = _list_dir(client, root_dir)
+        by_name = {e['name']: e for e in body['items']}
+        entry = by_name['locked']
+        assert entry['media_file_count'] is None
+        assert entry['tracked_file_count'] is None
+        assert entry['untracked_file_count'] is None
+    finally:
+        locked.chmod(0o755)  # restore so tmp_path cleanup can remove it
+
+
+def test_directory_request_issues_constant_query_count_regardless_of_child_folders(db, root_dir):
+    """Proves #134's tracked-count lookup is one query per request, not one
+    per child folder: a folder with one child issues the same number of SQL
+    statements as a folder with several."""
+    client = _make_client()
+
+    few = root_dir / 'few'
+    few.mkdir()
+    (few / 'only_child').mkdir()
+
+    many = root_dir / 'many'
+    many.mkdir()
+    for i in range(6):
+        (many / f'sub{i}').mkdir()
+
+    few_count = _count_sql_statements(lambda: _list_dir(client, few))
+    many_count = _count_sql_statements(lambda: _list_dir(client, many))
+
+    assert few_count == many_count
+
+
+def test_count_tracked_files_by_directory_called_once_per_request(db, root_dir, monkeypatch):
+    client = _make_client()
+
+    for i in range(4):
+        (root_dir / f'sub{i}').mkdir()
+
+    calls = []
+    original = Database.count_tracked_files_by_directory
+
+    def _spy(self, directories):
+        calls.append(list(directories))
+        return original(self, directories)
+
+    monkeypatch.setattr(Database, 'count_tracked_files_by_directory', _spy)
+
+    _list_dir(client, root_dir)
+
+    assert len(calls) == 1
+    assert len(calls[0]) == 4  # every child folder, in one call — never per child
+
+
+# ---------------------------------------------------------------------------
+# Database.count_tracked_files_by_directory (#134) — unit-level
+# ---------------------------------------------------------------------------
+
+def test_count_tracked_files_by_directory_empty_list_issues_no_query(db):
+    counter = {'n': 0}
+
+    def _call():
+        result = db.count_tracked_files_by_directory([])
+        assert result == {}
+
+    assert _count_sql_statements(_call) == 0
+
+
+def test_count_tracked_files_by_directory_missing_dirs_absent(db):
+    _insert_file_row('/root/a', 'x.jpg', 'h1')
+    _insert_file_row('/root/a', 'y.jpg', 'h2')
+    _insert_file_row('/root/b', 'z.jpg', 'h3')
+
+    result = db.count_tracked_files_by_directory(['/root/a', '/root/missing'])
+
+    assert result == {'/root/a': 2}
+    assert '/root/missing' not in result
+    assert '/root/b' not in result  # not asked for, must not leak in

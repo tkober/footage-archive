@@ -112,9 +112,34 @@
 }
 
 .folder:hover { border-color: var(--line-strong); background: var(--hover); }
-.folder app-icon { color: var(--accent); }
-.folder .fn { font-weight: 500; display: block; }
-.folder .fm { font: 400 11px var(--mono); color: var(--faint); display: block; }
+.folder app-icon { color: var(--accent); flex-shrink: 0; }
+.folder .folder-info { flex: 1; min-width: 0; }
+.folder .fn { font-weight: 500; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* .meta wraps fm/badge inside folder-info's own (already constrained)
+   width, instead of letting the badge sit in the outer flex row where it
+   could overflow the tile on narrow (mobile, 2-column) layouts (#134). */
+.folder .meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.folder .fm { font: 400 11px var(--mono); color: var(--faint); }
+
+/* Untracked badge (#134) — direct-level only; "N untracked" (warning) when
+   the folder has untracked relevant files, "complete" (success/ok) once
+   every relevant file is tracked, absent when the folder has none. Compact
+   so the tile height barely changes; wraps under the file count rather than
+   overflowing the tile when both don't fit on one line. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 2px 8px 2px 6px;
+  border-radius: 10px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.badge-warn { color: var(--warning); background: color-mix(in srgb, var(--warning) 15%, transparent); }
+.badge-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
 
 .folder.renaming {
   display: inline-flex;

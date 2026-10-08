@@ -69,19 +69,31 @@ def _normalize_extension(extension: str | None) -> str | None:
     return extension
 
 
-def _count_direct_files(dir_path: Path, hidden_extensions: set[str], hidden_names: set[str]) -> int | None:
-    """Direct, non-hidden file count for a subdirectory (not recursive).
-    Cheap by design: os.scandir only, no hashing, no DB access. None if the
+def _count_direct_files(
+    dir_path: Path, hidden_extensions: set[str], hidden_names: set[str], scanning_extensions: set[str],
+) -> tuple[int | None, int | None]:
+    """Direct, non-hidden file count for a subdirectory (not recursive), plus
+    how many of those are "relevant" media files (#134): lowercase extension
+    in `scanning_extensions` (`Environment.get_scanning_file_extensions()`),
+    not hidden — the pool the browser's untracked badge is counted against.
+    No per-file trash check: the caller already skips `dir_path` itself when
+    it is (inside) the trash, so none of its direct files can be. Both numbers come from the same `os.scandir` pass, so
+    this stays one scandir per child folder regardless of how many counts it
+    returns. Cheap by design: no hashing, no DB access. Both None if the
     subdirectory can't be read (permissions, race with a delete, ...)."""
     try:
         count = 0
+        relevant = 0
         with os.scandir(dir_path) as it:
             for entry in it:
-                if entry.is_file() and not is_hidden_system_file(entry.name, hidden_extensions, hidden_names):
-                    count += 1
-        return count
+                if not entry.is_file() or is_hidden_system_file(entry.name, hidden_extensions, hidden_names):
+                    continue
+                count += 1
+                if os.path.splitext(entry.name)[1].lower() in scanning_extensions:
+                    relevant += 1
+        return count, relevant
     except OSError:
-        return None
+        return None, None
 
 
 @FilesApi.post('/directory')
@@ -98,10 +110,23 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
 
     hidden = set(_env.get_browser_hidden_extensions())
     hidden_names = set(_env.get_browser_hidden_names())
-    tracked = Database().get_tracked_files_in_directory(str(path))
+    scanning_extensions = set(_env.get_scanning_file_extensions())
+    db = Database()
+    tracked = db.get_tracked_files_in_directory(str(path))
 
-    entries = [
-        PathChild(
+    entries = []
+    for e in path.iterdir():
+        if e.name.startswith('._'):
+            continue
+        if e.is_file() and is_hidden_system_file(e.name, hidden, hidden_names):
+            continue
+        if is_in_trash(e):
+            continue
+        # One scandir per child folder (#134): file_count/media_file_count
+        # both come out of the same _count_direct_files call.
+        file_count, media_file_count = _count_direct_files(e, hidden, hidden_names, scanning_extensions) \
+            if e.is_dir() else (None, None)
+        entries.append(PathChild(
             name=e.name,
             path=str(e),
             type=PathType.DIRECTORY if e.is_dir() else PathType.FILE,
@@ -109,7 +134,8 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
             tracked=e.name in tracked if e.is_file() else None,
             md5_hash=tracked[e.name]['md5_hash'] if e.is_file() and e.name in tracked else None,
             media_type=tracked[e.name]['media_type'] if e.is_file() and e.name in tracked else None,
-            file_count=_count_direct_files(e, hidden, hidden_names) if e.is_dir() else None,
+            file_count=file_count,
+            media_file_count=media_file_count,
             duration_tc=(
                 tracked[e.name]['duration_tc']
                 if e.is_file() and e.name in tracked
@@ -124,12 +150,18 @@ async def query_directory(query: DirectoryQuery) -> DirectoryResponse:
                 if e.is_file() and e.name in tracked
                 else None
             ),
-        )
-        for e in path.iterdir()
-        if not e.name.startswith('._')
-        and (e.is_dir() or not is_hidden_system_file(e.name, hidden, hidden_names))
-        and not is_in_trash(e)
-    ]
+        ))
+
+    # Tracked-file count per child folder (#134), one query for every
+    # directory entry in this listing — never per child (see
+    # Database.count_tracked_files_by_directory).
+    tracked_counts = db.count_tracked_files_by_directory(
+        [e.path for e in entries if e.type == PathType.DIRECTORY]
+    )
+    for e in entries:
+        if e.type == PathType.DIRECTORY and e.media_file_count is not None:
+            e.tracked_file_count = tracked_counts.get(e.path, 0)
+            e.untracked_file_count = max(e.media_file_count - e.tracked_file_count, 0)
 
     # Counts for the whole directory — independent of pagination AND of any
     # `kind` filter below, so the frontend's filter-segment labels stay
