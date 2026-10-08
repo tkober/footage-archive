@@ -75,34 +75,15 @@
           }
 
           @for (job of group.jobs; track job.id) {
-            <div class="task job" [class.done]="job.status === 'DONE'" [class.failed]="job.status === 'FAILED'"
+            <div class="task job" [class.done]="job.status === 'DONE' || job.status === 'CANCELLED'" [class.failed]="job.status === 'FAILED'"
                  [class.waiting]="group.phase === 'waiting'">
+              <!-- Same three lines as a plain task: name (+ actions, time),
+                   description, progress bar, then "Status · counts" while it
+                   runs or "Status · summary" once it's finished. -->
               <div class="t1">
                 <b>{{ jobName(job) }}</b>
-                @if (job.started_at) {
-                  <small>{{ job.started_at | date:'HH:mm:ss' }}</small>
-                }
-              </div>
-
-              @if (group.phase === 'finished') {
-                <div class="t2">{{ job.summary }}</div>
-              } @else {
-                <div class="t2">{{ jobCountsLine(job) }}</div>
-                <div class="progress" [class.indeterminate]="jobProgressFraction(job) === null">
-                  <i [style.width.%]="(jobProgressFraction(job) ?? 0.4) * 100"></i>
-                </div>
-              }
-
-              <div class="t3">
-                <span class="state"><i class="state-dot" [class.running]="group.phase === 'running'" [class.waiting]="group.phase === 'waiting'" aria-hidden="true"></i>{{ jobStatusLabel(job) }}
-                  @if (group.phase !== 'finished') {<span> · {{ jobCountsLine(job) }}</span>}
-                </span>
-                @if (jobConflictCount(job) > 0) {
-                  <a routerLink="/maintenance" (click)="close()">{{ jobConflictCount(job) }} conflicts to review →</a>
-                }
-              </div>
-
-              <div class="job-acts">
+                <span class="t1-end">
+                  <span class="job-acts">
                 @if (job.status === 'RUNNING') {
                   <button type="button" class="icon-btn icon-btn-sm" title="Pause" (click)="pauseJob(job)">
                     <app-icon name="pause" [size]="14" />
@@ -122,6 +103,23 @@
                   <button type="button" class="icon-btn icon-btn-sm" [title]="isExpanded(job) ? 'Collapse folders' : 'Show folders'" (click)="toggleExpand(job)">
                     <app-icon name="chevron-down" [size]="14" [class.flipped]="isExpanded(job)" />
                   </button>
+                }
+                  </span>
+                  @if (job.started_at) {
+                    <small>{{ job.started_at | date:'HH:mm:ss' }}</small>
+                  }
+                </span>
+              </div>
+              <div class="t2">@for (seg of descriptionSegments(jobDescription(job)); track $index) {{{ seg }}<wbr>}</div>
+              @if (job.status !== 'FAILED') {
+                <div class="progress" [class.indeterminate]="group.phase === 'running' && jobProgressFraction(job) === null">
+                  <i [style.width.%]="group.phase === 'finished' ? 100 : (jobProgressFraction(job) ?? 0.4) * 100"></i>
+                </div>
+              }
+              <div class="t3">
+                <span class="state"><i class="state-dot" [class.running]="group.phase === 'running'" [class.waiting]="group.phase === 'waiting'" aria-hidden="true"></i>{{ jobStatusLabel(job) }}<span> · {{ group.phase === 'finished' ? job.summary : jobCountsLine(job) }}</span></span>
+                @if (jobConflictCount(job) > 0) {
+                  <a routerLink="/maintenance" (click)="close()">{{ jobConflictCount(job) }} conflicts to review →</a>
                 }
               </div>
 

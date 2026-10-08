@@ -37,7 +37,7 @@
         <div class="unit-list" [class.loading]="loading()">
           @for (unit of plan.units; track unit.id; let i = $index) {
             <div class="unit-row" [class.deselected]="unit.status === 'DESELECTED'">
-              <span class="pill" [class.pill-faint]="unit.status === 'DESELECTED'" [class.pill-accent]="unit.status === 'PLANNED'">
+              <span class="pill" [class.pill-off]="unit.status === 'DESELECTED'" [class.pill-neutral]="unit.status === 'PLANNED'">
                 {{ unitPillLabel(unit) }}
               </span>
               <span class="unit-path" [title]="unit.directory">{{ relativeUnitPath(unit) }}</span>

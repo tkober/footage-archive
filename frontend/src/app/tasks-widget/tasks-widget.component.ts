@@ -318,6 +318,10 @@ export class TasksWidgetComponent implements OnInit, OnDestroy {
     return `Scan ${name ?? job.root_path}`;
   }
 
+  jobDescription(job: ScanJobListEntry): string {
+    return `Scanning directory "${job.root_path}".`;
+  }
+
   jobProgressFraction(job: ScanJobListEntry): number | null {
     return job.units_total > 0 ? job.units_done / job.units_total : null;
   }

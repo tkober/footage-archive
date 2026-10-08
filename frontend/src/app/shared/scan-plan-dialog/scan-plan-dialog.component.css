@@ -100,8 +100,10 @@
   flex: none;
 }
 
-.pill-accent { color: var(--accent); background: var(--accent-soft); }
-.pill-faint { color: var(--faint); background: var(--hover); }
+/* Planned is the normal state, so it stays neutral; the accent is kept
+   for "running" in the tasks widget. Deselected reads as "off": dashed. */
+.pill-neutral { color: var(--muted); background: var(--hover); }
+.pill-off { color: var(--faint); background: transparent; border: 1px dashed var(--line-strong); }
 
 /* ── Options ── */
 .plan-options {
