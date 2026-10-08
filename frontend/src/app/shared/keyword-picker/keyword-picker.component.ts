@@ -114,15 +114,17 @@ export class KeywordPickerComponent implements OnInit {
       const entry = entries[this.highlightIndex()];
       if (entry) this.pickEntry(entry);
     } else if (event.key === 'Escape') {
-      // Always consumed: a first Esc with the dropdown open just closes it;
-      // otherwise (or in inline mode) it's handed to the caller via `escape`
-      // instead of bubbling on to close whatever's hosting the picker.
-      event.stopPropagation();
-      if (this.dropdownOpen() && !this.inline()) {
-        this.closeDropdown();
-      } else {
+      // Inline (inside a popover): let Esc bubble so the popover closes.
+      // Floating: a first Esc with the dropdown open just closes it; otherwise
+      // it's handed to the caller via `escape` instead of bubbling on to close
+      // whatever's hosting the picker (e.g. the whole detail panel).
+      if (this.inline()) {
         this.escape.emit();
+        return;
       }
+      event.stopPropagation();
+      if (this.dropdownOpen()) this.closeDropdown();
+      else this.escape.emit();
     }
   }
 
