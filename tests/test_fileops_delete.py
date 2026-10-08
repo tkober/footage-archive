@@ -171,6 +171,72 @@ def test_preview_delete_counts_files_tracked_sidecars_lists_and_keywords(db, roo
     assert preview.list_item_count == 1
 
 
+# ---------------------------------------------------------------------------
+# Shared sidecars (#154): P1.RW2 + P1.on1 + P1.xmp — the .xmp is the RW2's
+# ---------------------------------------------------------------------------
+
+def _shared_sidecar_dir(root_dir: Path):
+    raw = root_dir / 'P1.RW2'
+    on1 = root_dir / 'P1.on1'
+    xmp = root_dir / 'P1.xmp'
+    for f in (raw, on1, xmp):
+        _mkfile(f)
+    _insert_file_row(str(root_dir), 'P1.RW2', 'rawhash')
+    return raw, on1, xmp
+
+
+def test_preview_delete_leaves_out_sidecar_shared_with_unselected_file(db, root_dir, monkeypatch):
+    monkeypatch.setenv('BROWSER_HIDDEN_EXTENSIONS', '.xmp')
+    _raw, on1, _xmp = _shared_sidecar_dir(root_dir)
+
+    preview = svc.preview_delete([str(on1)])
+
+    assert preview.file_count == 1
+    assert preview.tracked_count == 0
+    assert preview.sidecars == []
+
+
+def test_delete_keeps_sidecar_shared_with_remaining_file(db, root_dir, monkeypatch):
+    monkeypatch.setenv('BROWSER_HIDDEN_EXTENSIONS', '.xmp')
+    raw, on1, xmp = _shared_sidecar_dir(root_dir)
+
+    result = svc.delete_paths([str(on1)])
+
+    assert result.results[0].ok is True
+    assert not on1.exists()
+    assert raw.exists()
+    assert xmp.exists()
+    assert _get_file_row(str(root_dir), 'P1.RW2') is not None
+    assert not (Path(result.trash_batch) / 'P1.xmp').exists()
+
+
+def test_preview_delete_counts_shared_sidecar_once_when_all_owners_selected(db, root_dir, monkeypatch):
+    monkeypatch.setenv('BROWSER_HIDDEN_EXTENSIONS', '.xmp')
+    raw, on1, xmp = _shared_sidecar_dir(root_dir)
+
+    preview = svc.preview_delete([str(raw), str(on1)])
+
+    assert preview.file_count == 3
+    assert preview.tracked_count == 1
+    assert preview.sidecars == [str(xmp)]
+
+
+@pytest.mark.parametrize('order', ['raw_first', 'on1_first'])
+def test_delete_all_owners_trashes_shared_sidecar(db, root_dir, monkeypatch, order):
+    monkeypatch.setenv('BROWSER_HIDDEN_EXTENSIONS', '.xmp')
+    raw, on1, xmp = _shared_sidecar_dir(root_dir)
+    paths = [str(raw), str(on1)] if order == 'raw_first' else [str(on1), str(raw)]
+
+    result = svc.delete_paths(paths)
+
+    assert all(r.ok for r in result.results)
+    assert not raw.exists() and not on1.exists() and not xmp.exists()
+    batch = Path(result.trash_batch)
+    assert (batch / 'P1.RW2').exists()
+    assert (batch / 'P1.on1').exists()
+    assert (batch / 'P1.xmp').exists()
+
+
 def test_preview_delete_counts_exclude_system_files(db, root_dir):
     src_dir = root_dir / 'camera'
     _mkfile(src_dir / 'clip.mov')

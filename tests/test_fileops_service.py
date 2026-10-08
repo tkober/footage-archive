@@ -167,6 +167,77 @@ def test_sidecar_moves_along_on_file_rename(db, root_dir, monkeypatch):
     assert unrelated.exists()  # different stem — must not move
 
 
+def test_shared_sidecar_stays_on_file_rename(db, root_dir, monkeypatch):
+    # #154: P1.xmp belongs to P1.RW2 as much as to P1.on1 — renaming the
+    # .on1 must not drag it away from the RW2.
+    monkeypatch.setenv('BROWSER_HIDDEN_EXTENSIONS', '.xmp')
+    raw = root_dir / 'P1.RW2'
+    on1 = root_dir / 'P1.on1'
+    xmp = root_dir / 'P1.xmp'
+    for f in (raw, on1, xmp):
+        _mkfile(f)
+
+    svc.rename_path(str(on1), 'P2.on1')
+
+    assert (root_dir / 'P2.on1').exists()
+    assert raw.exists()
+    assert xmp.exists()
+    assert not (root_dir / 'P2.xmp').exists()
+
+
+def test_sidecar_ownership_ignores_system_junk_with_same_stem(db, root_dir, monkeypatch):
+    # A BROWSER_HIDDEN_NAMES match with the same stem is no owner — the
+    # sidecar still travels along.
+    monkeypatch.setenv('BROWSER_HIDDEN_EXTENSIONS', '.xmp')
+    monkeypatch.setenv('BROWSER_HIDDEN_NAMES', 'clip.db')
+    src = root_dir / 'clip.mov'
+    _mkfile(src)
+    _mkfile(root_dir / 'clip.xmp')
+    _mkfile(root_dir / 'clip.db')
+
+    svc.rename_path(str(src), 'renamed.mov')
+
+    assert (root_dir / 'renamed.xmp').exists()
+
+
+@pytest.mark.parametrize('order', ['raw_first', 'on1_first'])
+def test_moving_all_owners_takes_shared_sidecar_along(db, root_dir, monkeypatch, order):
+    monkeypatch.setenv('BROWSER_HIDDEN_EXTENSIONS', '.xmp')
+    raw = root_dir / 'P1.RW2'
+    on1 = root_dir / 'P1.on1'
+    xmp = root_dir / 'P1.xmp'
+    for f in (raw, on1, xmp):
+        _mkfile(f)
+    target = root_dir / 'target'
+    target.mkdir()
+    paths = [str(raw), str(on1)] if order == 'raw_first' else [str(on1), str(raw)]
+
+    preview = svc.preview_move(paths, str(target))
+    results = svc.move_paths(paths, str(target))
+
+    assert preview.file_count == 3
+    assert preview.sidecars == [str(xmp)]
+    assert all(r.ok for r in results)
+    assert (target / 'P1.RW2').exists()
+    assert (target / 'P1.on1').exists()
+    assert (target / 'P1.xmp').exists()
+    assert not xmp.exists()
+
+
+def test_preview_move_leaves_out_sidecar_shared_with_unselected_file(db, root_dir, monkeypatch):
+    monkeypatch.setenv('BROWSER_HIDDEN_EXTENSIONS', '.xmp')
+    on1 = root_dir / 'P1.on1'
+    for f in (root_dir / 'P1.RW2', on1, root_dir / 'P1.xmp'):
+        _mkfile(f)
+    target = root_dir / 'target'
+    target.mkdir()
+
+    preview = svc.preview_move([str(on1)], str(target))
+
+    assert preview.file_count == 1
+    assert preview.sidecars == []
+
+
 def test_sidecar_collision_at_target_aborts_whole_operation(db, root_dir, monkeypatch):
     monkeypatch.setenv('BROWSER_HIDDEN_EXTENSIONS', '.xmp')
     src = root_dir / 'clip.mov'

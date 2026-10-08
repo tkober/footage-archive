@@ -181,20 +181,41 @@ def _require_not_trash(path: Path) -> Path:
     return path
 
 
-def _sidecars_for(file_path: Path) -> list[Path]:
+def _sidecars_for(file_path: Path, selected: frozenset[Path] = frozenset()) -> list[Path]:
     """Files in the same directory sharing the stem, with an extension in
-    BROWSER_HIDDEN_EXTENSIONS — these travel along with a file move/rename."""
+    BROWSER_HIDDEN_EXTENSIONS — these travel along with a file move/rename.
+
+    A sidecar is shared when another visible file with the same stem sits
+    next to it (#154: P1.RW2 + P1.on1 + P1.xmp — the .xmp belongs to the
+    RW2, not to the .on1). Then nothing travels along, unless every such
+    sibling is in ``selected`` too (previews pass the whole selection). The
+    real operations pass nothing and check the disk per file: once the last
+    same-stem sibling is gone, the sidecars go with the remaining file."""
     hidden = _hidden_extensions()
     if not hidden or not file_path.parent.is_dir():
         return []
+    hidden_names = _hidden_names()
     stem = file_path.stem
     result = []
     for entry in file_path.parent.iterdir():
-        if entry == file_path or not entry.is_file():
+        if entry == file_path or not entry.is_file() or entry.stem != stem:
             continue
-        if entry.stem == stem and entry.suffix.lower() in hidden:
+        if entry.suffix.lower() in hidden:
             result.append(entry)
+        elif not is_system_junk_name(entry.name, hidden_names) and entry not in selected:
+            return []
     return sorted(result)
+
+
+def _resolve_selection(paths: list[str]) -> frozenset[Path]:
+    """The resolved paths of a preview's selection, for _sidecars_for."""
+    selected = set()
+    for raw in paths:
+        try:
+            selected.add(_resolve_in_root(raw))
+        except FileOpError:
+            pass
+    return frozenset(selected)
 
 
 def _count_files_recursive(directory: Path) -> int:
@@ -391,6 +412,7 @@ def preview_move(paths: list[str], target_directory: str) -> PreviewResult:
     file_count = 0
     tracked_count = 0
     sidecars: list[str] = []
+    selected = _resolve_selection(paths)
 
     for raw in paths:
         src = _resolve_in_root(raw)
@@ -403,7 +425,9 @@ def preview_move(paths: list[str], target_directory: str) -> PreviewResult:
             file_count += 1
             if db.get_file_by_path(str(src)) is not None:
                 tracked_count += 1
-            for s in _sidecars_for(src):
+            for s in _sidecars_for(src, selected):
+                if str(s) in sidecars:  # shared by several selected files
+                    continue
                 sidecars.append(str(s))
                 file_count += 1
                 if db.get_file_by_path(str(s)) is not None:
@@ -534,6 +558,7 @@ def preview_delete(paths: list[str]) -> DeletePreviewResult:
     sidecars: list[str] = []
     list_item_count = 0
     keyword_count = 0
+    selected = _resolve_selection(paths)
 
     for raw in paths:
         try:
@@ -555,7 +580,9 @@ def preview_delete(paths: list[str]) -> DeletePreviewResult:
             if main_rec is not None:
                 tracked_count += 1
                 hashes.append(main_rec['md5_hash'])
-            for s in _sidecars_for(src):
+            for s in _sidecars_for(src, selected):
+                if str(s) in sidecars:  # shared by several selected files
+                    continue
                 sidecars.append(str(s))
                 file_count += 1
                 s_rec = db.get_file_by_path(str(s))
