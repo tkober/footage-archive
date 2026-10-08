@@ -38,12 +38,12 @@
       </div>
     </header>
 
-    @if (tasks().length === 0) {
+    @if (isEmpty()) {
       <div class="empty">No tasks yet.</div>
     } @else {
       <div class="task-list">
         @for (group of groups(); track group.phase) {
-          <div class="group-h">{{ group.label }}<span>{{ group.tasks.length }}</span></div>
+          <div class="group-h">{{ group.label }}<span>{{ group.tasks.length + group.jobs.length }}</span></div>
           @for (task of group.tasks; track task.id) {
             <div class="task" [class.done]="task.status === 'COMPLETED'" [class.failed]="task.status === 'FAILED'"
                  [class.waiting]="group.phase === 'waiting'">
@@ -71,6 +71,109 @@
               <button type="button" class="task-remove icon-btn icon-btn-sm" (click)="remove(task)" title="Remove">
                 <app-icon name="x" [size]="12" />
               </button>
+            </div>
+          }
+
+          @for (job of group.jobs; track job.id) {
+            <div class="task job" [class.done]="job.status === 'DONE'" [class.failed]="job.status === 'FAILED'"
+                 [class.waiting]="group.phase === 'waiting'">
+              <div class="t1">
+                <b>{{ jobName(job) }}</b>
+                @if (job.started_at) {
+                  <small>{{ job.started_at | date:'HH:mm:ss' }}</small>
+                }
+              </div>
+
+              @if (group.phase === 'finished') {
+                <div class="t2">{{ job.summary }}</div>
+              } @else {
+                <div class="t2">{{ jobCountsLine(job) }}</div>
+                <div class="progress" [class.indeterminate]="jobProgressFraction(job) === null">
+                  <i [style.width.%]="(jobProgressFraction(job) ?? 0.4) * 100"></i>
+                </div>
+              }
+
+              <div class="t3">
+                <span class="state"><i class="state-dot" [class.running]="group.phase === 'running'" [class.waiting]="group.phase === 'waiting'" aria-hidden="true"></i>{{ jobStatusLabel(job) }}
+                  @if (group.phase !== 'finished') {<span> · {{ jobCountsLine(job) }}</span>}
+                </span>
+                @if (jobConflictCount(job) > 0) {
+                  <a routerLink="/maintenance" (click)="close()">{{ jobConflictCount(job) }} conflicts to review →</a>
+                }
+              </div>
+
+              <div class="job-acts">
+                @if (job.status === 'RUNNING') {
+                  <button type="button" class="icon-btn icon-btn-sm" title="Pause" (click)="pauseJob(job)">
+                    <app-icon name="pause" [size]="14" />
+                  </button>
+                }
+                @if (job.status === 'PAUSED') {
+                  <button type="button" class="icon-btn icon-btn-sm" title="Resume" (click)="resumeJob(job)">
+                    <app-icon name="play" [size]="14" />
+                  </button>
+                }
+                @if (job.status === 'RUNNING' || job.status === 'QUEUED' || job.status === 'PAUSED') {
+                  <button type="button" class="icon-btn icon-btn-sm" title="Cancel" (click)="cancelJob(job)">
+                    <app-icon name="x" [size]="14" />
+                  </button>
+                }
+                @if (hasUnits(job)) {
+                  <button type="button" class="icon-btn icon-btn-sm" [title]="isExpanded(job) ? 'Collapse folders' : 'Show folders'" (click)="toggleExpand(job)">
+                    <app-icon name="chevron-down" [size]="14" [class.flipped]="isExpanded(job)" />
+                  </button>
+                }
+              </div>
+
+              @if (job.status === 'FAILED') {
+                <button type="button" class="task-remove icon-btn icon-btn-sm" (click)="removeJob(job)" title="Remove">
+                  <app-icon name="x" [size]="12" />
+                </button>
+              }
+
+              @if (hasUnits(job) && isExpanded(job)) {
+                @let vis = visibleUnits(job, jobUnits(job));
+                <div class="unit-sublist">
+                  @if (jobUnits(job).length === 0) {
+                    <div class="unit-loading">Loading folders…</div>
+                  }
+                  @for (unit of vis.shown; track unit.id) {
+                    <div class="unit-row">
+                      <span class="pill" [class]="unitPillClass(unit)">{{ unitPillLabel(unit) }}</span>
+                      <div class="unit-main">
+                        <span class="unit-path" [title]="unit.directory">{{ unitRelativePath(job, unit) }}</span>
+                        @if (unitStatusText(unit)) {
+                          <span class="unit-status" [class.err]="unit.status === 'FAILED'">{{ unitStatusText(unit) }}</span>
+                        }
+                      </div>
+                      <span class="unit-count">{{ unitCounterText(unit) }}</span>
+                      <span class="unit-actions">
+                        @if (unit.status === 'RUNNING') {
+                          <button type="button" class="icon-btn icon-btn-sm" title="Cancel" (click)="cancelUnit(job, unit)">
+                            <app-icon name="x" [size]="13" />
+                          </button>
+                        }
+                        @if (unit.status === 'QUEUED' || unit.status === 'PLANNED') {
+                          <button type="button" class="icon-btn icon-btn-sm" title="Move to front" (click)="moveUnitToFront(job, unit)">
+                            <app-icon name="arrow-up" [size]="13" />
+                          </button>
+                          <button type="button" class="icon-btn icon-btn-sm" title="Cancel" (click)="cancelUnit(job, unit)">
+                            <app-icon name="x" [size]="13" />
+                          </button>
+                        }
+                        @if (unit.status === 'FAILED' || unit.status === 'CANCELLED') {
+                          <button type="button" class="icon-btn icon-btn-sm" title="Retry" (click)="retryUnit(job, unit)">
+                            <app-icon name="rediscover" [size]="13" />
+                          </button>
+                        }
+                      </span>
+                    </div>
+                  }
+                  @if (vis.moreCount > 0) {
+                    <button type="button" class="btn btn-ghost btn-sm more-units" (click)="showAllUnits(job)">+{{ vis.moreCount }} more</button>
+                  }
+                </div>
+              }
             </div>
           }
         }

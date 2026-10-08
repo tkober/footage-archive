@@ -4,7 +4,7 @@ import { Observable, Subject } from 'rxjs';
 import { shareReplay } from 'rxjs/operators';
 
 import { environment } from '../../environments/environment';
-import { AddFilesToListResponse, Config, ConflictEntry, DeleteBatchResponse, DeletePreviewResponse, DirectoryQuery, DirectoryResponse, ExifTag, FileInfo, FileList, FileSearchQuery, ListItem, ListItemsResponse, Location, MapPoint, MissingFile, MkdirResponse, MoveItemResult, MovePreviewResponse, RemoveMissingFilesResponse, RenameResponse, ResolveBatchResponse, ResolveBatchStrategy, SearchResponse, ShotClassification, SystemDiagnosticsResponse, Task } from '../models';
+import { AddFilesToListResponse, Config, ConflictEntry, DeleteBatchResponse, DeletePreviewResponse, DirectoryQuery, DirectoryResponse, ExifTag, FileInfo, FileList, FileSearchQuery, ListItem, ListItemsResponse, Location, MapPoint, MissingFile, MkdirResponse, MoveItemResult, MovePreviewResponse, RemoveMissingFilesResponse, RenameResponse, ResolveBatchResponse, ResolveBatchStrategy, ScanJob, ScanJobListEntry, ScanPlan, SearchResponse, ShotClassification, SystemDiagnosticsResponse, Task } from '../models';
 import { PreviewCacheService } from './preview-cache.service';
 
 @Injectable({ providedIn: 'root' })
@@ -67,6 +67,72 @@ export class ApiService {
       Census task's id. */
   census(path: string): Observable<string> {
     return this.http.post<string>(`${this.base}/tracking/census`, { path });
+  }
+
+  /** POST /tracking/scan-plan (#138/#140) — stat-only tree census into a
+      PLANNED ScanJob with one unit per directory. Options default to
+      previews on / force rehash off / only-untracked off, matching the
+      plan dialog's defaults. */
+  createScanPlan(path: string, options: { generateClipPreview?: boolean; forceRehash?: boolean; onlyUntracked?: boolean } = {}): Observable<ScanPlan> {
+    return this.http.post<ScanPlan>(`${this.base}/tracking/scan-plan`, {
+      path,
+      generate_clip_preview: options.generateClipPreview ?? true,
+      force_rehash: options.forceRehash ?? false,
+      only_untracked: options.onlyUntracked ?? false,
+    });
+  }
+
+  /** GET /scan-jobs?active= (#137/#140) — aggregated progress per job, newest first. */
+  getScanJobs(active?: boolean): Observable<ScanJobListEntry[]> {
+    return this.http.get<ScanJobListEntry[]>(`${this.base}/scan-jobs`, {
+      params: active === undefined ? {} : { active: String(active) },
+    });
+  }
+
+  /** GET /scan-jobs/{id} (#140) — full unit list + each RUNNING unit's live activity. */
+  getScanJob(id: string): Observable<ScanJob> {
+    return this.http.get<ScanJob>(`${this.base}/scan-jobs/${id}`);
+  }
+
+  startScanJob(id: string): Observable<ScanJob> {
+    return this.http.post<ScanJob>(`${this.base}/scan-jobs/${id}/start`, {});
+  }
+
+  pauseScanJob(id: string): Observable<ScanJob> {
+    return this.http.post<ScanJob>(`${this.base}/scan-jobs/${id}/pause`, {});
+  }
+
+  resumeScanJob(id: string): Observable<ScanJob> {
+    return this.http.post<ScanJob>(`${this.base}/scan-jobs/${id}/resume`, {});
+  }
+
+  cancelScanJob(id: string): Observable<ScanJob> {
+    return this.http.post<ScanJob>(`${this.base}/scan-jobs/${id}/cancel`, {});
+  }
+
+  /** Discards an unstarted plan, or removes a finished job (409 while a unit is RUNNING). */
+  deleteScanJob(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/scan-jobs/${id}`);
+  }
+
+  cancelUnit(jobId: string, unitId: number): Observable<ScanJob> {
+    return this.http.post<ScanJob>(`${this.base}/scan-jobs/${jobId}/units/${unitId}/cancel`, {});
+  }
+
+  retryUnit(jobId: string, unitId: number): Observable<ScanJob> {
+    return this.http.post<ScanJob>(`${this.base}/scan-jobs/${jobId}/units/${unitId}/retry`, {});
+  }
+
+  moveUnitTop(jobId: string, unitId: number): Observable<ScanJob> {
+    return this.http.post<ScanJob>(`${this.base}/scan-jobs/${jobId}/units/${unitId}/move-top`, {});
+  }
+
+  deselectUnit(jobId: string, unitId: number): Observable<ScanJob> {
+    return this.http.post<ScanJob>(`${this.base}/scan-jobs/${jobId}/units/${unitId}/deselect`, {});
+  }
+
+  reselectUnit(jobId: string, unitId: number): Observable<ScanJob> {
+    return this.http.post<ScanJob>(`${this.base}/scan-jobs/${jobId}/units/${unitId}/reselect`, {});
   }
 
   trackFile(path: string): Observable<string> {

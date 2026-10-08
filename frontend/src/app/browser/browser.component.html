@@ -25,7 +25,7 @@
         <input type="range" [min]="140" [max]="320" [value]="thumbSize()"
                (input)="setThumbSize(+$any($event.target).value)" />
       </label>
-      <button class="btn btn-ghost" title="Scan this folder for new and changed files"
+      <button class="btn btn-ghost" title="Plan a scan of this folder for new and changed files"
               (click)="scanCurrentDirectory()">
         <app-icon name="scan" [size]="16" />
         Scan folder
@@ -452,4 +452,12 @@
     [path]="path"
     (started)="onRediscoverStarted()"
     (cancelled)="closeRediscover()" />
+}
+
+@if (scanPlanPath(); as path) {
+  <app-scan-plan-dialog
+    [rootDir]="rootDir() ?? ''"
+    [path]="path"
+    (started)="onScanPlanStarted()"
+    (cancelled)="closeScanPlanDialog()" />
 }

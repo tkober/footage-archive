@@ -53,6 +53,8 @@ const ICONS: Record<string, string> = {
   'volume-x': '<path d="M4 9v6h4l5 5V4L8 9z"/><path d="M16 9l5 6M21 9l-5 6"/>',
   maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/>',
   minimize: '<path d="M9 3v4a2 2 0 0 1-2 2H3M21 9h-4a2 2 0 0 1-2-2V3M15 21v-4a2 2 0 0 1 2-2h4M3 15h4a2 2 0 0 1 2 2v4"/>',
+  // Scan queue (#140): "move to top"/"move to front" on a planned/waiting unit.
+  'arrow-up': '<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>',
 };
 
 /**

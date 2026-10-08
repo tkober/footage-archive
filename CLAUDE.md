@@ -255,8 +255,8 @@ footage-archive/
         ├── version-flyout/         # Version flyout (#95): frontend + live backend version, sync pill, Copy (opens right of the rail item)
         ├── app.routes.ts           # lazy-loaded routes
         ├── app.config.ts           # provideRouter + provideHttpClient
-        ├── models.ts               # TypeScript interfaces
-        ├── services/api.service.ts # HTTP calls + taskRefresh$ subject; `clipPreviewUrl()` appends `?v=` from `PreviewCacheService` (#64); `scanDirectory(path, {forceRehash?, onlyUntracked?})` (#139 adds `onlyUntracked` → `only_untracked`) and `census(path)` (#139, `POST /tracking/census`)
+        ├── models.ts               # TypeScript interfaces; `ScanJob`/`ScanUnit`/`ScanJobListEntry`/`ScanPlan`/`ScanJobOptions`/`ScanUnitResult` (#140) mirror `api/dtos.py`'s `ScanJobDto`/`ScanUnitDto`/`ScanJobListEntry`/`ScanPlanResponse`
+        ├── services/api.service.ts # HTTP calls + taskRefresh$ subject; `clipPreviewUrl()` appends `?v=` from `PreviewCacheService` (#64); `scanDirectory(path, {forceRehash?, onlyUntracked?})` (#139 adds `onlyUntracked` → `only_untracked`, unused by the browser since #140 — see below — but kept, no other caller) and `census(path)` (#139, `POST /tracking/census`); scan-queue calls (#140): `createScanPlan`/`getScanJobs`/`getScanJob`/`startScanJob`/`pauseScanJob`/`resumeScanJob`/`cancelScanJob`/`deleteScanJob`/`cancelUnit`/`retryUnit`/`moveUnitTop`/`deselectUnit`/`reselectUnit`, all thin wrappers over `api/scanjobs.py` + `POST /tracking/scan-plan`
         ├── services/preview-cache.service.ts # `PreviewCacheService` (#64, signal-based, `providedIn: 'root'`) — `Map<md5_hash, version>` of
         │                           #   cache-busted previews; `bump(hashes)` after a rescan task completes. `ApiService.clipPreviewUrl()` is
         │                           #   the one place that reads it, so browser grid / search / lists / detail panel all pick up a bump for
@@ -287,10 +287,29 @@ footage-archive/
         │                           #   Grouped into Running / Waiting / Finished sections (#93): a RUNNING task whose `activity` isn't ACTIVE
         │                           #   (or a QUEUED/PENDING one) is listed under Waiting with its reason ("Waiting for a free worker",
         │                           #   "… preview slot", "Paused · host too hot or busy"); the trigger's title reads "N running · M waiting"
+        │                           #   Scan jobs (#140): additionally polls `GET /scan-jobs` (all jobs, newest first) every interval
+        │                           #   alongside `GET /tasks`, hides the synthetic per-job `/tasks` entries (`tasks` computed filters out
+        │                           #   any id present in the polled job list) while still feeding the unfiltered raw list through the
+        │                           #   existing `applyTasks` transition logic (conflicts badge, browser reload, #134/#139) — a scan job
+        │                           #   needed no changes there. A job renders as its own row in the same Running/Waiting/Finished grouping
+        │                           #   (`jobPhase`: RUNNING→running, QUEUED/PAUSED→waiting with a "Paused" label, DONE/FAILED/CANCELLED→
+        │                           #   finished), name "Scan `<root folder name>`", progress bar (units_done/units_total), "x / y folders ·
+        │                           #   a / b files", Pause/Resume + Cancel icon buttons, finished jobs show `summary` + the same "N conflicts
+        │                           #   to review →" link logic, FAILED jobs get the task-style per-item "Remove" (DONE/CANCELLED only clear
+        │                           #   via the bulk "Clear finished", which already deletes them server-side through `DELETE /tasks/completed`).
+        │                           #   A collapsible unit sublist (`GET /scan-jobs/{id}`, fetched for every RUNNING/PAUSED job and every
+        │                           #   expanded one, collapsed by default for finished jobs/expanded for running ones, remembered per job id)
+        │                           #   shows each unit's pill (waiting/running/done/failed/cancelled/deselected), path relative to the job
+        │                           #   root, live `progress`/`error`, a "31 / 40" counter parsed from `progress` (falling back to
+        │                           #   `media_file_count`), and per-status actions (running→Cancel, waiting→Move to front/Cancel, failed/
+        │                           #   cancelled→Retry) — all going straight to the API and re-rendering from the returned job, same
+        │                           #   no-local-draft convention as the plan dialog. Compact view (`visibleUnits`) shows running + failed +
+        │                           #   the next three waiting units, collapsing the rest into "+N more" until expanded in full.
         ├── browser/                # Browser page: directory navigator + file detail panel. Toolbar (#39) below the shell topbar:
         │                           #   `.seg`/`.seg-btn` filter (All/Videos/Stills/Untracked, counts from `counts`, zero-count segments
         │                           #   hidden except All, selecting one reloads via `kind`), thumbnail-size slider (`--thumb`, 140–320px,
-        │                           #   `localStorage` `fa-thumb`), "Scan folder" (`.btn-ghost`), "Select" (`.btn`/`.btn-on`). Folders render
+        │                           #   `localStorage` `fa-thumb`), "Scan folder" (`.btn-ghost`, #140: opens `shared/scan-plan-dialog/` for
+        │                           #   the current directory instead of scanning directly), "Select" (`.btn`/`.btn-on`). Folders render
         │                           #   as `.folder` tiles (icon, name, `file_count`); `file_count` sits in its own `.meta` row inside
         │                           #   `.folder-info` (originally #134's badge row, now plain) so it never overflows the tile on narrow/
         │                           #   mobile widths. `folderStatusDot()` (#139, superseding #134's badge pills — too heavy for a tile per
@@ -310,11 +329,12 @@ footage-archive/
         │                           #   header (thumb, name, "Still · JPG" / "Video · MOV · 00:12" / "Folder · N files"), Open, Open in
         │                           #   Photoshop (#126, `open-in:<appId>`, still extensions only, only when `OpenInService.enabled()`),
         │                           #   Track (untracked) / Rescan (tracked, #64, icon `scan`), Add keyword… / Add to list… (popover at the tile),
-        │                           #   Rename, Move to…, Copy path, Move to trash (danger, separatorBefore, bottom, #61); folders: Scan,
-        │                           #   Scan folder (force rehash) (#136, same icon, right below Scan — bypasses the incremental skip rule
-        │                           #   for that one scan), Scan untracked only (#139, below force-rehash), Refresh status (#139, starts a
-        │                           #   Census), Rediscover, Move to trash. Opens on right-click or the card's "⋯". Same ids = single-key shortcuts on
-        │                           #   the focused tile (Space, P, T, K, L, F2, M, R, Delete/Backspace, #61/#64/#126), via `data-path` on cards/folder tiles
+        │                           #   Rename, Move to…, Copy path, Move to trash (danger, separatorBefore, bottom, #61); folders: "Scan
+        │                           #   folder…" (#140, opens `shared/scan-plan-dialog/` — the old "Scan folder (force rehash)"/"Scan
+        │                           #   untracked only" entries are gone, folded into the dialog's options instead), Refresh status (#139,
+        │                           #   starts a Census), Rediscover, Move to trash. Opens on right-click or the card's "⋯". Same ids =
+        │                           #   single-key shortcuts on the focused tile (Space, P, T, K, L, F2, M, R, Delete/Backspace,
+        │                           #   #61/#64/#126), via `data-path` on cards/folder tiles
         ├── search/                 # Faceted search page (#44): filter rail (toggle chips, facet inputs) + result header with
         │                           #   active-filter chips / Clear all + results grid + sliding detail panel
         ├── map/                    # Map page: Google Maps clustering, flyouts, "open in search"
@@ -409,7 +429,22 @@ footage-archive/
         │   │                           #   icon button that expands it as a fixed-position overlay with a backdrop + close button
         │   ├── list-picker/             # Reusable "add to list" input (text field + keyboard-navigable dropdown + ad hoc create); used by the detail panel and the browser's bulk action bar
         │   ├── folder-picker/           # Directory navigator on top of ModalComponent: breadcrumbs from ROOT_DIR, directories-only listing via POST /files/directory, inline "New folder" (POST /files/mkdir). Reused by two flows via inputs: `title`/`confirmLabel` (default "Move to…"/"Move here"); `sourcePaths` (optional — when given, disables the source itself/its descendants/its current parent as a target; omitted entirely for a plain "pick any folder" flow where nothing is blocked, used by Rediscover's "Rediscover here")
-        │   └── rediscover-dialog/       # Starts POST /tracking/rediscover (#25): `path` omitted → folder-picker step ("Rediscover…"/"Rediscover here") then a checkbox confirm step; `path` given (browser context-menu "Rediscover" on a directory) → checkbox confirm step only. Checkbox: "Also track new files" (default off). On start, fires `ApiService.taskRefresh$` and reports "Rediscover started — see tasks."
+        │   ├── rediscover-dialog/       # Starts POST /tracking/rediscover (#25): `path` omitted → folder-picker step ("Rediscover…"/"Rediscover here") then a checkbox confirm step; `path` given (browser context-menu "Rediscover" on a directory) → checkbox confirm step only. Checkbox: "Also track new files" (default off). On start, fires `ApiService.taskRefresh$` and reports "Rediscover started — see tasks."
+        │   └── scan-plan-dialog/       # Plan dialog (#140, epic #133) — opened by the folder context menu's "Scan folder…" and the
+        │                               #   toolbar's "Scan folder" button instead of starting a scan directly. On open (and again on every
+        │                               #   options change — re-planning is cheap) posts `POST /tracking/scan-plan` and renders the returned
+        │                               #   `PLANNED` job: header "N folders · M files · K already tracked" (from non-`DESELECTED` units) +
+        │                               #   a "X folders already being scanned" note when `skipped` is non-empty; a scrollable unit list (path
+        │                               #   relative to the plan root, mono, "." for the root itself; "N files"/"K tracked"; a planned/
+        │                               #   deselected pill; deselect (✕) / reselect (↻) / move-to-top (↑, hidden on the first row) icon
+        │                               #   buttons, each going straight to `POST /scan-jobs/{id}/units/{id}/…` and re-rendering from the
+        │                               #   returned job — no local draft); options (With clip previews/Force rehash/Only folders with
+        │                               #   untracked files) where changing one discards the current plan (`DELETE /scan-jobs/{id}`) and
+        │                               #   plans again, losing any deselections (a short hint says so); footer "Discard"/"Start N folders"
+        │                               #   (`POST /scan-jobs/{id}/start`, then closes + toasts "Scan started — see tasks." + fires
+        │                               #   `ApiService.taskRefresh$`); a 0-unit plan shows "Nothing to scan" with only "Close". Closing the
+        │                               #   dialog any other way (Esc, backdrop, ✕, Discard) always `DELETE`s the PLANNED job so none are
+        │                               #   left behind before the backend's own 24h cleanup.
         ├── modal/                  # Base modal shell (backdrop, teleport-to-body, Esc-to-close)
         ├── maintenance/            # Maintenance page: hosts troubleshooting sections — "Path conflicts" (above) then "Missing files" (below)
         │   ├── path-conflicts/     # Path-conflicts section (#25): GET /tracking/conflicts → one card per md5 (thumbnail if has_preview, file name, keyword/location/list badges), radio list of every path (tracked path first, labelled "currently tracked"; missing paths disabled), per-card "Apply" → POST /tracking/conflicts/resolve; header "Keep all current" / "Use new location for all" → ConfirmDialogComponent → POST /tracking/conflicts/resolve-batch, shows "N resolved · M skipped (reason)"; fires `ApiService.conflictsChanged$` after any resolve so the sidebar badge updates
@@ -749,6 +784,17 @@ bring their own button/menu/toast styles.
   before-start actions (deselect/reselect/move-top/start/discard, #137) and the executor's new
   `on_unit_done` hook (`tasks/scan_hooks.py`, now refreshes the unit's directory status chain, #139)
   round it out. The plan-preview UI itself is #140.
+- [x] Plan dialog and tasks widget with jobs (#140, epic #133, the epic's last ticket) — see
+  `shared/scan-plan-dialog/` and `tasks-widget/` in the frontend tree above for the full design. The
+  folder context menu's "Scan folder…" and the toolbar's "Scan folder" button now open the plan dialog
+  instead of starting a scan directly; the separate "Scan folder (force rehash)"/"Scan untracked only"
+  context-menu entries are gone, folded into the dialog's own options (previews/force-rehash/
+  only-untracked), each re-planning on change. The tasks widget additionally polls `GET /scan-jobs` and
+  renders a job as its own row (name, progress bar, Pause/Resume/Cancel, a collapsible per-unit sublist
+  with Cancel/Retry/Move-to-front) in the same Running/Waiting/Finished grouping as a plain task, while
+  still feeding the synthetic per-job `/tasks` entries through the existing status-transition logic so
+  the conflicts badge and the browser's reload-on-COMPLETED keep working unchanged. No backend changes
+  were needed — the queue API (#137/#138) already covered every action the dialog/widget call.
 - [x] Recursive directory status (#139, epic #133) — see the "Recursive directory status" bullet above
   for the full design. `DirectoryStats` (migration `0011`) is a persisted, incrementally-maintained
   per-directory row (own + subtree media/tracked counts, `subtree_complete`), written by a finished scan
