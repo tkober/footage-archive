@@ -16,6 +16,7 @@ from api.files import FilesApi
 from api.keywords import KeywordsApi
 from api.lists import ListsApi
 from api.locations import LocationsApi
+from api.scanjobs import ScanJobsApi
 from api.search import SearchApi
 from api.tracking import TrackingApi
 from api.tasks import TasksApi
@@ -26,6 +27,7 @@ from alembic.config import Config
 from env.environment import Environment
 from fileops.service import recover_pending_operations
 from fileops.trash import ensure_trash_dir
+from tasks import scanqueue
 from tasks.loadcontrol import read_cpu_limit, read_cpu_temperature
 
 env = Environment()
@@ -52,6 +54,15 @@ async def lifespan(application: FastAPI):
     except Exception:
         logger.exception('Failed to recover pending file operations on startup')
 
+    # Scan queue (#137): reconcile anything a crash left RUNNING, THEN start
+    # the consumer threads — never the other way round, or a consumer could
+    # claim a unit recovery is about to reset.
+    try:
+        scanqueue.recover_on_startup()
+    except Exception:
+        logger.exception('Failed to recover the scan queue on startup')
+    scanqueue.start_consumers()
+
     temp = read_cpu_temperature()
     logger.info(
         'Load settings (#71): worker_pool_size=%s heavy_job_concurrency=%s ffmpeg_threads=%s '
@@ -76,12 +87,15 @@ async def lifespan(application: FastAPI):
     application.include_router(KeywordsApi)
     application.include_router(ListsApi)
     application.include_router(LocationsApi)
+    application.include_router(ScanJobsApi)
     application.include_router(TrackingApi)
     application.include_router(TasksApi)
     application.include_router(TroubleShootingApi)
     application.include_router(SystemApi)
 
     yield
+
+    scanqueue.stop_consumers()
 
 
 if __name__ == '__main__':

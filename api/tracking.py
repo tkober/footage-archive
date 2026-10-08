@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime
@@ -359,12 +360,20 @@ class ScanSummary:
     failed]" message can be composed once the whole scan (every batch) is
     done, not per batch. `skipped` (#136) is only ever set once, up front,
     by `_index_candidates`'s incremental skip rule — no batch contributes to
-    it, but it rides along through `__add__` like every other field."""
+    it, but it rides along through `__add__` like every other field.
+
+    `cancelled` (#137) is set True by `_index_candidates` once it stops
+    early because `should_cancel()` returned True — the scan queue's unit
+    executor (`run_scan_unit`) reads it to decide DONE vs. CANCELLED.
+    Deliberately NOT summed by `__add__` (only `_index_candidates` itself
+    ever sets it, on the summary it returns — a batch's own ScanSummary
+    never carries it)."""
     indexed: int = 0
     relinked: int = 0
     conflicts: int = 0
     failed: int = 0
     skipped: int = 0
+    cancelled: bool = False
 
     def __add__(self, other: 'ScanSummary') -> 'ScanSummary':
         return ScanSummary(
@@ -373,6 +382,7 @@ class ScanSummary:
             conflicts=self.conflicts + other.conflicts,
             failed=self.failed + other.failed,
             skipped=self.skipped + other.skipped,
+            cancelled=self.cancelled or other.cancelled,
         )
 
 
@@ -442,7 +452,8 @@ def _save_signatures(db: Database, scan_results: list[ScanResult]) -> None:
 
 def _index_candidates(candidates: list[ScanCandidate], db: Database, report: Callable[[str], None],
                        generate_clip_preview: bool, scanned_directory: str,
-                       force_rehash: bool = False) -> ScanSummary:
+                       force_rehash: bool = False,
+                       should_cancel: Optional[Callable[[], bool]] = None) -> ScanSummary:
     """Streaming scan (#135): hash + reconcile `candidates` in batches of
     `SCAN_BATCH_SIZE` (env, default 25) instead of over the whole tree at
     once, so early batches land in the DB — and show in the browser — while
@@ -482,7 +493,17 @@ def _index_candidates(candidates: list[ScanCandidate], db: Database, report: Cal
     An unexpected exception while reconciling a batch is logged and every
     one of that batch's hashed files counts as failed — but the next batch
     still runs, unlike the whole-tree scan this replaces, where a single bad
-    file today aborts everything via `parallel_map`."""
+    file today aborts everything via `parallel_map`.
+
+    `should_cancel` (#137, the scan queue's cooperative cancellation —
+    None for every caller except `run_scan_unit`) is checked once before
+    each batch starts (no new batch once it returns True — the loop just
+    stops, leaving `ScanSummary.cancelled` True on what's returned) and
+    threaded into `Scanner.hash_candidates` (checked once per candidate
+    before it's hashed) and `_scan_and_reconcile`'s per-file probe step —
+    see their own docstrings. Files already hashed/probed before
+    cancellation stay tracked; a candidate skipped because of it is simply
+    never processed, same as one that vanished mid-scan."""
     if not candidates:
         return ScanSummary()
 
@@ -501,20 +522,32 @@ def _index_candidates(candidates: list[ScanCandidate], db: Database, report: Cal
     hashed_progress = _ProbeProgress(total, report, label='Hashed')
     probed_progress = _ProbeProgress(total, report, label='Probed')
 
+    hash_failures = [0]
+
     def hash_progress(path: Path, ok: bool):
+        if not ok:
+            hash_failures[0] += 1
         hashed_progress.record(path.name, ok)
 
     summary = ScanSummary(skipped=skipped)
     for start in range(0, total, batch_size):
+        if should_cancel is not None and should_cancel():
+            summary.cancelled = True
+            break
+
         batch = sorted_candidates[start:start + batch_size]
-        scan_results = scanner.hash_candidates(batch, progress=hash_progress, isolate_errors=True)
-        hash_failed = len(batch) - len(scan_results)
+        failures_before = hash_failures[0]
+        scan_results = scanner.hash_candidates(batch, progress=hash_progress, isolate_errors=True,
+                                                should_cancel=should_cancel)
+        # Only real hash errors count as failed; candidates left out because
+        # of a cancel were never processed (#137).
+        hash_failed = hash_failures[0] - failures_before
 
         probed_before = probed_progress.done
         try:
             batch_summary = _scan_and_reconcile(
                 scan_results, db, report, generate_clip_preview, scanned_directory,
-                progress=probed_progress,
+                progress=probed_progress, should_cancel=should_cancel,
             ) + ScanSummary(failed=hash_failed)
             not_probed, not_probed_failed = len(batch) - batch_summary.indexed, hash_failed
         except Exception:
@@ -527,6 +560,12 @@ def _index_candidates(candidates: list[ScanCandidate], db: Database, report: Cal
 
         probed_progress.skip(not_probed, failed=not_probed_failed)
         summary += batch_summary
+
+        # A cancel that hit this batch (even the last one) must end the scan
+        # as cancelled, not as a normal finish (#137).
+        if should_cancel is not None and should_cancel():
+            summary.cancelled = True
+            break
 
     return summary
 
@@ -543,6 +582,38 @@ def index_files_in_directory(query: FileQuery, report: Callable[[str], None]):
                                      scanned_directory=str(directory),
                                      force_rehash=query.force_rehash)
         report(_format_scan_summary(summary))
+
+
+def run_scan_unit(directory: str, options: dict, report: Callable[[str], None],
+                  should_cancel: Callable[[], bool]) -> ScanSummary:
+    """Executor of one ScanUnit (#137's persistent scan queue — see
+    `tasks/scanqueue.py`): the direct, non-recursive counterpart of
+    `index_files_in_directory` for a single directory. `options` is the
+    job's `ScanJobs.options` dict (`generate_clip_preview`/`force_rehash`,
+    same meaning as on `FileQuery`); `should_cancel` is threaded straight
+    into `_index_candidates`.
+
+    Candidates are DIRECT files only (`os.scandir`, no recursion — a unit
+    never walks into a subdirectory, unlike `index_files_in_directory`'s
+    `rglob('*')`), filtered the same way by `Scanner.collect_candidates`."""
+    path = Path(directory)
+    with shared(str(path)):
+        try:
+            entries = list(os.scandir(path))
+        except OSError as e:
+            raise RuntimeError(f'Could not read directory "{directory}": {e}') from e
+        direct_files = (Path(e.path) for e in entries if e.is_file(follow_symlinks=False))
+        candidates = Scanner().collect_candidates(direct_files)
+        db = Database()
+        summary = _index_candidates(
+            candidates, db, report,
+            generate_clip_preview=options.get('generate_clip_preview', True),
+            scanned_directory=str(path),
+            force_rehash=options.get('force_rehash', False),
+            should_cancel=should_cancel,
+        )
+        report(_format_scan_summary(summary))
+        return summary
 
 
 def rediscover_directory(query: RediscoverQuery, report: Callable[[str], None]):
@@ -619,7 +690,8 @@ def _rediscover_summary(result, track_new: bool) -> str:
 
 def _scan_and_reconcile(scan_results: list[ScanResult], db: Database, report: Callable[[str], None],
                         generate_clip_preview: bool, scanned_directory: str,
-                        progress: Optional[_ProbeProgress] = None) -> ScanSummary:
+                        progress: Optional[_ProbeProgress] = None,
+                        should_cancel: Optional[Callable[[], bool]] = None) -> ScanSummary:
     """Shared reconciliation path for the normal scan (directory + single
     file): classify every hash found against the DB using the same rules as
     `/tracking/rediscover` (fileops/rediscover.py), then probe every hash
@@ -665,6 +737,14 @@ def _scan_and_reconcile(scan_results: list[ScanResult], db: Database, report: Ca
         progress = _ProbeProgress(total_to_probe, report)
 
     def probe_one(sc: ScanResult) -> bool:
+        # #137: checked before the probe itself — a skipped-because-cancelled
+        # file never calls _probe_and_save, so no media details/preview are
+        # written and (critically) no signature gets saved for it below
+        # (`probe_batch` only saves signatures for files `probe_one` returned
+        # True for) — the next scan re-hashes/re-probes it, same as #136's
+        # crash-safety rule for a process that died mid-probe.
+        if should_cancel is not None and should_cancel():
+            return False
         ok = True
         try:
             _probe_and_save(sc, db, generate_clip_preview=generate_clip_preview)

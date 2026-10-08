@@ -2,6 +2,7 @@ from sqlalchemy import (
     BigInteger, Column, DateTime, Float, ForeignKey, Index, Integer, LargeBinary,
     MetaData, String, Table, Text, UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 
 metadata = MetaData()
@@ -153,6 +154,57 @@ preview_status_table = Table(
     Column('status', String, nullable=False),
     Column('reason', String),
     Column('attempted_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+scan_jobs_table = Table(
+    'ScanJobs', metadata,
+    Column('id', Text, primary_key=True),
+    Column('root_path', Text, nullable=False),
+    # PLANNED / QUEUED / RUNNING / PAUSED / DONE / FAILED / CANCELLED (#137).
+    Column('status', Text, nullable=False),
+    # {generate_clip_preview, force_rehash} — applied to every unit's scan.
+    Column('options', JSONB, nullable=False, server_default='{}'),
+    Column('created_at', DateTime(timezone=True), server_default=func.now()),
+    Column('started_at', DateTime(timezone=True)),
+    Column('finished_at', DateTime(timezone=True)),
+    # Final "Indexed N files · ..." message, summed over every unit, set
+    # once the job reaches a terminal state (DONE/FAILED) or a CANCELLED
+    # job's last running unit ends.
+    Column('summary', Text),
+)
+
+scan_units_table = Table(
+    'ScanUnits', metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('job_id', Text, ForeignKey('ScanJobs.id', ondelete='CASCADE'), nullable=False),
+    # One directory, no recursion (#137's unit of work).
+    Column('directory', Text, nullable=False),
+    Column('position', Integer, nullable=False),
+    # PLANNED / DESELECTED / QUEUED / RUNNING / DONE / FAILED / CANCELLED.
+    Column('status', Text, nullable=False),
+    # Snapshot from planning time (#138 fills these in; #137 just carries
+    # them along) — direct, non-hidden media files vs. how many were
+    # already tracked, same definitions as PathChild (#134).
+    Column('media_file_count', Integer),
+    Column('tracked_file_count', Integer),
+    # e.g. "Probed 31 / 40" — throttled to ~1 write/s while RUNNING, always
+    # flushed once more with the final message when the unit ends.
+    Column('progress', Text),
+    Column('error', Text),
+    # ScanSummary fields (indexed/relinked/conflicts/failed/skipped) once
+    # the unit reaches a terminal state — partial counts for CANCELLED.
+    Column('result', JSONB),
+    Column('started_at', DateTime(timezone=True)),
+    Column('finished_at', DateTime(timezone=True)),
+)
+
+Index('idx__ScanUnits__job_id_position', scan_units_table.c.job_id, scan_units_table.c.position)
+# A directory is never QUEUED/RUNNING in more than one unit at a time,
+# across every job (#137) — partial, so a PLANNED/DESELECTED/terminal unit
+# for the same directory never conflicts.
+Index(
+    'uq__ScanUnits__directory_active', scan_units_table.c.directory,
+    unique=True, postgresql_where=scan_units_table.c.status.in_(('QUEUED', 'RUNNING')),
 )
 
 Index('idx__Locations__country', locations_table.c.country)
