@@ -8,6 +8,7 @@ import { ModalComponent } from '../../modal/modal.component';
 import { ImageViewerComponent } from '../image-viewer/image-viewer.component';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { ListPickerComponent } from '../list-picker/list-picker.component';
+import { KeywordPickerComponent } from '../keyword-picker/keyword-picker.component';
 import { IconComponent } from '../icon/icon.component';
 import { MenuComponent, MenuItem } from '../menu/menu.component';
 import { PopoverComponent } from '../popover/popover.component';
@@ -39,7 +40,7 @@ const CODEC_LABELS: Record<string, string> = { h264: 'H.264', hevc: 'HEVC', pror
 @Component({
   selector: 'app-file-detail-panel',
   standalone: true,
-  imports: [DatePipe, JsonPipe, RouterLink, ModalComponent, ImageViewerComponent, ConfirmDialogComponent, ListPickerComponent, IconComponent, MenuComponent, PopoverComponent, VideoPlayerComponent, GoogleMap, MapAdvancedMarker],
+  imports: [DatePipe, JsonPipe, RouterLink, ModalComponent, ImageViewerComponent, ConfirmDialogComponent, ListPickerComponent, KeywordPickerComponent, IconComponent, MenuComponent, PopoverComponent, VideoPlayerComponent, GoogleMap, MapAdvancedMarker],
   templateUrl: './file-detail-panel.component.html',
   styleUrl: './file-detail-panel.component.css',
 })
@@ -82,15 +83,6 @@ export class FileDetailPanelComponent implements OnDestroy {
 
   // ── Keywords ──
   addingKeyword   = signal(false);
-  newKeywordValue = signal('');
-  allKeywords     = signal<string[]>([]);
-  keywordSuggestions = computed(() => {
-    const input = this.newKeywordValue().toLowerCase();
-    const applied = new Set(this.selectedFile()?.keywords ?? []);
-    return this.allKeywords().filter(
-      kw => !applied.has(kw) && (input === '' || kw.toLowerCase().includes(input))
-    );
-  });
 
   // ── Move to trash (#61) ──
   rootDir       = signal('');
@@ -352,7 +344,6 @@ export class FileDetailPanelComponent implements OnDestroy {
       this.selectedFile.set(f);
       this.editingName.set(false);
       this.renameError.set(null);
-      this.newKeywordValue.set('');
       this.addingKeyword.set(false);
       this.addingToList.set(false);
       this.locationPicker.set(null);
@@ -368,7 +359,6 @@ export class FileDetailPanelComponent implements OnDestroy {
       // depend on it — otherwise fetching HQ would re-trigger the reset.
       untracked(() => this.resetHq());   // drop any full-res image from the previous file
       if (f) {
-        this.api.getAllKeywords().subscribe(kws => this.allKeywords.set(kws));
         this.api.getLocations().subscribe(locs => this.allLocations.set(locs));
       }
     });
@@ -483,12 +473,11 @@ export class FileDetailPanelComponent implements OnDestroy {
 
   startAddKeyword() {
     this.addingKeyword.set(true);
-    setTimeout(() => this.host.nativeElement.querySelector<HTMLInputElement>('.kw-input')?.focus());
+    setTimeout(() => this.host.nativeElement.querySelector<HTMLInputElement>('.keyword-picker-input')?.focus());
   }
 
   stopAddKeyword() {
     this.addingKeyword.set(false);
-    this.newKeywordValue.set('');
   }
 
   openLocationPicker(anchor: HTMLElement) {
@@ -608,16 +597,12 @@ export class FileDetailPanelComponent implements OnDestroy {
     });
   }
 
-  addKeyword() {
+  addKeyword(keyword: string) {
     const file = this.selectedFile();
-    const kw = this.newKeywordValue().trim();
+    const kw = keyword.trim();
     if (!file?.md5_hash || !kw) return;
-    this.newKeywordValue.set('');
     this.api.addKeyword(file.md5_hash, kw).subscribe({
-      next: () => {
-        this.reloadFile();
-        this.api.getAllKeywords().subscribe(kws => this.allKeywords.set(kws));
-      },
+      next: () => this.reloadFile(),
     });
   }
 
