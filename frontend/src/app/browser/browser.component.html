@@ -387,7 +387,7 @@
 }
 
 @if (showComparison()) {
-  <app-comparison-view [items]="comparablePhotos()" (closed)="closeComparison()" />
+  <app-comparison-view [items]="comparablePhotos()" (closed)="closeComparison()" (deleted)="onComparisonDeleted($event)" />
 }
 
 @if (pendingRename(); as pr) {
