@@ -11,6 +11,15 @@ class ScanningQuery(BaseModel):
 
 class FileQuery(ScanningQuery):
     path: StrictStr
+    # Incremental scan (#136): skip a candidate already tracked at exactly
+    # this path whose size+mtime are unchanged, without hashing it. True
+    # forces every candidate to be hashed+probed regardless. Only honored by
+    # POST /tracking/scan-directory (index_files_in_directory) — scan-file
+    # always hashes the one file the user explicitly asked for, and
+    # RediscoverQuery (which extends this) always hashes too, since
+    # rediscovering by hash is the whole point — so the field is simply
+    # unused on those two paths.
+    force_rehash: bool = False
 
 
 class RediscoverQuery(FileQuery):

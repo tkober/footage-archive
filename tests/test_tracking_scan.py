@@ -8,13 +8,19 @@ were actually probed, so "not probed" assertions have teeth.
 The tests from `test_scan_directory_batching_matches_single_batch_size` onward
 cover the streaming scan (#135): `index_files_in_directory` now hashes +
 reconciles its candidates in batches of `SCAN_BATCH_SIZE` instead of over the
-whole tree at once."""
+whole tree at once.
 
+The tests from `test_scan_directory_second_scan_skips_unchanged_files` onward
+cover the incremental scan (#136): a file already tracked at exactly its path
+with an unchanged size+mtime signature is skipped — not hashed, not probed —
+on a later scan of the same folder."""
+
+import os
 import re
 from pathlib import Path
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 import api.tracking as tracking
 from api.dtos import FileQuery
@@ -70,6 +76,23 @@ def _patch_probe(monkeypatch) -> _ProbeRecorder:
     recorder = _ProbeRecorder()
     monkeypatch.setattr(tracking, '_probe_and_save', recorder)
     return recorder
+
+
+def _count_hash_calls(monkeypatch) -> list[str]:
+    """Wrap Scanner.md5_hash (#136) to record every path it's actually
+    called for, without changing its behaviour — the incremental scan's
+    "hashes nothing" assertions need something with teeth, since a skipped
+    candidate never even reaches hash_candidates()."""
+    import scanner.scanner as scanner_module
+    original = scanner_module.Scanner.md5_hash
+    calls: list[str] = []
+
+    def counting_md5_hash(self, path):
+        calls.append(path)
+        return original(self, path)
+
+    monkeypatch.setattr(scanner_module.Scanner, 'md5_hash', counting_md5_hash)
+    return calls
 
 
 def test_scan_directory_copy_of_tracked_file_is_conflict_not_moved(db, root_dir, monkeypatch):
@@ -394,3 +417,177 @@ def test_scan_directory_batch_hash_failure_does_not_abort_later_batches(db, root
     probed = _progress_values(report.messages, 'Probed')
     assert hashed[-1] == 3
     assert probed[-1] == 3
+
+
+def test_scan_directory_second_scan_skips_unchanged_files(db, root_dir, monkeypatch):
+    """A file already tracked at exactly its path, with its size+mtime
+    signature written by the first scan's probe, is skipped by the second
+    scan — not hashed, not probed (#136)."""
+    recorder = _patch_probe(monkeypatch)
+    hash_calls = _count_hash_calls(monkeypatch)
+
+    _write(root_dir / 'a.jpg', b'a')
+    _write(root_dir / 'b.jpg', b'b')
+
+    first = _Report()
+    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), first)
+    assert len(hash_calls) == 2
+    assert 'Indexed 2 files · 0 relinked · 0 conflicts' in first.last
+
+    hash_calls.clear()
+    recorder.probed.clear()
+
+    second = _Report()
+    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), second)
+
+    assert hash_calls == []
+    assert recorder.probed == []
+    assert 'Indexed 0 files · 2 skipped unchanged · 0 relinked · 0 conflicts' in second.last
+
+
+def test_scan_directory_changed_file_is_rehashed_others_skipped(db, root_dir, monkeypatch):
+    """Only the file whose content+mtime actually changed is re-hashed and
+    re-probed; its untouched sibling is skipped (#136). `os.utime` sets a
+    distinct mtime_ns explicitly so the test isn't timing-dependent (two
+    writes close together could otherwise land on the same mtime)."""
+    recorder = _patch_probe(monkeypatch)
+    hash_calls = _count_hash_calls(monkeypatch)
+
+    a = root_dir / 'a.jpg'
+    b = root_dir / 'b.jpg'
+    _write(a, b'a')
+    _write(b, b'b')
+
+    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), _Report())
+    hash_calls.clear()
+    recorder.probed.clear()
+
+    _write(b, b'changed-content')
+    current = b.stat()
+    os.utime(b, ns=(current.st_atime_ns, current.st_mtime_ns + 1_000_000_000))
+
+    report = _Report()
+    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), report)
+
+    assert hash_calls == [str(b)]
+    assert recorder.probed == [str(b)]
+    assert 'Indexed 1 files · 1 skipped unchanged · 0 relinked · 0 conflicts' in report.last
+
+
+def test_scan_directory_renamed_file_is_hashed_and_relinked(db, root_dir, monkeypatch):
+    """A rename changes (directory, file_name) even though the file's
+    content — and so its size+mtime — didn't change, so the skip rule's
+    path-keyed lookup never matches it: it's still hashed and relinked like
+    before #136."""
+    recorder = _patch_probe(monkeypatch)
+    hash_calls = _count_hash_calls(monkeypatch)
+
+    old_dir = root_dir / 'old'
+    old_path = old_dir / 'f.jpg'
+    _write(old_path)
+
+    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), _Report())
+    hash_calls.clear()
+    recorder.probed.clear()
+
+    new_dir = root_dir / 'new'
+    new_path = new_dir / 'f.jpg'
+    new_dir.mkdir(parents=True, exist_ok=True)
+    old_path.rename(new_path)
+    old_dir.rmdir()
+
+    report = _Report()
+    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), report)
+
+    assert hash_calls == [str(new_path)]
+    assert recorder.probed == [str(new_path)]
+    assert '1 relinked' in report.last
+
+
+def test_scan_directory_force_rehash_hashes_everything(db, root_dir, monkeypatch):
+    """`force_rehash=True` bypasses the skip rule entirely, even for a file
+    that would otherwise be skipped as unchanged (#136)."""
+    recorder = _patch_probe(monkeypatch)
+    hash_calls = _count_hash_calls(monkeypatch)
+
+    a = root_dir / 'a.jpg'
+    _write(a, b'a')
+    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), _Report())
+    hash_calls.clear()
+    recorder.probed.clear()
+
+    report = _Report()
+    tracking.index_files_in_directory(FileQuery(path=str(root_dir), force_rehash=True), report)
+
+    assert hash_calls == [str(a)]
+    assert recorder.probed == [str(a)]
+    # No "N skipped unchanged" segment at all when nothing was skipped.
+    assert 'Indexed 1 files · 0 relinked · 0 conflicts' in report.last
+    assert 'skipped' not in report.last
+
+
+def test_scan_directory_null_signature_is_rehashed_and_filled(db, root_dir, monkeypatch):
+    """A row whose signature is NULL (never probed since the migration, or a
+    crash left it that way) is never treated as unchanged — it's hashed and
+    probed, and the fresh signature is filled in by that probe (#136)."""
+    recorder = _patch_probe(monkeypatch)
+    hash_calls = _count_hash_calls(monkeypatch)
+
+    a = root_dir / 'a.jpg'
+    _write(a, b'a')
+    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), _Report())
+
+    scanner_module = __import__('scanner.scanner', fromlist=['Scanner'])
+    md5_hash = scanner_module.Scanner().scan_files([a])[0].md5_hash
+    row = _get_file_row(md5_hash)
+    assert row['size_bytes'] is not None
+    assert row['mtime_ns'] is not None
+
+    with get_engine().begin() as conn:
+        conn.execute(
+            update(files_table).where(files_table.c.md5_hash == md5_hash)
+            .values(size_bytes=None, mtime_ns=None)
+        )
+
+    hash_calls.clear()
+    recorder.probed.clear()
+
+    report = _Report()
+    tracking.index_files_in_directory(FileQuery(path=str(root_dir)), report)
+
+    assert hash_calls == [str(a)]
+    assert recorder.probed == [str(a)]
+
+    row_after = _get_file_row(md5_hash)
+    assert row_after['size_bytes'] == row['size_bytes']
+    assert row_after['mtime_ns'] == row['mtime_ns']
+
+
+def test_insert_scan_results_never_overwrites_a_stored_signature(db, root_dir, monkeypatch):
+    """`insert_scan_results`'s pre-probe upsert must never touch
+    size_bytes/mtime_ns — simulated here directly (no real probe step)
+    since that's exactly the crash-safety invariant #136 relies on: a row
+    that exists with a signature keeps it through a bare insert_scan_results
+    call, even one that reports a different size/mtime for the same hash."""
+    scanner_module = __import__('scanner.scanner', fromlist=['Scanner'])
+    a = root_dir / 'a.jpg'
+    _write(a, b'a')
+    scan_result = scanner_module.Scanner().scan_files([a])[0]
+    md5_hash = scan_result.md5_hash
+
+    db.insert_scan_results([scan_result])
+    row = _get_file_row(md5_hash)
+    assert row['size_bytes'] is None  # never written by insert_scan_results itself
+    assert row['mtime_ns'] is None
+
+    db.set_file_signatures([{
+        'md5_hash': md5_hash, 'directory': scan_result.directory, 'file_name': scan_result.file_name,
+        'size_bytes': 12345, 'mtime_ns': 67890,
+    }])
+
+    # A second insert_scan_results call for the same hash (e.g. a re-probe
+    # bumping last_indexed_at) must not clobber the signature just written.
+    db.insert_scan_results([scan_result])
+    row_after = _get_file_row(md5_hash)
+    assert row_after['size_bytes'] == 12345
+    assert row_after['mtime_ns'] == 67890

@@ -558,6 +558,7 @@ export class BrowserComponent implements OnInit {
       return [
         ...(isCurrent ? [] : [{ id: 'open', label: 'Open', icon: 'folder', shortcut: 'Enter' }]),
         { id: 'scan', label: 'Scan folder', icon: 'scan', separatorBefore: !isCurrent },
+        { id: 'scan-force', label: 'Scan folder (force rehash)', icon: 'scan' },
         { id: 'rediscover', label: 'Rediscover…', icon: 'rediscover' },
         { id: 'rename', label: 'Rename', icon: 'edit', shortcut: 'F2', separatorBefore: true },
         { id: 'move', label: 'Move to…', icon: 'move', shortcut: 'M' },
@@ -605,6 +606,11 @@ export class BrowserComponent implements OnInit {
       case 'scan':
         this.api.scanDirectory(entry.path).subscribe({
           next: () => { this.api.taskRefresh$.next(); this.toast.show(`Scan started for ${entry.name}`); },
+        });
+        break;
+      case 'scan-force':
+        this.api.scanDirectory(entry.path, { forceRehash: true }).subscribe({
+          next: () => { this.api.taskRefresh$.next(); this.toast.show(`Force-rehash scan started for ${entry.name}`); },
         });
         break;
       case 'track':

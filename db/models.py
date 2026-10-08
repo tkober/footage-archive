@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Column, DateTime, Float, ForeignKey, Index, Integer, LargeBinary,
+    BigInteger, Column, DateTime, Float, ForeignKey, Index, Integer, LargeBinary,
     MetaData, String, Table, Text, UniqueConstraint,
 )
 from sqlalchemy.sql import func
@@ -25,6 +25,12 @@ files_table = Table(
     Column('media_type', Text),
     Column('directory', Text),
     Column('last_indexed_at', DateTime, server_default=func.now()),
+    # Incremental scan skip rule (#136): the file's size + mtime as of its
+    # last successful probe, written only once that probe finishes (never by
+    # the pre-probe insert_scan_results upsert, see Database.set_file_signatures) —
+    # NULL until then, and never treated as "unchanged" while NULL.
+    Column('size_bytes', BigInteger),
+    Column('mtime_ns', BigInteger),
 )
 
 file_details_table = Table(
