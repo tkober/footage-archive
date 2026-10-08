@@ -1,0 +1,100 @@
+<app-modal [title]="'Plan scan · ' + rootName()" [wide]="true" (close)="discardAndClose()">
+  <div class="plan-dialog">
+    @if (loading() && !plan()) {
+      <div class="plan-summary skeleton-line"></div>
+      <div class="unit-list">
+        @for (i of [0, 1, 2, 3]; track i) {
+          <div class="unit-row skeleton-row">
+            <span class="skeleton skeleton-pill"></span>
+            <span class="skeleton skeleton-path"></span>
+          </div>
+        }
+      </div>
+    } @else if (error() && !plan()) {
+      <p class="plan-error">{{ error() }}</p>
+    } @else if (plan(); as plan) {
+      @if (folderCount() === 0) {
+        <p class="plan-empty">Nothing to scan — every folder below here is either empty or already queued elsewhere.</p>
+        @if (plan.skipped.length) {
+          <p class="plan-skipped">{{ plan.skipped.length }} folder{{ plan.skipped.length === 1 ? '' : 's' }} already being scanned.</p>
+        }
+        <div class="plan-footer">
+          <div class="grow"></div>
+          <button type="button" class="btn" (click)="discardAndClose()">Close</button>
+        </div>
+      } @else {
+        <div class="plan-summary">
+          {{ folderCount() }} folder{{ folderCount() === 1 ? '' : 's' }} ·
+          {{ fileCount() }} file{{ fileCount() === 1 ? '' : 's' }}
+          @if (trackedCount() > 0) {
+            · {{ trackedCount() }} already tracked
+          }
+        </div>
+        @if (plan.skipped.length) {
+          <p class="plan-skipped">{{ plan.skipped.length }} folder{{ plan.skipped.length === 1 ? '' : 's' }} already being scanned.</p>
+        }
+
+        <div class="unit-list" [class.loading]="loading()">
+          @for (unit of plan.units; track unit.id; let i = $index) {
+            <div class="unit-row" [class.deselected]="unit.status === 'DESELECTED'">
+              <span class="pill" [class.pill-off]="unit.status === 'DESELECTED'" [class.pill-neutral]="unit.status === 'PLANNED'">
+                {{ unitPillLabel(unit) }}
+              </span>
+              <span class="unit-path" [title]="unit.directory">{{ relativeUnitPath(unit) }}</span>
+              <span class="unit-count">
+                {{ unit.media_file_count ?? 0 }} file{{ (unit.media_file_count ?? 0) === 1 ? '' : 's' }}
+                @if ((unit.tracked_file_count ?? 0) > 0) {
+                  · {{ unit.tracked_file_count }} tracked
+                }
+              </span>
+              <span class="unit-actions">
+                @if (i > 0 && unit.status === 'PLANNED') {
+                  <button type="button" class="icon-btn icon-btn-sm" title="Move to top" (click)="moveToTop(unit)">
+                    <app-icon name="arrow-up" [size]="14" />
+                  </button>
+                }
+                @if (unit.status === 'PLANNED') {
+                  <button type="button" class="icon-btn icon-btn-sm" title="Deselect" (click)="deselect(unit)">
+                    <app-icon name="x" [size]="14" />
+                  </button>
+                } @else if (unit.status === 'DESELECTED') {
+                  <button type="button" class="icon-btn icon-btn-sm" title="Reselect" (click)="reselect(unit)">
+                    <app-icon name="rediscover" [size]="14" />
+                  </button>
+                }
+              </span>
+            </div>
+          }
+        </div>
+
+        <div class="plan-options">
+          <label class="opt-row">
+            <input type="checkbox" name="with-previews" [checked]="previews()" (change)="setPreviews($any($event.target).checked)" />
+            With clip previews
+          </label>
+          <label class="opt-row">
+            <input type="checkbox" name="force-rehash" [checked]="forceRehash()" (change)="setForceRehash($any($event.target).checked)" />
+            Force rehash
+          </label>
+          <label class="opt-row">
+            <input type="checkbox" name="only-untracked" [checked]="onlyUntracked()" (change)="setOnlyUntracked($any($event.target).checked)" />
+            Only folders with untracked files
+          </label>
+          <p class="opt-hint">Changing an option re-plans the scan — any folders you deselected above are reselected.</p>
+        </div>
+
+        @if (error()) {
+          <p class="plan-error">{{ error() }}</p>
+        }
+
+        <div class="plan-footer">
+          <div class="grow"></div>
+          <button type="button" class="btn" [disabled]="starting()" (click)="discardAndClose()">Discard</button>
+          <button type="button" class="btn btn-primary" [disabled]="starting() || loading()" (click)="start()">
+            {{ starting() ? 'Starting…' : 'Start ' + folderCount() + ' folder' + (folderCount() === 1 ? '' : 's') }}
+          </button>
+        </div>
+      }
+    }
+  </div>
+</app-modal>

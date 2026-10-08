@@ -1,0 +1,171 @@
+.plan-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 0 var(--space-4) var(--space-4);
+  min-width: 0;
+}
+
+.plan-summary {
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.plan-skipped,
+.opt-hint {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--faint);
+}
+
+.plan-empty {
+  margin: var(--space-4) 0;
+  color: var(--muted);
+  font-size: var(--fs-md);
+}
+
+.plan-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--fs-sm);
+}
+
+/* ── Unit list — scrolls on its own, header/options/footer stay put ── */
+.unit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 4px;
+}
+
+.unit-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 6px var(--space-2);
+  border-radius: var(--r-sm);
+}
+
+.unit-row:hover {
+  background: var(--hover);
+}
+
+.unit-row.deselected .unit-path,
+.unit-row.deselected .unit-count {
+  color: var(--faint);
+}
+
+.unit-path {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.unit-count {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  white-space: nowrap;
+  flex: none;
+}
+
+.unit-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+/* ── Status pills (shared look with the tasks widget's unit rows) ── */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 2px 6px;
+  border-radius: 10px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  background: var(--hover);
+  color: var(--muted);
+  white-space: nowrap;
+  flex: none;
+}
+
+/* Planned is the normal state, so it stays neutral; the accent is kept
+   for "running" in the tasks widget. Deselected reads as "off": dashed. */
+.pill-neutral { color: var(--muted); background: var(--hover); }
+.pill-off { color: var(--faint); background: transparent; border: 1px dashed var(--line-strong); }
+
+/* ── Options ── */
+.plan-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--line);
+}
+
+.opt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  cursor: pointer;
+}
+
+/* ── Footer ── */
+.plan-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.grow {
+  flex: 1;
+}
+
+/* ── Loading skeleton ── */
+.skeleton-line {
+  height: 18px;
+  width: 60%;
+  border-radius: var(--r-sm);
+}
+
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 6px var(--space-2);
+}
+
+.skeleton-pill {
+  width: 56px;
+  height: 18px;
+  border-radius: 10px;
+}
+
+.skeleton-path {
+  flex: 1;
+  height: 14px;
+}
+
+@media (max-width: 480px) {
+  .unit-row {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas: "pill path actions" ". count actions";
+  }
+  .unit-row .pill { grid-area: pill; }
+  .unit-row .unit-path { grid-area: path; }
+  .unit-row .unit-count { grid-area: count; }
+  .unit-row .unit-actions { grid-area: actions; }
+}

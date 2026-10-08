@@ -11,6 +11,7 @@ import { KeywordPickerComponent } from '../shared/keyword-picker/keyword-picker.
 import { FolderPickerComponent } from '../shared/folder-picker/folder-picker.component';
 import { ConfirmDialogComponent } from '../shared/confirm-dialog/confirm-dialog.component';
 import { RediscoverDialogComponent } from '../shared/rediscover-dialog/rediscover-dialog.component';
+import { ScanPlanDialogComponent } from '../shared/scan-plan-dialog/scan-plan-dialog.component';
 import { ComparisonComponent } from '../comparison/comparison.component';
 import { IconComponent } from '../shared/icon/icon.component';
 import { MediaCardComponent } from '../shared/media-card/media-card.component';
@@ -64,7 +65,7 @@ interface PendingDelete {
 @Component({
   selector: 'app-browser',
   standalone: true,
-  imports: [MenuComponent, PopoverComponent, FileDetailPanelComponent, ListPickerComponent, KeywordPickerComponent, FolderPickerComponent, ConfirmDialogComponent, RediscoverDialogComponent, ComparisonComponent, IconComponent, MediaCardComponent, LoadMoreFooterComponent, InfiniteScrollDirective],
+  imports: [MenuComponent, PopoverComponent, FileDetailPanelComponent, ListPickerComponent, KeywordPickerComponent, FolderPickerComponent, ConfirmDialogComponent, RediscoverDialogComponent, ScanPlanDialogComponent, ComparisonComponent, IconComponent, MediaCardComponent, LoadMoreFooterComponent, InfiniteScrollDirective],
   templateUrl: './browser.component.html',
   styleUrl: './browser.component.css',
   host: { class: 'page-flush' }
@@ -153,6 +154,11 @@ export class BrowserComponent implements OnInit {
   // Rediscover (context menu on a directory) — a single checkbox confirm,
   // the folder is already known.
   rediscoverPath = signal<string | null>(null);
+
+  // Plan scan (#140) — opened by the folder context menu's "Scan folder…"
+  // and the toolbar's "Scan folder" button instead of starting a scan
+  // directly; see shared/scan-plan-dialog/.
+  scanPlanPath = signal<string | null>(null);
 
   dirs           = computed(() => this.filter() === 'all' && this.extFilter() === null ? this.entries().filter(e => e.type === 'directory') : []);
   videoFiles     = computed(() => this.entries().filter(e => e.type === 'file' && VIDEO_TYPES.includes(e.media_type as any)));
@@ -634,9 +640,7 @@ export class BrowserComponent implements OnInit {
       const isCurrent = entry.path === this.currentPath();
       return [
         ...(isCurrent ? [] : [{ id: 'open', label: 'Open', icon: 'folder', shortcut: 'Enter' }]),
-        { id: 'scan', label: 'Scan folder', icon: 'scan', separatorBefore: !isCurrent },
-        { id: 'scan-force', label: 'Scan folder (force rehash)', icon: 'scan' },
-        { id: 'scan-untracked', label: 'Scan untracked only', icon: 'scan' },
+        { id: 'scan', label: 'Scan folder…', icon: 'scan', separatorBefore: !isCurrent },
         { id: 'refresh-status', label: 'Refresh status', icon: 'scan' },
         { id: 'rediscover', label: 'Rediscover…', icon: 'rediscover' },
         { id: 'rename', label: 'Rename', icon: 'edit', shortcut: 'F2', separatorBefore: true },
@@ -684,19 +688,7 @@ export class BrowserComponent implements OnInit {
         this.openEntry(entry);
         break;
       case 'scan':
-        this.api.scanDirectory(entry.path).subscribe({
-          next: () => { this.api.taskRefresh$.next(); this.toast.show(`Scan started for ${entry.name}`); },
-        });
-        break;
-      case 'scan-force':
-        this.api.scanDirectory(entry.path, { forceRehash: true }).subscribe({
-          next: () => { this.api.taskRefresh$.next(); this.toast.show(`Force-rehash scan started for ${entry.name}`); },
-        });
-        break;
-      case 'scan-untracked':
-        this.api.scanDirectory(entry.path, { onlyUntracked: true }).subscribe({
-          next: () => { this.api.taskRefresh$.next(); this.toast.show(`Scanning untracked files in ${entry.name}`); },
-        });
+        this.scanPlanPath.set(entry.path);
         break;
       case 'refresh-status':
         this.api.census(entry.path).subscribe({
@@ -763,7 +755,8 @@ export class BrowserComponent implements OnInit {
     const event = ev as KeyboardEvent;
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
     if (this.menuEntry() || this.quickPop() || this.bulkPop() || this.showDetail() || this.showComparison() || this.renamingPath()
-        || this.pendingRename() || this.movePickerPaths() || this.pendingMove() || this.pendingDelete() || this.rediscoverPath()) return;
+        || this.pendingRename() || this.movePickerPaths() || this.pendingMove() || this.pendingDelete() || this.rediscoverPath()
+        || this.scanPlanPath()) return;
     const target = event.target as HTMLElement | null;
     if (!target || target.closest('input, textarea, select, [contenteditable="true"]')) return;
     const host = target.closest('[data-path]') as HTMLElement | null;
@@ -843,10 +836,12 @@ export class BrowserComponent implements OnInit {
     (el.matches('[tabindex], button') ? el : el.querySelector<HTMLElement>('[tabindex], button'))?.focus();
   }
 
+  /** Toolbar "Scan folder" — opens the plan dialog for the current
+      directory instead of starting a scan directly (#140). */
   scanCurrentDirectory() {
     const path = this.currentPath();
     if (!path) return;
-    this.api.scanDirectory(path).subscribe({ next: () => this.api.taskRefresh$.next() });
+    this.scanPlanPath.set(path);
   }
 
   // ── Rediscover (context menu on a directory) ──
@@ -858,6 +853,18 @@ export class BrowserComponent implements OnInit {
   onRediscoverStarted() {
     this.rediscoverPath.set(null);
     this.showFileOpMessage('Rediscover started — see tasks.');
+  }
+
+  // ── Plan scan (#140) ──
+
+  closeScanPlanDialog() {
+    this.scanPlanPath.set(null);
+  }
+
+  onScanPlanStarted() {
+    this.scanPlanPath.set(null);
+    this.api.taskRefresh$.next();
+    this.toast.show('Scan started — see tasks.');
   }
 
   // ── Rename (inline edit on the grid tile) ──

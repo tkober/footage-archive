@@ -295,3 +295,118 @@
     animation: none;
   }
 }
+
+/* ── Scan jobs (#140) — job row reuses the plain-task layout (.task), plus
+   its own always-visible actions row and a collapsible unit sublist. Unlike
+   the hover-only task-remove "×", Pause/Resume/Cancel are primary controls
+   and stay visible. */
+.t1-end {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.job-acts {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-block: -4px;
+}
+
+.job-acts app-icon.flipped {
+  transform: rotate(180deg);
+}
+
+.job-acts button app-icon {
+  transition: transform var(--dur-fast) ease;
+}
+
+.unit-sublist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.unit-loading {
+  padding: 4px 0;
+  font-size: var(--fs-xs);
+  color: var(--faint);
+}
+
+.unit-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+}
+
+.unit-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.unit-path {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unit-status {
+  font-size: 10.5px;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unit-status.err {
+  color: var(--danger);
+}
+
+.unit-count {
+  font: 400 10.5px var(--mono);
+  color: var(--faint);
+  white-space: nowrap;
+  flex: none;
+}
+
+.unit-actions {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex: none;
+}
+
+.more-units {
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+/* ── Status pills — same visual language as the plan dialog's unit pills ── */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 9px;
+  font-size: 10.5px;
+  font-weight: 500;
+  background: var(--hover);
+  color: var(--muted);
+  white-space: nowrap;
+  flex: none;
+}
+
+.pill-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+.pill-danger { color: var(--danger); background: color-mix(in srgb, var(--danger) 15%, transparent); }
+.pill-accent { color: var(--accent); background: var(--accent-soft); }
+.pill-faint { color: var(--faint); background: var(--hover); }

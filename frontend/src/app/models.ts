@@ -30,6 +30,85 @@ export interface Task {
   activity?: TaskActivity | null;
 }
 
+/** Persistent scan queue (#137/#138, epic #133). `ScanJobStatus` mirrors
+    `ScanJobs.status`; `ScanUnitStatus` mirrors `ScanUnits.status` — see
+    api/dtos.py's `ScanJobDto`/`ScanUnitDto`. */
+export type ScanJobStatus = 'PLANNED' | 'QUEUED' | 'RUNNING' | 'PAUSED' | 'DONE' | 'FAILED' | 'CANCELLED';
+export type ScanUnitStatus = 'PLANNED' | 'DESELECTED' | 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELLED';
+
+export interface ScanJobOptions {
+  generate_clip_preview: boolean;
+  force_rehash: boolean;
+}
+
+/** `ScanUnits.result` once a unit is terminal (#140) — same counts as the
+    plain scan's final summary, minus `cancelled` (the unit's own `status`). */
+export interface ScanUnitResult {
+  indexed: number;
+  relinked: number;
+  conflicts: number;
+  failed: number;
+  skipped: number;
+}
+
+export interface ScanUnit {
+  id: number;
+  directory: string;
+  position: number;
+  status: ScanUnitStatus;
+  media_file_count: number | null;
+  tracked_file_count: number | null;
+  progress: string | null;
+  error: string | null;
+  result: ScanUnitResult | null;
+  started_at: string | null;
+  finished_at: string | null;
+  /** Live, like `Task.activity` — only set for a RUNNING unit this process
+      actually claimed. */
+  activity?: TaskActivity | null;
+}
+
+export interface ScanJob {
+  id: string;
+  root_path: string;
+  status: ScanJobStatus;
+  options: ScanJobOptions;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  summary: string | null;
+  units: ScanUnit[];
+}
+
+/** One directory `POST /tracking/scan-plan` found but left out of the plan
+    because it's already QUEUED/RUNNING in another job right now. */
+export interface ScanPlanSkip {
+  directory: string;
+  reason: string;
+}
+
+/** `POST /tracking/scan-plan`'s response: the PLANNED job plus any
+    directories the walk found but didn't turn into a unit. */
+export interface ScanPlan extends ScanJob {
+  skipped: ScanPlanSkip[];
+}
+
+/** `GET /scan-jobs`'s shape — aggregated progress instead of the full unit list. */
+export interface ScanJobListEntry {
+  id: string;
+  root_path: string;
+  status: ScanJobStatus;
+  options: ScanJobOptions;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  summary: string | null;
+  units_done: number;
+  units_total: number;
+  files_done: number;
+  files_total: number;
+}
+
 export type PathType = 'file' | 'directory';
 
 /** Derived preview status (#77) for a tracked, previewable file:
