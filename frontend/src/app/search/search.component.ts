@@ -14,6 +14,7 @@ import { MediaCardComponent, MediaCardKind } from '../shared/media-card/media-ca
 import { MenuComponent, MenuItem, MenuPoint } from '../shared/menu/menu.component';
 import { PopoverComponent } from '../shared/popover/popover.component';
 import { ListPickerComponent } from '../shared/list-picker/list-picker.component';
+import { KeywordPickerComponent } from '../shared/keyword-picker/keyword-picker.component';
 import { FolderPickerComponent } from '../shared/folder-picker/folder-picker.component';
 import { ConfirmDialogComponent } from '../shared/confirm-dialog/confirm-dialog.component';
 import { ComparisonComponent } from '../comparison/comparison.component';
@@ -62,7 +63,7 @@ interface PendingDelete {
   standalone: true,
   imports: [
     FormsModule, FileDetailPanelComponent, MediaCardComponent, LoadMoreFooterComponent,
-    InfiniteScrollDirective, IconComponent, MenuComponent, PopoverComponent, ListPickerComponent,
+    InfiniteScrollDirective, IconComponent, MenuComponent, PopoverComponent, ListPickerComponent, KeywordPickerComponent,
     FolderPickerComponent, ConfirmDialogComponent, ComparisonComponent,
   ],
   host: { class: 'page-flush' },
@@ -128,7 +129,6 @@ export class SearchComponent implements OnInit, OnDestroy {
   bulkMode       = signal(false);
   /** Keyed by `md5_hash` — every search result is tracked and always has one. */
   bulkSelected   = signal<Set<string>>(new Set());
-  bulkKeyword    = signal('');
   bulkLocationId = signal('');
   bulkApplying   = signal(false);
   allLocations   = signal<Location[]>([]);
@@ -157,7 +157,6 @@ export class SearchComponent implements OnInit, OnDestroy {
 
   // "Add keyword…" / "Add to list…" popover anchored at the card
   quickPop     = signal<{ kind: 'keyword' | 'list'; entry: SearchResult; anchor: HTMLElement } | null>(null);
-  quickKeyword = signal('');
 
   // Move to… (folder picker + confirm), shared by the context menu and bulk mode
   movePickerPaths = signal<string[] | null>(null);
@@ -539,6 +538,12 @@ export class SearchComponent implements OnInit, OnDestroy {
     this.applyDeleteResults([{ path, ok: true }], false);
   }
 
+  /** The comparison view's own "Move to trash" (#146): it already toasted,
+      this just drops the photos from the results and the selection. */
+  onComparisonDeleted(paths: string[]): void {
+    this.applyDeleteResults(paths.map(path => ({ path, ok: true })), false);
+  }
+
   cardKind(result: SearchResult): MediaCardKind {
     return VIDEO_TYPES.includes(result.media_type as any) ? 'video' : 'photo';
   }
@@ -596,7 +601,6 @@ export class SearchComponent implements OnInit, OnDestroy {
   exitBulkMode(): void {
     this.bulkMode.set(false);
     this.bulkSelected.set(new Set());
-    this.bulkKeyword.set('');
     this.bulkLocationId.set('');
     this.bulkPop.set(null);
     this.selectionAnchor = null;
@@ -683,12 +687,11 @@ export class SearchComponent implements OnInit, OnDestroy {
     this.showComparison.set(false);
   }
 
-  bulkAddKeyword(): void {
-    const kw = this.bulkKeyword().trim();
+  bulkAddKeyword(keyword: string): void {
+    const kw = keyword.trim();
     const targets = this.selectedResults();
     if (!kw || !targets.length) return;
     this.bulkApplying.set(true);
-    this.bulkKeyword.set('');
     this.closeBulkPop();
     forkJoin(targets.map(r => this.api.addKeyword(r.md5_hash, kw))).subscribe({
       next: () => {
@@ -1067,7 +1070,6 @@ export class SearchComponent implements OnInit, OnDestroy {
     // app-media-card's host has no box of its own; anchor to the visible tile.
     const anchor = host?.querySelector<HTMLElement>('.card') ?? host;
     if (!anchor) return;
-    this.quickKeyword.set('');
     this.quickPop.set({ kind, entry, anchor });
     setTimeout(() => document.querySelector<HTMLInputElement>('.quick-form input')?.focus());
   }
@@ -1078,9 +1080,9 @@ export class SearchComponent implements OnInit, OnDestroy {
     if (pop) this.focusSource(pop.anchor);
   }
 
-  submitQuickKeyword(): void {
+  submitQuickKeyword(keyword: string): void {
     const pop = this.quickPop();
-    const kw = this.quickKeyword().trim();
+    const kw = keyword.trim();
     if (!pop || !kw) return;
     this.api.addKeyword(pop.entry.md5_hash, kw).subscribe({
       next: () => {
