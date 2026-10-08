@@ -29,6 +29,16 @@ class RediscoverQuery(FileQuery):
     track_new: bool = False
 
 
+class ScanPlanQuery(FileQuery):
+    """POST /tracking/scan-plan|scan-directory only (#139, "Scan untracked
+    only") — not on FileQuery itself since scan-file/rediscover/
+    import-metadata never read this field. True keeps only the walked
+    directories where the walk's own media_file_count minus the one
+    tracked-count query it already runs is > 0 — see `_walk_and_plan`'s
+    docstring for why that's used instead of a stored DirectoryStats row."""
+    only_untracked: bool = False
+
+
 class RefreshQuery(BaseModel):
     """POST /tracking/refresh (#64) — rescan already-tracked files by hash:
     re-probe + regenerate preview without re-hashing. Preview generation is
@@ -100,6 +110,30 @@ class PathChild(BaseModel):
     media_file_count: Optional[int] = None
     tracked_file_count: Optional[int] = None
     untracked_file_count: Optional[int] = None
+    # Directory entries only (#139), from this folder's DirectoryStats row —
+    # None whenever there's no row (never walked by a scan/census/fileops
+    # op yet), not 0; see api/files.py::query_directory for exactly how each
+    # is derived.
+    # subtree_untracked_count = max(row.subtree_media_files - row.subtree_tracked_files, 0):
+    # untracked anywhere at or below this folder.
+    subtree_untracked_count: Optional[int] = None
+    # subtree_media_count = row.subtree_media_files: relevant files at or
+    # below this folder. Lets the browser mark a folder without files of its
+    # own (e.g. a trip/day folder that only has subfolders) as complete.
+    subtree_media_count: Optional[int] = None
+    # below_untracked_count = subtree_untracked_count minus this folder's OWN
+    # untracked (both from the row's own media_files/tracked_files, so they
+    # share one snapshot) — what the "N below" badge shows. A folder with no
+    # real subdirectories is always 0 here, even with no row at all: there's
+    # nothing below it to be unknown about.
+    below_untracked_count: Optional[int] = None
+    # 'complete' (row exists and subtree_complete), 'partial' (row exists,
+    # not complete), 'unknown' (no row) — except a folder with no real
+    # subdirectories is always 'complete' regardless of whether it has a row.
+    subtree_status: Optional[StrictStr] = None
+    # DirectoryStats.walked_at for this folder's own row — the "Status as of
+    # …" badge tooltip; None with no row.
+    status_walked_at: Optional[datetime] = None
     # Tracked video files only: VideoDetails.duration_tc (e.g. "00:12:34:10").
     duration_tc: Optional[StrictStr] = None
     # Derived preview status (#77) — None for untracked/non-media files; see
@@ -587,6 +621,14 @@ class ScanJobDto(BaseModel):
     finished_at: Optional[datetime] = None
     summary: Optional[str] = None
     units: List[ScanUnitDto] = []
+
+
+class CensusQuery(BaseModel):
+    """POST /tracking/census (#139) — "Refresh status": re-walks `path` and
+    rewrites every DirectoryStats row under it. Just the path — unlike a
+    scan, a census never hashes anything, so none of FileQuery's scanning
+    options apply."""
+    path: StrictStr
 
 
 class ScanPlanSkip(BaseModel):

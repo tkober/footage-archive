@@ -1,3 +1,4 @@
+import threading
 import uuid
 from datetime import datetime
 from enum import Enum
@@ -50,7 +51,13 @@ class TaskManager:
         if not hasattr(self, 'value'):
             self.value = value
 
-    def request_task(self, request: TaskRequest, background_tasks: BackgroundTasks) -> Task:
+    def request_task(self, request: TaskRequest, background_tasks: Optional[BackgroundTasks] = None) -> Task:
+        """`background_tasks=None` (#139) starts the task on its own daemon
+        thread instead of FastAPI's `BackgroundTasks` — for a caller with no
+        request in flight to hang one off, e.g. `tasks/scanqueue.py`'s
+        consumer thread auto-triggering a Census once a scan job finishes.
+        Every HTTP endpoint still passes its own `background_tasks` as
+        before; nothing about that path changes."""
         now = datetime.now()
         task = Task(
             id=str(uuid.uuid4()),
@@ -60,7 +67,11 @@ class TaskManager:
             **request.model_dump()
         )
         self._tasks[task.id] = task
-        background_tasks.add_task(self.__start_task, task.id)
+        if background_tasks is not None:
+            background_tasks.add_task(self.__start_task, task.id)
+        else:
+            threading.Thread(target=self.__start_task, args=(task.id,), daemon=True,
+                             name=f'task-{task.id[:8]}').start()
         return task
 
     def __start_task(self, task_id: str):

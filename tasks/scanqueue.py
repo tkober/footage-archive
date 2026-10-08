@@ -180,6 +180,41 @@ def _make_report(unit_id: int) -> tuple[Callable[[str], None], Callable[[], None
     return report, flush_last
 
 
+def _trigger_job_census(job_id: str) -> None:
+    """#139: once a scan job finalizes (DONE/FAILED/CANCELLED), its root
+    gets a Census — `finish_scan_unit`'s `finalized` return value (guarded
+    by a row lock in `_recompute_scan_job_status_on_conn`) already makes
+    sure at most one of the job's units ever sees `finalized=True`, so this
+    fires at most once per job. This consumer thread has no FastAPI
+    `BackgroundTasks` to hand the task to, hence `TaskManager.request_task`'s
+    `background_tasks=None` path (its own daemon thread) — the Census still
+    shows up in the tasks widget like any other task. `api.tracking`/
+    `tasks.directory_stats` are imported lazily, same reasoning as
+    `_get_executor`'s lazy import of `api.tracking` above: this module must
+    not pull either of them in at process startup just to start the
+    consumers. Best-effort: any failure here is logged, never allowed to
+    affect the scan job itself (already finished by this point anyway)."""
+    try:
+        from tasks import directory_stats
+        from tasks.taskmanager import TaskManager, TaskRequest
+
+        root_path = Database().get_scan_job_root_path(job_id)
+        if root_path is None or not directory_stats.try_start_census(root_path):
+            return
+
+        def run(report: Callable[[str], None]) -> None:
+            try:
+                directory_stats.run_census(root_path, report)
+            finally:
+                directory_stats.finish_census(root_path)
+
+        TaskManager().request_task(TaskRequest(
+            name='Census', description=f'Updating folder status for "{root_path}".', method=run,
+        ))
+    except Exception:
+        logger.exception('Failed to auto-trigger a census for finalized scan job %s', job_id)
+
+
 def _run_unit(claim: dict) -> None:
     unit_id = claim['unit_id']
     job_id = claim['job_id']
@@ -203,7 +238,7 @@ def _run_unit(claim: dict) -> None:
         result = asdict(summary)
         cancelled = result.pop('cancelled', False)
         status = 'CANCELLED' if cancelled else 'DONE'
-        db.finish_scan_unit(unit_id, status, result=result, error=None, summarize=summarize_job)
+        finalized = db.finish_scan_unit(unit_id, status, result=result, error=None, summarize=summarize_job)
         if status == 'DONE':
             # #138's seam for #139 (directory-status rows) — best-effort,
             # never lets a hook failure fail an otherwise-successful unit.
@@ -211,11 +246,15 @@ def _run_unit(claim: dict) -> None:
                 on_unit_done(directory)
             except Exception:
                 logger.exception('on_unit_done hook failed for unit %s (%s)', unit_id, directory)
+        if finalized:
+            _trigger_job_census(job_id)
     except Exception as e:
         flush_last()
         logger.exception('Scan unit %s (%s) failed', unit_id, directory)
         try:
-            db.finish_scan_unit(unit_id, 'FAILED', result=None, error=str(e), summarize=summarize_job)
+            finalized = db.finish_scan_unit(unit_id, 'FAILED', result=None, error=str(e), summarize=summarize_job)
+            if finalized:
+                _trigger_job_census(job_id)
         except Exception:
             logger.exception('Failed to mark scan unit %s FAILED after an error', unit_id)
     finally:

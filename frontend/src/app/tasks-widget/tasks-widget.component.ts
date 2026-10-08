@@ -9,8 +9,14 @@ import { ApiService } from '../services/api.service';
 import { IconComponent } from '../shared/icon/icon.component';
 import { PopoverComponent } from '../shared/popover/popover.component';
 
-/** Tasks whose final summary reports path conflicts (see api/tracking.py). */
-const CONFLICT_TASKS = new Set(['Rediscover', 'Scan directory', 'Track file']);
+/** Tasks whose final summary reports path conflicts (see api/tracking.py) —
+    also the set of tasks whose COMPLETED transition should make the
+    browser reload its current directory (#134/#139): a scan/rediscover can
+    change which files are tracked, and a Census (#139) rewrites the
+    DirectoryStats rows the folder-tile badges read. `conflictCount()` below
+    simply finds no "N conflicts" text in a Census's progress and reports 0,
+    so reusing this one set for both purposes is harmless. */
+const CONFLICT_TASKS = new Set(['Rediscover', 'Scan directory', 'Track file', 'Census']);
 
 /** Where a task is listed (#93): actually working, waiting for its turn
     (queued, or running but blocked on shared capacity), or done. */
