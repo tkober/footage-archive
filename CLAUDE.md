@@ -304,7 +304,10 @@ footage-archive/
         │                           #   for that one scan), Rediscover, Move to trash. Opens on right-click or the card's "⋯". Same ids = single-key shortcuts on
         │                           #   the focused tile (Space, P, T, K, L, F2, M, R, Delete/Backspace, #61/#64/#126), via `data-path` on cards/folder tiles
         ├── search/                 # Faceted search page (#44): filter rail (toggle chips, facet inputs) + result header with
-        │                           #   active-filter chips / Clear all + results grid + sliding detail panel
+        │                           #   active-filter chips / Clear all + results grid + sliding detail panel. Selection, bulk bar and
+        │                           #   context menu (#144) are ported from the browser (keyed by `md5_hash`, `data-md5` on cards): same
+        │                           #   bulk actions (Keyword/Location/Add to list/Rescan/Move/Compare/Delete) and menu minus Rename/Track,
+        │                           #   plus "Show in folder" (→ `/browser?path=<directory>`); move/delete patch `results` in place
         ├── map/                    # Map page: Google Maps clustering, flyouts, "open in search"
         ├── lists/                  # Lists feature: overview (create/rename/delete) + list detail (item grid, code jump, remove)
         │   ├── lists.component.*        # GET/POST/PATCH/DELETE /lists — grid of lists with inline rename + confirm-dialog delete
