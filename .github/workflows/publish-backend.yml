@@ -17,6 +17,21 @@ on:
       - "*.sh"
       - ".github/workflows/publish-frontend.yml"
     tags: ["v*.*.*"]
+
+  # A PR build with no push: there is no Docker in this dev environment, so a
+  # broken Dockerfile would otherwise only surface once it lands on main.
+  pull_request:
+    paths-ignore:
+      - "frontend/**"
+      - "tests/**"
+      - "footage/**"
+      - "dbeaver/**"
+      - ".idea/**"
+      - ".vscode/**"
+      - "**.md"
+      - "*.sh"
+      - ".github/workflows/publish-frontend.yml"
+
   workflow_dispatch:
 
 permissions:
@@ -30,9 +45,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # QEMU lets buildx produce the arm64 variant on this amd64 runner (Apple
+      # Silicon Macs, issue tkober/compose-stacks-unraid#19).
+      - uses: docker/setup-qemu-action@v3
+
       - uses: docker/setup-buildx-action@v3
 
+      # Skipped on a PR: it carries no credentials to push with, and GHCR
+      # login is pointless (and would fail for a fork PR) when nothing below
+      # pushes anyway.
       - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -60,7 +83,10 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
+          platforms: linux/amd64,linux/arm64
+          # Build-only on a PR, so a broken Dockerfile shows up in the PR
+          # instead of only failing once it reaches main.
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
